@@ -1,39 +1,23 @@
 import type { CartLine, Product } from '../types/menu';
 import { escapeHtml, formatPrice } from '../utils/helpers';
 
-export const paymentPage = (
-  lines: CartLine[],
-  productFor: (line: CartLine) => Product | undefined,
-  subtotal: number,
-  discount: number,
-  total: number,
-  comment: string,
-) => `<section class="payment-page payment-confirmation">
-  <header class="payment-confirmation__heading">
-    <h1>Подтвердите<br><em>заказ</em></h1>
-    <p>Проверьте блюда и дополнения. Если всё указано правильно, подтвердите заказ — мы сразу передадим его на кухню.</p>
-  </header>
-  <div class="payment-confirmation__layout">
-    <section class="payment-order-list">
-      ${lines.map((line) => {
-        const product = productFor(line);
-        if (!product) return '';
-        const unitPrice = line.customPrice ?? product.price_rub;
-        const details = [line.sauce, line.addon, line.flavor].filter(Boolean).map(escapeHtml).join(' · ');
-        return `<article class="payment-order-line">
-          <img src="${escapeHtml(product.image)}" alt="">
-          <div><h3>${escapeHtml(product.name)}</h3>${details ? `<p>${details}</p>` : ''}<span>${line.quantity} шт.</span></div>
-          <strong>${formatPrice(unitPrice * line.quantity)}</strong>
-        </article>`;
-      }).join('')}
-    </section>
-    <aside class="payment-card">
-      <h2>Итог заказа</h2>
-      ${comment ? `<div class="payment-comment"><span>Комментарий</span><p>${escapeHtml(comment)}</p></div>` : ''}
-      <div class="summary-row"><span>Блюда</span><b>${formatPrice(subtotal)}</b></div>
-      ${discount ? `<div class="summary-row summary-row--discount"><span>Скидка</span><b>−${formatPrice(discount)}</b></div>` : ''}
-      <div class="summary-total"><span>К оплате</span><strong>${formatPrice(total)}</strong></div>
-      <button class="button button--primary button--wide" data-action="submit-order">ВСЕ ВЕРНО</button>
-    </aside>
-  </div>
-</section>`;
+export const paymentPage = (lines: CartLine[], productFor: (line: CartLine) => Product | undefined, subtotal: number, discount: number, total: number, comment: string) => {
+  const saucesByProduct = new Map<string, CartLine[]>();
+  lines.filter((line) => line.kind === 'sauce').forEach((line) => saucesByProduct.set(line.productId, [...(saucesByProduct.get(line.productId) ?? []), line]));
+  const dishes = lines.filter((line) => line.kind !== 'sauce');
+  const reviewLines = dishes.map((line) => {
+    const product = productFor(line);
+    if (!product) return '';
+    const details = [line.sauce, line.addon, line.flavor, ...(saucesByProduct.get(line.productId) ?? []).map((sauce) => sauce.customName)].filter(Boolean).map(escapeHtml);
+    return `<article class="review-line"><div><h3>${escapeHtml(product.name)} <small>×${line.quantity}</small></h3>${details.length ? `<p>${details.join(' · ')}</p>` : ''}</div><strong>${formatPrice((line.customPrice ?? product.price_rub) * line.quantity)}</strong></article>`;
+  }).join('');
+  const standaloneSauces = lines.filter((line) => line.kind === 'sauce' && !dishes.some((dish) => dish.productId === line.productId));
+
+  return `<section class="payment-page payment-confirmation payment-review">
+    <header class="payment-review__heading"><button class="status-back" data-action="navigate" data-route="order">← Изменить заказ</button><span class="eyebrow">ФИНАЛЬНАЯ ПРОВЕРКА</span><h1>Проверьте<br><em>заказ</em></h1><p>Если всё указано верно, отправим заказ на кухню сразу.</p></header>
+    <div class="payment-review__layout">
+      <section class="payment-review__items"><div class="payment-review__items-head"><h2>Состав заказа</h2><span>${lines.reduce((sum, line) => sum + line.quantity, 0)} поз.</span></div><div class="payment-review__list">${reviewLines}${standaloneSauces.map((line) => `<article class="review-line"><div><h3>${escapeHtml(line.customName ?? 'Соус')} <small>×${line.quantity}</small></h3></div><strong>${formatPrice((line.customPrice ?? 0) * line.quantity)}</strong></article>`).join('')}</div>${comment ? `<div class="payment-review__comment"><span>Комментарий к заказу</span><p>${escapeHtml(comment)}</p></div>` : ''}</section>
+      <aside class="payment-review__total"><span class="eyebrow">ИТОГ ЗАКАЗА</span><div class="summary-row"><span>Блюда и дополнения</span><b>${formatPrice(subtotal)}</b></div>${discount ? `<div class="summary-row summary-row--discount"><span>Скидка</span><b>−${formatPrice(discount)}</b></div>` : ''}<div class="summary-total"><span>Итого</span><strong>${formatPrice(total)}</strong></div><button class="button button--primary button--wide" data-action="submit-order">ВСЁ ВЕРНО — ОТПРАВИТЬ НА КУХНЮ</button><button class="payment-review__edit" data-action="navigate" data-route="order">Изменить заказ</button></aside>
+    </div>
+  </section>`;
+};
