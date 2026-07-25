@@ -17,10 +17,15 @@ const json = (response, status, body) => {
 };
 const readBody = async (request) => {
   const chunks = [];
-  for await (const chunk of request) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 1_000_000) throw Object.assign(new Error('Payload too large'), { status: 413 });
+    chunks.push(chunk);
+  }
   if (!chunks.length) return {};
-  if (Buffer.concat(chunks).length > 1_000_000) throw new Error('Payload too large');
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  catch { throw Object.assign(new Error('Invalid JSON'), { status: 400 }); }
 };
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const sign = (payload) => {
@@ -32,9 +37,13 @@ const verify = (value) => {
   const [encoded, signature] = String(value ?? '').split('.');
   if (!encoded || !signature) return null;
   const expected = crypto.createHmac('sha256', tokenSecret).update(encoded).digest('base64url');
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
-  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
-  return payload.exp > Date.now() ? payload : null;
+  const actualBytes = Buffer.from(signature);
+  const expectedBytes = Buffer.from(expected);
+  if (actualBytes.length !== expectedBytes.length || !crypto.timingSafeEqual(actualBytes, expectedBytes)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    return payload.exp > Date.now() ? payload : null;
+  } catch { return null; }
 };
 const requireAdmin = (request) => {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
@@ -56,6 +65,43 @@ const publicState = async (terminalId) => {
   ]);
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId]);
   return { products: products.rows, promotions: promotions.rows, terminal: terminal.rows[0], orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
+};
+
+const serviceTypes = new Set(['waiter', 'cutlery', 'bill', 'help']);
+const arrayValue = (value) => Array.isArray(value) ? value : [];
+const sauceName = (value) => /^Соус «(.+)»$/u.exec(String(value ?? ''))?.[1] ?? '';
+
+const normalizeOrder = async (input) => {
+  if (!Array.isArray(input.items) || !input.items.length || input.items.length > 50) throw Object.assign(new Error('Некорректный состав заказа'), { status: 400 });
+  const ids = [...new Set(input.items.map((line) => String(line?.productId ?? '')).filter(Boolean))];
+  if (!ids.length || ids.length > 50) throw Object.assign(new Error('Некорректный состав заказа'), { status: 400 });
+  const result = await pool.query('select id, price_rub, is_available, sauce_options, sauce_addon_price_rub, addon_options, flavor_options from products where id = any($1::text[])', [ids]);
+  const products = new Map(result.rows.map((product) => [product.id, product]));
+  if (products.size !== ids.length) throw Object.assign(new Error('Одно из блюд больше недоступно'), { status: 409 });
+  let subtotal = 0;
+  const items = input.items.map((line) => {
+    const product = products.get(String(line.productId));
+    const quantity = Number(line.quantity);
+    if (!product?.is_available) throw Object.assign(new Error('Одно из блюд больше недоступно'), { status: 409 });
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 20) throw Object.assign(new Error('Некорректное количество'), { status: 400 });
+    if (line.kind === 'sauce') {
+      const name = sauceName(line.customName);
+      if (!name || !arrayValue(product.sauce_options).includes(name)) throw Object.assign(new Error('Некорректный соус'), { status: 400 });
+      const price = Math.max(0, Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0);
+      subtotal += price * quantity;
+      return { key: `sauce|${product.id}|${name}`, productId: product.id, kind: 'sauce', customName: `Соус «${name}»`, customPrice: price, quantity };
+    }
+    if (line.kind && line.kind !== 'product') throw Object.assign(new Error('Некорректная позиция заказа'), { status: 400 });
+    const addon = line.addon ? String(line.addon) : undefined;
+    const flavor = line.flavor ? String(line.flavor) : undefined;
+    if (addon && !arrayValue(product.addon_options).includes(addon)) throw Object.assign(new Error('Некорректная добавка'), { status: 400 });
+    if (flavor && !arrayValue(product.flavor_options).includes(flavor)) throw Object.assign(new Error('Некорректный вариант блюда'), { status: 400 });
+    subtotal += Number(product.price_rub) * quantity;
+    return { key: ['product', product.id, addon, flavor].filter(Boolean).join('|'), productId: product.id, kind: 'product', ...(addon ? { addon } : {}), ...(flavor ? { flavor } : {}), quantity };
+  });
+  const promoCode = String(input.promo_code ?? '').trim().toUpperCase();
+  const discount = promoCode === 'BOWL10' ? Math.round(subtotal * 0.1) : 0;
+  return { items, total: Math.max(0, subtotal - discount), promoCode };
 };
 
 const productFields = ['name', 'category', 'price_rub', 'portion', 'unit', 'description', 'kbju', 'image', 'source_url', 'sauce_options', 'sauce_addon_price_rub', 'addon_options', 'flavor_options', 'size_option', 'pairs_with', 'recommendations_note', 'is_available', 'badge', 'image_position', 'allergens', 'spicy', 'sort_order'];
@@ -88,19 +134,29 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'POST' && path === '/api/v1/orders') {
       const body = await readBody(request);
-      if (!body.terminal_id || !Array.isArray(body.items) || !Number.isFinite(body.total)) return json(response, 400, { error: 'Некорректный заказ' });
+      if (!body.terminal_id) return json(response, 400, { error: 'Некорректный заказ' });
       const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно не принимает заказы' });
+      const order = await normalizeOrder(body);
       let saved;
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const number = `B-${crypto.randomInt(1000, 10000)}`;
         try {
-          saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code) values ($1,$2,$3,$4,$5,$6,$7) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, terminal.rows[0].table_number, JSON.stringify(body.items), Math.round(body.total), String(body.comment ?? ''), String(body.promo_code ?? '')]);
+          saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code) values ($1,$2,$3,$4,$5,$6,$7) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, terminal.rows[0].table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode]);
           break;
         } catch (error) { if (error.code !== '23505') throw error; }
       }
       if (!saved) throw new Error('Unable to allocate order number');
       return json(response, 201, saved.rows[0]);
+    }
+    if (request.method === 'POST' && path === '/api/v1/service-requests') {
+      const body = await readBody(request);
+      const type = String(body.type ?? '');
+      if (!body.terminal_id || !serviceTypes.has(type)) return json(response, 400, { error: 'Некорректный запрос' });
+      const terminal = await pool.query('select table_number from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
+      if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно недоступен' });
+      await pool.query('insert into service_requests(terminal_id, table_number, request_type) values ($1,$2,$3)', [String(body.terminal_id), terminal.rows[0].table_number, type]);
+      return json(response, 201, { ok: true });
     }
     if (!path.startsWith('/api/v1/admin/')) return json(response, 404, { error: 'Not found' });
     const actor = requireAdmin(request).admin ? 'admin' : 'unknown';

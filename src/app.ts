@@ -28,6 +28,7 @@ let inactivityCountdown = 0;
 let statusTimer = 0;
 let adminTaps = 0;
 let lastAdminTap = 0;
+let submittingOrder = false;
 let auditLog: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [];
 const updateSearch = debounce((value: string) => {
   appStore.set({ search: value }, false);
@@ -331,11 +332,14 @@ async function action(element: HTMLElement) {
   }
   if (type === 'submit-order') {
     if (!orderStore.count()) { router.go('menu'); flash('Добавьте блюда в заказ'); return; }
+    if (submittingOrder) return;
+    submittingOrder = true;
     try {
       await orderService.submit();
       appStore.set({ cart: [], comment: '', promoCode: '' });
       router.go('status');
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось отправить заказ'); }
+    finally { submittingOrder = false; }
     return;
   }
   if (type === 'complete-order') {
@@ -392,9 +396,11 @@ async function syncServer(includeAudit = false) {
     const data = await apiService.bootstrap();
     setCatalog(data.products);
     appStore.set({ promotions: data.promotions, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId: appStore.get().selectedOrderId ?? data.orders[0]?.id ?? null, orderNumber: appStore.get().orderNumber ?? data.orders[0]?.id ?? null });
+    appStore.set({ isOnline: true }, false);
     if (includeAudit) auditLog = await apiService.audit();
   } catch (error) {
     console.warn('Server bootstrap unavailable', error);
+    appStore.set({ isOnline: false }, false);
   }
 }
 

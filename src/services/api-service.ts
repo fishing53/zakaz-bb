@@ -12,14 +12,20 @@ type ServerTerminal = { id: string; label: string; table_number: string; is_acti
 type ServerOrder = { order_number: string; items: CartLine[]; total: number; status_step: number; table_number: string; created_at: string };
 
 const request = async <T>(path: string, init: RequestInit = {}) => {
-  const response = await fetch(`/api/v1${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
-  });
-  if (response.status === 204) return undefined as T;
-  const body = await response.json() as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? 'Ошибка сервера');
-  return body;
+  try {
+    const response = await fetch(`/api/v1${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
+    });
+    if (response.status === 204) return undefined as T;
+    const text = await response.text();
+    const body = text ? JSON.parse(text) as T & { error?: string } : {} as T & { error?: string };
+    if (!response.ok) throw new Error(body.error ?? 'Ошибка сервера');
+    return body;
+  } catch (error) {
+    if (error instanceof Error && error.message !== 'Unexpected end of JSON input') throw error;
+    throw new Error('Нет соединения с сервером');
+  }
 };
 
 const product = (item: ServerProduct): Product => ({
@@ -51,6 +57,9 @@ export const apiService = {
   async submitOrder(value: { items: CartLine[]; total: number; comment: string; promoCode: string }) {
     const data = await request<ServerOrder>('/orders', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, items: value.items, total: value.total, comment: value.comment, promo_code: value.promoCode }) });
     return order(data);
+  },
+  async requestService(type: string) {
+    await request<{ ok: true }>('/service-requests', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, type }) });
   },
   async saveProduct(id: string, value: Partial<Product> & Partial<ProductDisplaySettings>) {
     const body = { ...value, is_available: value.unavailable === undefined ? undefined : !value.unavailable, image_position: value.imagePosition, ...('imagePosition' in value ? { imagePosition: undefined } : {}) };
