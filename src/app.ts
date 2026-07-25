@@ -25,7 +25,6 @@ import brand from './config/brand.json';
 const root = document.querySelector<HTMLDivElement>('#app')!;
 let inactivityTimer = 0;
 let inactivityCountdown = 0;
-let statusTimer = 0;
 let adminTaps = 0;
 let lastAdminTap = 0;
 let submittingOrder = false;
@@ -47,7 +46,7 @@ function page() {
     case 'payment': return paymentPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment);
     case 'status': {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
-      return statusPage(order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep);
+      return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
     case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), state.promotions, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog) : welcomePage(menuService.featured(), state.promotions, menuService.all(), state.productDisplay, state.terminal);
   }
@@ -74,15 +73,6 @@ export function render() {
   const related = root.querySelector<HTMLElement>('[data-related-for]');
   if (product && related) related.innerHTML = relatedCards(menuService.related(product), state.productDisplay);
   applyLanguage(root, state.language);
-  clearTimeout(statusTimer);
-  // Do not rebuild the welcome screen in the background: it restarts its visual
-  // transitions and looks like a page refresh. Order progress is only animated
-  // where a guest can actually see it.
-  if ((route === 'orders' || route === 'status') && state.orders.some((order) => order.statusStep < 4)) {
-    statusTimer = window.setTimeout(() => appStore.set({
-      orders: appStore.get().orders.map((order) => order.statusStep < 4 ? { ...order, statusStep: order.statusStep + 1 } : order),
-    }), 6200);
-  }
   resetInactivity();
 }
 
