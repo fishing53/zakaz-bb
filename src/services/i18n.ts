@@ -38,7 +38,6 @@ const en: Record<string, string> = {
   'Мы получили ваш заказ': 'We received your order', 'Кухня увидела ваш заказ': 'The kitchen received your order',
   'Повара уже начали работу': 'The chefs have started', 'Осталось совсем немного': 'Just a little longer',
   'Покажите номер у стойки': 'Show your number at the counter', 'Готовность заказа': 'Order progress',
-  'Тестовая симуляция обновляет статус каждые несколько секунд.': 'The demo updates the status every few seconds.',
   'АКТИВНЫЙ ЗАКАЗ': 'ACTIVE ORDER', 'Завершить заказ': 'Finish order',
   'Сделать заказ': 'Place an order', 'Корзина': 'Cart', 'Мои заказы': 'My orders',
   'МОИ ЗАКАЗЫ': 'MY ORDERS', 'Текущие': 'Current', 'заказы': 'orders',

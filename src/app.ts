@@ -83,6 +83,7 @@ export function render() {
       orders: appStore.get().orders.map((order) => order.statusStep < 4 ? { ...order, statusStep: order.statusStep + 1 } : order),
     }), 6200);
   }
+  resetInactivity();
 }
 
 function updateModalTotal() {
@@ -391,6 +392,7 @@ async function action(element: HTMLElement) {
 }
 
 function finishInactiveSession() {
+  clearTimeout(inactivityTimer);
   clearInterval(inactivityCountdown);
   if (appStore.get().orders.length) {
     appStore.set({
@@ -437,11 +439,29 @@ async function syncServer(includeAudit = false) {
 }
 
 function resetInactivity() {
-  if (appStore.get().inactivityWarning) return;
   clearTimeout(inactivityTimer);
   clearInterval(inactivityCountdown);
+  const state = appStore.get();
+  if (state.inactivityWarning) return;
+
+  const route = router.current();
+  // The timeout protects an unfinished guest session only. A placed order is
+  // already owned by the table, while the welcome and order-status screens are
+  // safe to leave open indefinitely.
+  if (route === 'welcome' || route === 'status' || route === 'orders' || route === 'admin') return;
+  const hasDraft = orderStore.count() > 0 || Boolean(state.productId || state.upsellId);
+  const shouldWarn = hasDraft;
   inactivityTimer = window.setTimeout(() => {
-    if (router.current() === 'welcome' && !orderStore.count()) return;
+    const currentRoute = router.current();
+    const currentState = appStore.get();
+    const currentDraft = orderStore.count() > 0 || Boolean(currentState.productId || currentState.upsellId);
+    if (currentRoute === 'welcome' || currentRoute === 'status' || currentRoute === 'orders' || currentRoute === 'admin') return;
+    // Browsing an empty menu (or an empty checkout) does not warrant a warning:
+    // simply return the tablet to the welcome screen for the next guest.
+    if (!currentDraft || !shouldWarn) {
+      router.go('welcome');
+      return;
+    }
     appStore.set({ inactivityWarning: true, inactivitySeconds: 15, productId: null, serviceOpen: false });
     let seconds = 15;
     inactivityCountdown = window.setInterval(() => {
