@@ -610,4 +610,4 @@ body { position: fixed; inset: 0; }
 @media (max-width: 680px) { .app-shell--review { padding: 16px; }.app-shell--review .payment-confirmation.payment-review { height: calc(100dvh - 32px); } }
 
 /* With navigation hidden, use the released left safe area and keep the total card compact. */
-.app-shell--review { padding-inline: clamp(28px,4vw,64px); }.app-shell--review .page { width: 100%; max-width: none; }.app-shell--review .payment-confirmation.payment-review { width: 100%; max-width: none; }.payment-review__total { align-self: start; height: auto; min-height: 0; }.payment-review__total .button { margin-top: 18px; }.payment-review__items { align-self: stretch; }
+.app-shell--review { padding-inline: clamp(28px,4vw,64px); }.app-shell--review .page { width: 100%; max-width: none; }.app-shell--review .payment-confirmation.payment-review { width: 100%; max-width: none; }.payment-review__total { align-self: start; height: auto; min-height: 0; }.payment-review__total .button { margin-top: 18px; }.payment-review__items { align-self: start; height: auto; max-height: min(54dvh,480px); }.payment-review__list { overflow-y: auto; }
