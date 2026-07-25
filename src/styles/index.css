@@ -587,6 +587,6 @@ body { position: fixed; inset: 0; }
 /* Do not distribute short lists across the full scroll area. */
 .order-lines, .orders-list { align-content: start; grid-auto-rows: max-content; }
 
-/* Welcome: no persistent logo; the promotion and call-to-action share a calm centre line. */
+/* Welcome: no persistent logo; centre only the call-to-action beside the original banner. */
 .welcome-admin-trigger { width: 116px; height: 52px; position: fixed; z-index: 8; top: 0; left: 50%; opacity: 0; transform: translateX(-50%); }
-@media (min-width: 901px) and (orientation: landscape) { .welcome--showcase { align-items: center; }.welcome-showcase__promos { height: min(66dvh,590px); margin-top: 0; align-self: center; }.welcome-showcase__action { min-height: min(66dvh,590px); align-items: center; }.welcome-showcase__copy { margin: 0; align-self: center; }.welcome-showcase__mascot { bottom: 0; } }
+@media (min-width: 901px) and (orientation: landscape) { .welcome-showcase__action { align-items: center; }.welcome-showcase__copy { margin: 0; align-self: center; } }
