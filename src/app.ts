@@ -369,11 +369,21 @@ async function action(element: HTMLElement) {
     if (!orderStore.count()) { router.go('menu'); flash('Добавьте блюда в заказ'); return; }
     if (submittingOrder) return;
     submittingOrder = true;
+    const button = element as HTMLButtonElement;
+    const originalLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'ОТПРАВЛЯЕМ ЗАКАЗ…';
     try {
       await orderService.submit();
-      appStore.set({ cart: [], comment: '', promoCode: '' });
+      // No intermediate render: clearing the cart while still on the review
+      // route used to trigger its empty-cart guard before status could open.
+      appStore.set({ cart: [], comment: '', promoCode: '' }, false);
       router.go('status');
-    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось отправить заказ'); }
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+      flash(error instanceof Error ? error.message : 'Не удалось отправить заказ');
+    }
     finally { submittingOrder = false; }
     return;
   }
