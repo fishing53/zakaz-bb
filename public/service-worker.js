@@ -1,4 +1,4 @@
-const CACHE = 'brooklyn-kiosk-v40';
+const CACHE = 'brooklyn-kiosk-v41';
 const MENU_IMAGES = Array.from({ length: 114 }, (_, index) => `./images/menu/${index}.webp`);
 const APP_SHELL = ['./', './index.html', './manifest.webmanifest', ...MENU_IMAGES];
 
