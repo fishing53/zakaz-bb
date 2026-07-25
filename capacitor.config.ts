@@ -7,7 +7,7 @@ const config: CapacitorConfig = {
   plugins: {
     CapacitorUpdater: {
       autoUpdate: 'onLaunch',
-      updateUrl: 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/ota/manifest.json',
+      updateUrl: 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1/ota/update',
       appReadyTimeout: 15_000,
       responseTimeout: 10,
       autoDeleteFailed: true,

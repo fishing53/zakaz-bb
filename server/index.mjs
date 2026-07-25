@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import http from 'node:http';
 import { URL } from 'node:url';
 import pg from 'pg';
@@ -8,6 +9,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const port = Number(process.env.PORT ?? 3107);
 const tokenSecret = process.env.TOKEN_SECRET;
 const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
+const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/manifest.json';
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
 if (!process.env.DATABASE_URL || !tokenSecret || !adminPasswordHash) throw new Error('DATABASE_URL, TOKEN_SECRET and ADMIN_PASSWORD_HASH are required');
@@ -132,6 +134,17 @@ const server = http.createServer(async (request, response) => {
       return response.end();
     }
     if (request.method === 'GET' && path === '/api/v1/health') return json(response, 200, { ok: true });
+    // The native updater sends a POST request with device metadata. The public
+    // manifest contains no secrets, so its contents are safe to return here.
+    if (request.method === 'POST' && path === '/api/v1/ota/update') {
+      try {
+        const manifest = JSON.parse(await fs.readFile(otaManifestPath, 'utf8'));
+        if (typeof manifest.version !== 'string' || typeof manifest.url !== 'string') throw new Error('Invalid manifest');
+        return json(response, 200, manifest);
+      } catch {
+        return json(response, 200, { version: 'builtin' });
+      }
+    }
     if (request.method === 'GET' && path === '/api/v1/bootstrap') {
       const terminalId = url.searchParams.get('terminalId');
       if (!terminalId || !/^[a-zA-Z0-9_-]{8,80}$/.test(terminalId)) return json(response, 400, { error: 'Invalid terminalId' });
