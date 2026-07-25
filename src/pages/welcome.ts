@@ -20,7 +20,7 @@ export function welcomePage(featured: Product[], promotions: Promotion[], allPro
     <div class="welcome-showcase__promos" aria-label="Предложения ресторана">
       ${slides}
       <article class="welcome-promo welcome-promo--partner"><span class="welcome-promo__partner-mark">МЕСТО ДЛЯ<br>ПАРТНЁРА</span><span class="welcome-promo__partner-copy">Ваше рекламное<br>изображение здесь</span></article>
-      <div class="welcome-promo__dots" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="welcome-promo__dots" aria-label="Переключить баннер">${[0, 1, 2].map((index) => `<button data-action="promo-slide" data-promo-index="${index}" aria-label="Баннер ${index + 1}"></button>`).join('')}</div>
     </div>
     <div class="welcome-showcase__action">
       <div class="welcome-showcase__halo"></div><img class="welcome-showcase__mascot" src="/images/home-mascot.png" alt="" aria-hidden="true">

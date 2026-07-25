@@ -29,6 +29,8 @@ let inactivityCountdown = 0;
 let adminTaps = 0;
 let lastAdminTap = 0;
 let submittingOrder = false;
+let promoSwipeStart: { x: number; y: number } | null = null;
+let suppressPromoOpenUntil = 0;
 let auditLog: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [];
 const updateSearch = debounce((value: string) => {
   appStore.set({ search: value }, false);
@@ -135,6 +137,15 @@ function flash(message: string) {
   window.setTimeout(() => { if (appStore.get().toast === message) appStore.set({ toast: null }); }, 2600);
 }
 
+function selectPromo(index: number) {
+  const promos = [...root.querySelectorAll<HTMLElement>('.welcome-promo')];
+  if (!promos.length) return;
+  const next = ((index % promos.length) + promos.length) % promos.length;
+  promos.forEach((promo, itemIndex) => promo.classList.toggle('is-manual-active', itemIndex === next));
+  root.querySelectorAll<HTMLElement>('.welcome-promo__dots button').forEach((dot, itemIndex) => dot.classList.toggle('is-active', itemIndex === next));
+  root.querySelector<HTMLElement>('.welcome-showcase__promos')?.classList.add('is-manual');
+}
+
 function transientToast(message: string) {
   const toast = document.createElement('div');
   toast.className = 'toast';
@@ -181,7 +192,9 @@ async function action(element: HTMLElement) {
     location.reload();
     return;
   }
+  if (type === 'promo-slide') { selectPromo(Number(element.dataset.promoIndex ?? 0)); return; }
   if (type === 'open-product') {
+    if (Date.now() < suppressPromoOpenUntil) return;
     const id = element.dataset.productId ?? null;
     const recentProductIds = id ? [id, ...appStore.get().recentProductIds.filter((item) => item !== id)].slice(0, 8) : appStore.get().recentProductIds;
     const fromWelcome = router.current() === 'welcome';
@@ -487,6 +500,26 @@ export function startApp() {
     if (productSelect.matches('[data-admin-product-select]')) appStore.set({ adminProductId: productSelect.value });
     resetInactivity();
   });
+  root.addEventListener('touchstart', (event) => {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.welcome-showcase__promos')) return;
+    const touch = event.touches[0];
+    if (touch) promoSwipeStart = { x: touch.clientX, y: touch.clientY };
+  }, { passive: true });
+  root.addEventListener('touchend', (event) => {
+    if (!promoSwipeStart) return;
+    const target = event.target as HTMLElement;
+    const touch = event.changedTouches[0];
+    const start = promoSwipeStart;
+    promoSwipeStart = null;
+    if (!touch || !target.closest('.welcome-showcase__promos')) return;
+    const distanceX = touch.clientX - start.x;
+    const distanceY = touch.clientY - start.y;
+    if (Math.abs(distanceX) < 42 || Math.abs(distanceX) < Math.abs(distanceY)) return;
+    const current = [...root.querySelectorAll('.welcome-promo')].findIndex((promo) => promo.classList.contains('is-manual-active'));
+    selectPromo((current < 0 ? 0 : current) + (distanceX < 0 ? 1 : -1));
+    suppressPromoOpenUntil = Date.now() + 450;
+  }, { passive: true });
   ['pointerdown', 'touchstart', 'keydown'].forEach((event) => addEventListener(event, resetInactivity, { passive: true }));
   addEventListener('online', () => { appStore.set({ isOnline: true }); flash('Соединение восстановлено'); });
   addEventListener('offline', () => { appStore.set({ isOnline: false }); });
