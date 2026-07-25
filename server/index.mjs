@@ -8,6 +8,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const port = Number(process.env.PORT ?? 3107);
 const tokenSecret = process.env.TOKEN_SECRET;
 const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
+const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
 if (!process.env.DATABASE_URL || !tokenSecret || !adminPasswordHash) throw new Error('DATABASE_URL, TOKEN_SECRET and ADMIN_PASSWORD_HASH are required');
 
@@ -121,6 +122,15 @@ const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
     const path = url.pathname;
+    const origin = request.headers.origin;
+    if (origin && allowedOrigins.has(origin)) {
+      response.setHeader('Access-Control-Allow-Origin', origin);
+      response.setHeader('Vary', 'Origin');
+    }
+    if (request.method === 'OPTIONS' && path.startsWith('/api/v1/')) {
+      response.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Max-Age': '86400' });
+      return response.end();
+    }
     if (request.method === 'GET' && path === '/api/v1/health') return json(response, 200, { ok: true });
     if (request.method === 'GET' && path === '/api/v1/bootstrap') {
       const terminalId = url.searchParams.get('terminalId');

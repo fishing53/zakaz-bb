@@ -45,9 +45,9 @@ export const orderStore = {
     related.forEach((item) => append(cart, { productId: item.id, kind: 'product' }));
     appStore.set({ cart, productId: null, upsellId: null });
   },
-  change(key: string, delta: number) {
+  change(key: string, delta: number, notify = true) {
     const cart = appStore.get().cart.map((line) => line.key === key ? { ...line, quantity: line.quantity + delta } : line).filter((line) => line.quantity > 0);
-    appStore.set({ cart });
+    appStore.set({ cart }, notify);
   },
   remove(key: string) { appStore.set({ cart: appStore.get().cart.filter((line) => line.key !== key) }); },
 };

@@ -34,7 +34,7 @@ const updateSearch = debounce((value: string) => {
   appStore.set({ search: value }, false);
   refreshMenuResults();
 }, 180);
-const updateComment = debounce((value: string) => appStore.set({ comment: value }), 180);
+const updateComment = debounce((value: string) => appStore.set({ comment: value }, false), 180);
 
 function page() {
   const state = appStore.get();
@@ -116,6 +116,26 @@ function updateModalTotal() {
   root.querySelector<HTMLElement>('[data-summary-options-row]')?.toggleAttribute('hidden', selectedOptions.length === 0);
   root.querySelector<HTMLElement>('[data-summary-sauces-row]')?.toggleAttribute('hidden', sauceCount === 0);
   root.querySelector<HTMLElement>('[data-summary-related-row]')?.toggleAttribute('hidden', relatedItems.length === 0);
+}
+
+function updateOrderTotals(lineElement: HTMLElement) {
+  const line = orderStore.lines().find((item) => item.key === lineElement.dataset.key);
+  const product = line ? orderStore.product(line) : undefined;
+  if (line && product) {
+    const quantity = lineElement.querySelector<HTMLElement>('[data-line-quantity]');
+    const lineTotal = lineElement.querySelector<HTMLElement>('[data-line-total]');
+    if (quantity) quantity.textContent = String(line.quantity);
+    if (lineTotal) lineTotal.textContent = formatPrice((line.customPrice ?? product.price_rub) * line.quantity);
+  }
+  const subtotal = orderStore.subtotal();
+  const discount = orderStore.discount();
+  const total = orderStore.total();
+  const setText = (selector: string, value: string) => root.querySelectorAll<HTMLElement>(selector).forEach((item) => { item.textContent = value; });
+  setText('[data-order-subtotal]', formatPrice(subtotal));
+  setText('[data-order-discount]', discount ? `−${formatPrice(discount)}` : '0 ₽');
+  setText('[data-order-total]', formatPrice(total));
+  const count = orderStore.count();
+  root.querySelectorAll<HTMLElement>('[data-order-count]').forEach((item) => { item.textContent = String(count); });
 }
 
 function flash(message: string) {
@@ -319,7 +339,15 @@ async function action(element: HTMLElement) {
     if (unavailable) unavailable.checked = settings?.unavailable ?? false;
     return;
   }
-  if (type === 'change-quantity') { orderStore.change(element.dataset.key!, Number(element.dataset.delta)); return; }
+  if (type === 'change-quantity') {
+    const line = element.closest<HTMLElement>('.order-line');
+    const current = orderStore.lines().find((item) => item.key === element.dataset.key);
+    const next = (current?.quantity ?? 0) + Number(element.dataset.delta);
+    if (!line || next <= 0) { orderStore.change(element.dataset.key!, Number(element.dataset.delta)); return; }
+    orderStore.change(element.dataset.key!, Number(element.dataset.delta), false);
+    updateOrderTotals(line);
+    return;
+  }
   if (type === 'remove-line') { orderStore.remove(element.dataset.key!); return; }
   if (type === 'open-service') { appStore.set({ serviceOpen: true }); return; }
   if (type === 'close-service') { appStore.set({ serviceOpen: false }); return; }

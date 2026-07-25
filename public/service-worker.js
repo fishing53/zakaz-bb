@@ -1,6 +1,7 @@
-const CACHE = 'brooklyn-kiosk-v41';
+const CACHE = 'brooklyn-kiosk-v42';
 const MENU_IMAGES = Array.from({ length: 114 }, (_, index) => `./images/menu/${index}.webp`);
-const APP_SHELL = ['./', './index.html', './manifest.webmanifest', ...MENU_IMAGES];
+const UI_IMAGES = ['./images/home-mascot.png', './images/waiter-character.png', './images/inactivity-character.png', './images/stop-list-stamp.png'];
+const APP_SHELL = ['./', './index.html', './manifest.webmanifest', ...UI_IMAGES, ...MENU_IMAGES];
 
 self.addEventListener('install', (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL))));
 self.addEventListener('activate', (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim())));

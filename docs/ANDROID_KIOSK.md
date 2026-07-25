@@ -2,7 +2,7 @@
 
 The APK is built automatically by GitHub Actions and is available in the workflow artifacts.
 
-The app opens the production kiosk directly in an immersive full-screen WebView. Android only permits an app to prevent leaving it when the tablet is provisioned as a dedicated device (Device Owner). The included app activates Lock Task automatically when it has this permission; otherwise it remains full-screen but Android navigation is still available.
+The app bundles the complete web interface and all project-local menu images into the APK. It opens in an immersive full-screen WebView and uses the production server only for API data: menu updates, terminal settings, orders, and waiter calls. Android only permits an app to prevent leaving it when the tablet is provisioned as a dedicated device (Device Owner). The included app activates Lock Task automatically when it has this permission; otherwise it remains full-screen but Android navigation is still available.
 
 ## Dedicated-device setup
 

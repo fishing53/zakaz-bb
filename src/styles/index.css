@@ -467,6 +467,45 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, #app::-webkit-scrollbar, .app-
   }
 }
 
+/* Kiosk viewport contract: the screen itself never scrolls. Only explicitly
+   data-dense work areas receive an internal scroll region. */
+html, body, #app { width: 100%; height: 100%; min-height: 0; overflow: hidden; overscroll-behavior: none; }
+body { position: fixed; inset: 0; }
+.app-shell, .page { height: 100dvh; min-height: 0; max-height: 100dvh; overflow: hidden; }
+.app-shell:not(.app-shell--welcome) .page { height: 100%; }
+.menu-page, .order-page, .payment-confirmation { min-height: 0; }
+
+.orders-page { height: calc(100dvh - 148px); min-height: 0; padding: 10px 0 0; display: grid; grid-template-rows: auto minmax(0,1fr); overflow: hidden; }
+.orders-page .page-heading { margin: 0 0 20px; }.orders-page .page-heading h1 { margin-block: 6px 8px; font-size: clamp(3.2rem,5.2vw,5.8rem); }.orders-page .page-heading p { line-height: 1.4; }
+.orders-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 8px 18px 0; }
+
+.status-page { height: calc(100dvh - 148px); min-height: 0; padding: 8px 0 0; display: grid; grid-template-rows: auto auto auto auto auto minmax(0,1fr) auto; align-content: start; overflow: hidden; }
+.status-page .status-back { justify-self: start; margin-bottom: 8px; }.status-orbit { width: 105px; height: 105px; margin-bottom: 12px; }.status-orbit > div { width: 56px; height: 56px; border-radius: 18px; }.status-orbit .icon { width: 28px; height: 28px; }.status-page h1 { margin: 6px 0 8px; font-size: clamp(2.8rem,4.6vw,4.8rem); }.status-page > p { margin: 0 0 12px; }.status-progress { width: 100%; margin-bottom: 12px; }.status-timeline { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }.status-page .button { margin-top: 12px; }
+
+.admin-page { height: calc(100dvh - 148px); min-height: 0; padding: 10px 0 0; display: grid; grid-template-rows: auto auto minmax(0,1fr); overflow: hidden; }.admin-header { margin-bottom: 14px; }.admin-header h1 { font-size: clamp(3rem,5vw,5.4rem); }.admin-tabs { margin-bottom: 14px; }.admin-panel { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 28px; }.admin-panel__intro { margin-bottom: 18px; }
+
+@media (min-width: 901px) and (orientation: landscape) {
+  .welcome-showcase__header { top: clamp(82px,12vh,122px); }
+  .welcome-showcase__copy { margin-top: clamp(180px,25vh,250px); }
+}
+
+@media (max-width: 900px) {
+  .app-shell:not(.app-shell--welcome) { padding: 18px 18px 118px; }
+  .order-page, .payment-confirmation, .orders-page, .status-page, .admin-page { height: calc(100dvh - 136px); min-height: 0; }
+  .menu-page { height: calc(100dvh - 18px); min-height: 0; }
+}
+
+@media (max-width: 680px) {
+  .app-shell:not(.app-shell--welcome) { padding: 14px 14px 108px; }
+  .order-page, .payment-confirmation { height: calc(100dvh - 122px); grid-template-rows: auto minmax(0,1fr); overflow: hidden; }
+  .order-layout, .payment-confirmation__layout { min-height: 0; grid-template-columns: 1fr; grid-template-rows: minmax(0,1fr) minmax(220px,.7fr); overflow: hidden; }
+  .order-lines, .payment-order-list { min-height: 0; max-height: none; overflow-y: auto; }
+  .order-summary, .payment-confirmation .payment-card { min-height: 0; height: 100%; overflow-y: auto; }
+  .orders-page, .status-page, .admin-page { height: calc(100dvh - 122px); }
+  .admin-header p { display: none; }
+  .welcome--showcase { min-height: 100dvh; max-height: 100dvh; overflow: hidden; }
+}
+
 /* The header is deliberately outside the grid flow on every screen size. */
 .welcome--showcase > .welcome-showcase__header { position: absolute; }
 @media (min-width: 901px) and (orientation: landscape) {

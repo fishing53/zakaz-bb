@@ -1,10 +1,12 @@
 import type { CartLine, Product, ProductDisplaySettings, Promotion, SubmittedOrder, TerminalSettings } from '../types/menu';
+import { Capacitor } from '@capacitor/core';
 
 let token = sessionStorage.getItem('zakaz-admin-token') ?? '';
 const terminalKey = 'zakaz-terminal-id';
 const rawTerminalId = localStorage.getItem(terminalKey);
 export const terminalId = rawTerminalId ?? crypto.randomUUID().replace(/-/g, '');
 if (!rawTerminalId) localStorage.setItem(terminalKey, terminalId);
+const apiBase = Capacitor.isNativePlatform() ? 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1' : '/api/v1';
 
 type ServerProduct = Product & { is_available: boolean; badge: string; image_position: string; allergens: string; spicy: 'none' | 'mild' | 'hot'; sort_order: number };
 type ServerPromotion = { id: number | string; product_id: string; title: string; subtitle: string; label: string; active: boolean; sort_order: number };
@@ -13,7 +15,7 @@ type ServerOrder = { order_number: string; items: CartLine[]; total: number; sta
 
 const request = async <T>(path: string, init: RequestInit = {}) => {
   try {
-    const response = await fetch(`/api/v1${path}`, {
+    const response = await fetch(`${apiBase}${path}`, {
       ...init,
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
     });
