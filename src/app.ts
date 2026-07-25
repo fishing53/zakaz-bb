@@ -184,7 +184,9 @@ async function action(element: HTMLElement) {
   if (type === 'open-product') {
     const id = element.dataset.productId ?? null;
     const recentProductIds = id ? [id, ...appStore.get().recentProductIds.filter((item) => item !== id)].slice(0, 8) : appStore.get().recentProductIds;
-    appStore.set({ productId: id, upsellId: null, recentProductIds });
+    const fromWelcome = router.current() === 'welcome';
+    appStore.set({ productId: id, upsellId: null, recentProductIds, ...(fromWelcome ? { category: 'Все блюда', search: '' } : {}) });
+    if (fromWelcome) router.go('menu');
     return;
   }
   if (type === 'close-product') { appStore.set({ productId: null }); return; }
