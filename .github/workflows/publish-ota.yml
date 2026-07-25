@@ -1,0 +1,44 @@
+name: Publish kiosk OTA update
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish-web-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install and build the kiosk web bundle
+        run: |
+          npm ci
+          npm run build
+      - name: Package OTA bundle
+        id: bundle
+        run: |
+          version="${GITHUB_SHA::12}"
+          (cd dist && zip -qr "../zakaz-bb-${version}.zip" .)
+          printf '{"version":"%s","url":"https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/ota/zakaz-bb-%s.zip"}\n' "$version" "$version" > ota-manifest.json
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Publish bundle to the kiosk update server
+        env:
+          DEPLOY_KEY: ${{ secrets.ZAKAZ_OTA_DEPLOY_KEY }}
+          VERSION: ${{ steps.bundle.outputs.version }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 194.226.142.35 >> ~/.ssh/known_hosts
+          ssh root@194.226.142.35 'mkdir -p /var/www/zakaz-zvyak/ota'
+          rsync -az --delete --exclude='ota/' dist/ root@194.226.142.35:/var/www/zakaz-zvyak/
+          scp "zakaz-bb-${VERSION}.zip" root@194.226.142.35:"/var/www/zakaz-zvyak/ota/zakaz-bb-${VERSION}.zip"
+          scp ota-manifest.json root@194.226.142.35:/var/www/zakaz-zvyak/ota/manifest.json
+          ssh root@194.226.142.35 'chown -R www-data:www-data /var/www/zakaz-zvyak/ota'

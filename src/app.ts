@@ -19,6 +19,7 @@ import { adminPage } from './pages/admin';
 import { debounce, formatPrice } from './utils/helpers';
 import { marketingService } from './services/marketing-service';
 import { applyLanguage } from './services/i18n';
+import { otaService } from './services/ota-service';
 import type { Product } from './types/menu';
 import brand from './config/brand.json';
 
@@ -492,5 +493,6 @@ export function startApp() {
   router.start(render);
   render();
   resetInactivity();
+  void otaService.markReady();
   void syncServer();
 }

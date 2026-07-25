@@ -1,6 +1,5 @@
 import type { Product, ProductDisplaySettings, Promotion, TerminalSettings } from '../types/menu';
 import { escapeHtml, imageStyle } from '../utils/helpers';
-import brand from '../config/brand.json';
 
 export function welcomePage(featured: Product[], promotions: Promotion[], allProducts: Product[], display: Record<string, ProductDisplaySettings>, terminal: TerminalSettings | null) {
   const activePromotions = promotions.filter((promotion) => promotion.active && !display[promotion.productId]?.unavailable);
@@ -17,7 +16,7 @@ export function welcomePage(featured: Product[], promotions: Promotion[], allPro
   </button>`).join('');
 
   return `<section class="welcome welcome--showcase">
-    <header class="welcome-showcase__header"><button class="brand brand--official" data-action="admin-tap" aria-label="Brooklyn Bowl"><img src="${brand.logo}" alt="Brooklyn Bowl"></button>${terminal?.tableNumber ? `<span class="welcome-table">ВАШ СТОЛ <b>${escapeHtml(terminal.tableNumber)}</b></span>` : ''}</header>
+    <button class="welcome-admin-trigger" data-action="admin-tap" aria-label="Служебный вход"></button>
     <div class="welcome-showcase__promos" aria-label="Предложения ресторана">
       ${slides}
       <article class="welcome-promo welcome-promo--partner"><span class="welcome-promo__partner-mark">МЕСТО ДЛЯ<br>ПАРТНЁРА</span><span class="welcome-promo__partner-copy">Ваше рекламное<br>изображение здесь</span></article>
@@ -25,7 +24,7 @@ export function welcomePage(featured: Product[], promotions: Promotion[], allPro
     </div>
     <div class="welcome-showcase__action">
       <div class="welcome-showcase__halo"></div><img class="welcome-showcase__mascot" src="/images/home-mascot.png" alt="" aria-hidden="true">
-      <div class="welcome-showcase__copy"><span class="eyebrow">ВАШ СТОЛ УЖЕ ВЫБРАН</span><h1>ВКУСНЫЙ<br><b>ВЕЧЕР</b> НАЧИНАЕТСЯ</h1><p>Выберите блюда, а мы принесём заказ прямо к вашему столу.</p><div class="welcome-showcase__actions"><button class="button welcome-order-button" data-action="navigate" data-route="menu">Заказать</button><button class="button welcome-waiter-button" data-action="open-service">Позвать официанта</button></div></div>
+      <div class="welcome-showcase__copy"><span class="eyebrow">${terminal?.tableNumber ? `ВАШ СТОЛ №${escapeHtml(terminal.tableNumber)}` : 'ВАШ СТОЛ УЖЕ ВЫБРАН'}</span><h1>ВКУСНЫЙ<br><b>ВЕЧЕР</b> НАЧИНАЕТСЯ</h1><p>Выберите блюда, а мы принесём заказ прямо к вашему столу.</p><div class="welcome-showcase__actions"><button class="button welcome-order-button" data-action="navigate" data-route="menu">Заказать</button><button class="button welcome-waiter-button" data-action="open-service">Позвать официанта</button></div></div>
     </div>
   </section>`;
 }
