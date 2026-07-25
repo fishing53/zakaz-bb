@@ -1,0 +1,16 @@
+{
+  "name": "BROOKLYN BOWL",
+  "city": "MOSCOW",
+  "hours": "12:00 - 03:00",
+  "logo": "https://static.tildacdn.com/tild6562-3630-4635-b835-613064313534/svg_1777886012025.svg",
+  "theme": {
+    "background": "#0b0b0b",
+    "panel": "#141414",
+    "card": "#1b1b1b",
+    "border": "#2a2a2a",
+    "accent": "#ff3b30",
+    "accentHover": "#ff554b",
+    "text": "#ffffff",
+    "secondary": "#9b9b9b"
+  }
+}

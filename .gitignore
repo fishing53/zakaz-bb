@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.tools/
+.tools-node-*.json
+.tools-node-*.txt
+.DS_Store
+.env
+.env.*
+!.env.example
+android/.gradle/
+android/local.properties
+android/app/build/

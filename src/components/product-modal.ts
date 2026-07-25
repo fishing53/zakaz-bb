@@ -1,0 +1,50 @@
+import type { Product, ProductDisplaySettings } from '../types/menu';
+import { escapeHtml, formatPrice, imageStyle } from '../utils/helpers';
+import { icon } from './icons';
+
+const choice = (name: string, values?: string[], multiple = false, price = 0) => values?.length
+  ? `<section class="option-group" data-multiple="${multiple}" data-option-group="${name}"><div class="option-group__heading"><h3>${name}</h3>${multiple ? '<span><b data-sauce-count>0</b> выбрано</span>' : ''}</div><div class="option-chips">${values.map((value, index) => `<button data-action="set-option" data-option="${name}" data-value="${escapeHtml(value)}" class="option-chip${name === 'Соусы' ? ' option-chip--sauce' : ''}${!multiple && index === 0 ? ' is-selected' : ''}"><span class="option-chip__check">${icon('check')}</span><span class="option-chip__label">${escapeHtml(value)}</span>${name === 'Соусы' ? `<small>${price ? `+${formatPrice(price)}` : 'Бесплатно'}</small>` : ''}</button>`).join('')}</div></section>`
+  : '';
+
+const spicyLabel = (level?: ProductDisplaySettings['spicy']) => level === 'hot'
+  ? '<span class="product-fact product-fact--hot">Острое</span>'
+  : level === 'mild' ? '<span class="product-fact product-fact--mild">Слегка острое</span>' : '';
+
+export function productModal(product: Product | undefined, display: ProductDisplaySettings = { badge: '', unavailable: false }, allDisplay: Record<string, ProductDisplaySettings> = {}) {
+  if (!product) return '';
+  const related = product.pairs_with ?? [];
+  const saucePrice = Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0;
+  const allergens = display.allergens?.trim();
+  return `<div class="overlay product-overlay" data-action="close-product">
+    <section class="product-modal">
+      <button class="modal__close" data-action="close-product" aria-label="Вернуться к меню">${icon('close')}</button>
+      <div class="product-modal__visual" ${imageStyle(product.image, display.imagePosition)}></div>
+      <div class="product-modal__body">
+        <div class="product-modal__scroll">
+          <button class="product-modal__back" data-action="close-product">${icon('arrow')}<span>К меню</span></button>
+          <h2>${escapeHtml(product.name)}</h2>
+          <div class="product-modal__price"><strong>${formatPrice(product.price_rub)}</strong><span>${escapeHtml(product.portion)} ${escapeHtml(product.unit)}</span></div>
+          <p class="product-modal__description">${escapeHtml(product.description || 'Подробное описание блюда уточнит официант.')}</p>
+          <div class="product-facts">${spicyLabel(display.spicy)}<span class="product-fact product-fact--allergens">${allergens ? `Аллергены: ${escapeHtml(allergens)}` : 'Аллергены уточняйте у официанта'}</span></div>
+          ${product.kbju ? `<details class="nutrition-details"><summary><span>Состав и КБЖУ</span><small>Показать подробности</small>${icon('plus')}</summary><div class="nutrition"><div><span>${icon('flame')}<b>${escapeHtml(product.kbju.calories)}</b>ккал</span><span>${icon('plate')}<b>${escapeHtml(product.kbju.protein)}</b>белки</span><span>${icon('heart')}<b>${escapeHtml(product.kbju.fat)}</b>жиры</span><span>${icon('plus')}<b>${escapeHtml(product.kbju.carbs)}</b>углеводы</span></div></div></details>` : ''}
+          ${choice('Соусы', product.sauce_options, true, saucePrice)}
+          ${choice('Добавки', product.addon_options)}
+          ${choice('Вкус', product.flavor_options)}
+          ${related.length ? `<section class="modal-related"><h3>Идеально с этим блюдом</h3><p>Можно выбрать несколько позиций</p><div class="related-grid" data-related-for="${escapeHtml(product.id)}"></div></section>` : ''}
+          <section class="bundle-summary">
+            <div class="bundle-summary__heading"><div><span class="eyebrow">ВАШ ВЫБОР</span><h3>Состав заказа</h3></div><div class="modal-quantity"><button data-action="change-modal-quantity" data-delta="-1" aria-label="Уменьшить">${icon('minus')}</button><strong data-modal-quantity>1</strong><button data-action="change-modal-quantity" data-delta="1" aria-label="Увеличить">${icon('plus')}</button></div></div>
+            <div class="bundle-summary__line"><span><b data-summary-main-label>${escapeHtml(product.name)}</b> × <b data-modal-quantity-label>1</b></span><strong data-summary-main>${formatPrice(product.price_rub)}</strong></div>
+            <div class="bundle-summary__line bundle-summary__line--option" data-summary-options-row hidden><span data-summary-options-label></span><strong>Включено</strong></div>
+            <div class="bundle-summary__line" data-summary-sauces-row hidden><span><b data-summary-sauces-label></b> × <b data-summary-sauces-count>0</b></span><strong data-summary-sauces>${formatPrice(0)}</strong></div>
+            <div class="bundle-summary__line" data-summary-related-row hidden><span><b data-summary-related-label></b> × <b data-summary-related-count>0</b></span><strong data-summary-related>${formatPrice(0)}</strong></div>
+          </section>
+        </div>
+        <button class="button button--primary button--wide product-modal__submit" data-action="add-product" data-product-id="${escapeHtml(product.id)}"><span>Добавить в заказ</span><strong data-modal-total>${formatPrice(product.price_rub)}</strong></button>
+      </div>
+    </section>
+  </div>`;
+}
+
+export function relatedCards(products: Product[], display: Record<string, ProductDisplaySettings>) {
+  return products.slice(0, 4).map((item) => `<button class="related-choice" data-action="toggle-related" data-product-id="${escapeHtml(item.id)}" data-product-name="${escapeHtml(item.name)}" data-price="${item.price_rub}" ${imageStyle(item.image, display[item.id]?.imagePosition)}><span class="related-choice__check">${icon('check')}</span><span>${escapeHtml(item.name)}</span><b>${formatPrice(item.price_rub)}</b></button>`).join('');
+}

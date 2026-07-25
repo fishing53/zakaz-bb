@@ -1,0 +1,17 @@
+[Unit]
+Description=Zakaz kiosk API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/zakaz-api
+EnvironmentFile=/etc/zakaz-api.env
+ExecStart=/usr/bin/node /opt/zakaz-api/index.mjs
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
