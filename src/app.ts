@@ -344,13 +344,17 @@ async function action(element: HTMLElement) {
   }
   if (type === 'complete-order') {
     const selectedOrderId = appStore.get().selectedOrderId;
-    appStore.set({
-      orders: appStore.get().orders.filter((order) => order.id !== selectedOrderId),
-      selectedOrderId: null,
-      orderNumber: null,
-      statusStep: 0,
-    });
-    router.go('orders');
+    if (!selectedOrderId) return;
+    try {
+      await apiService.completeOrder(selectedOrderId);
+      appStore.set({
+        orders: appStore.get().orders.filter((order) => order.id !== selectedOrderId),
+        selectedOrderId: null,
+        orderNumber: null,
+        statusStep: 0,
+      });
+      router.go('orders');
+    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось завершить заказ'); }
     return;
   }
   if (type === 'continue-order') { appStore.set({ inactivityWarning: false, inactivitySeconds: 15 }); resetInactivity(); return; }

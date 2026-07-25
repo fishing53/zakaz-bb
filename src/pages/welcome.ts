@@ -3,10 +3,11 @@ import { escapeHtml, imageStyle } from '../utils/helpers';
 import brand from '../config/brand.json';
 
 export function welcomePage(featured: Product[], promotions: Promotion[], allProducts: Product[], display: Record<string, ProductDisplaySettings>, terminal: TerminalSettings | null) {
-  const activePromotions = promotions.filter((promotion) => promotion.active);
+  const activePromotions = promotions.filter((promotion) => promotion.active && !display[promotion.productId]?.unavailable);
+  const availableFeatured = featured.filter((product) => !display[product.id]?.unavailable);
   const restaurantPromos = [0, 1].flatMap((index) => {
     const promotion = activePromotions[index] ?? activePromotions[0];
-    const product = allProducts.find((item) => item.id === promotion?.productId) ?? featured[index] ?? featured[0];
+    const product = allProducts.find((item) => item.id === promotion?.productId && !display[item.id]?.unavailable) ?? availableFeatured[index] ?? availableFeatured[0];
     return product ? [{ promotion, product }] : [];
   });
   if (!restaurantPromos.length) return '<div class="page-state">Меню пока загружается...</div>';

@@ -23,8 +23,8 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
     if (!response.ok) throw new Error(body.error ?? 'Ошибка сервера');
     return body;
   } catch (error) {
-    if (error instanceof Error && error.message !== 'Unexpected end of JSON input') throw error;
-    throw new Error('Нет соединения с сервером');
+    if (error instanceof TypeError || error instanceof SyntaxError) throw new Error('Нет соединения с сервером');
+    throw error;
   }
 };
 
@@ -60,6 +60,9 @@ export const apiService = {
   },
   async requestService(type: string) {
     await request<{ ok: true }>('/service-requests', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, type }) });
+  },
+  async completeOrder(orderNumber: string) {
+    await request<void>(`/orders/${encodeURIComponent(orderNumber)}/complete`, { method: 'POST', body: JSON.stringify({ terminal_id: terminalId }) });
   },
   async saveProduct(id: string, value: Partial<Product> & Partial<ProductDisplaySettings>) {
     const body = { ...value, is_available: value.unavailable === undefined ? undefined : !value.unavailable, image_position: value.imagePosition, ...('imagePosition' in value ? { imagePosition: undefined } : {}) };

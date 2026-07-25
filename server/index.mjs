@@ -63,7 +63,7 @@ const publicState = async (terminalId) => {
     pool.query('insert into terminals(id) values ($1) on conflict (id) do update set last_seen_at = now() returning *', [terminalId]),
     pool.query('select key, value from app_settings'),
   ]);
-  const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId]);
+  const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId]);
   return { products: products.rows, promotions: promotions.rows, terminal: terminal.rows[0], orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
 };
 
@@ -157,6 +157,14 @@ const server = http.createServer(async (request, response) => {
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно недоступен' });
       await pool.query('insert into service_requests(terminal_id, table_number, request_type) values ($1,$2,$3)', [String(body.terminal_id), terminal.rows[0].table_number, type]);
       return json(response, 201, { ok: true });
+    }
+    if (request.method === 'POST' && path.startsWith('/api/v1/orders/') && path.endsWith('/complete')) {
+      const orderNumber = decodeURIComponent(path.slice('/api/v1/orders/'.length, -'/complete'.length));
+      const body = await readBody(request);
+      if (!body.terminal_id || !orderNumber) return json(response, 400, { error: 'Некорректный заказ' });
+      const result = await pool.query('update customer_orders set completed_at = now(), updated_at = now() where order_number = $1 and terminal_id = $2 and completed_at is null', [orderNumber, String(body.terminal_id)]);
+      if (!result.rowCount) return json(response, 404, { error: 'Заказ не найден или уже завершён' });
+      return json(response, 204, {});
     }
     if (!path.startsWith('/api/v1/admin/')) return json(response, 404, { error: 'Not found' });
     const actor = requireAdmin(request).admin ? 'admin' : 'unknown';

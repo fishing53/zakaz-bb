@@ -28,6 +28,7 @@ await pool.query(`
     id bigserial primary key, order_number text unique not null, terminal_id text not null references terminals(id), table_number text not null default '', items jsonb not null, total integer not null check (total >= 0), comment text not null default '', promo_code text not null default '', status_step integer not null default 0 check (status_step between 0 and 4),
     created_at timestamptz not null default now(), updated_at timestamptz not null default now()
   );
+  alter table customer_orders add column if not exists completed_at timestamptz;
   create table if not exists service_requests (
     id bigserial primary key, terminal_id text not null references terminals(id), table_number text not null default '', request_type text not null check (request_type in ('waiter','cutlery','bill','help')),
     created_at timestamptz not null default now(), handled_at timestamptz
