@@ -612,5 +612,9 @@ body { position: fixed; inset: 0; }
 /* Banner carousel supports both timed rotation and deliberate touch control. */
 .welcome-showcase__promos.is-manual .welcome-promo { opacity: 0; pointer-events: none; animation: none; }.welcome-showcase__promos.is-manual .welcome-promo.is-manual-active { opacity: 1; transform: scale(1); pointer-events: auto; }.welcome-promo__dots { pointer-events: auto; }.welcome-promo__dots button { width: 8px; height: 8px; padding: 0; border-radius: 50%; background: rgba(255,255,255,.34); transition: .18s; }.welcome-promo__dots button.is-active { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 
+/* Animated blur on several fixed layers causes GPU flashing in Android WebView.
+   Keep the branded red light, but make those expensive layers stable. */
+.app-shell--welcome::before, .app-shell--welcome::after, .welcome--showcase::before, .welcome--showcase::after { animation: none; }
+
 /* With navigation hidden, use the released left safe area and keep the total card compact. */
 .app-shell--review { padding-inline: clamp(28px,4vw,64px); }.app-shell--review .page { width: 100%; max-width: none; }.app-shell--review .payment-confirmation.payment-review { width: 100%; max-width: none; }.payment-review__total { align-self: start; height: auto; min-height: 0; }.payment-review__total .button { margin-top: 18px; }.payment-review__items { align-self: start; height: auto; max-height: min(54dvh,480px); }.payment-review__list { overflow-y: auto; }
