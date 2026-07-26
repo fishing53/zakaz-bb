@@ -255,6 +255,24 @@ async function action(element: HTMLElement) {
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить терминал'); }
     return;
   }
+  if (type === 'install-ota-update') {
+    const button = element as HTMLButtonElement;
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = 'ПРОВЕРЯЕМ…';
+    try {
+      const result = await otaService.installLatest();
+      if (result.state === 'browser') flash('OTA доступна только в установленном Android-приложении');
+      else if (result.state === 'current') flash('Уже установлена последняя версия интерфейса');
+      // On a new version CapacitorUpdater.set reloads the app immediately.
+    } catch (error) {
+      flash(error instanceof Error ? `Не удалось обновить: ${error.message}` : 'Не удалось проверить обновления');
+    } finally {
+      button.disabled = false;
+      button.textContent = label;
+    }
+    return;
+  }
   if (type === 'save-product') {
     const id = element.dataset.productId!;
     const input = <T extends HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(name: string) => root.querySelector<T>(`[data-admin-product="${name}"]`);

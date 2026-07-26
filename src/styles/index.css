@@ -492,6 +492,8 @@ body { position: fixed; inset: 0; }
 .status-page .status-back { justify-self: start; margin-bottom: 8px; }.status-orbit { width: 105px; height: 105px; margin-bottom: 12px; }.status-orbit > div { width: 56px; height: 56px; border-radius: 18px; }.status-orbit .icon { width: 28px; height: 28px; }.status-page h1 { margin: 6px 0 8px; font-size: clamp(2.8rem,4.6vw,4.8rem); }.status-page > p { margin: 0 0 12px; }.status-progress { width: 100%; margin-bottom: 12px; }.status-timeline { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }.status-page .button { margin-top: 12px; }
 
 .admin-page { height: calc(100dvh - 148px); min-height: 0; padding: 10px 0 0; display: grid; grid-template-rows: auto auto minmax(0,1fr); overflow: hidden; }.admin-header { margin-bottom: 14px; }.admin-header h1 { font-size: clamp(3rem,5vw,5.4rem); }.admin-tabs { margin-bottom: 14px; }.admin-panel { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 28px; }.admin-panel__intro { margin-bottom: 18px; }
+.admin-app-update { margin-top: 22px; padding-top: 20px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid rgba(255,255,255,.12); }.admin-app-update h3 { margin: 6px 0; font: 700 1.35rem "Roboto Condensed",sans-serif; text-transform: uppercase; }.admin-app-update p { max-width: 570px; margin: 0; color: #999; font-size: .72rem; line-height: 1.5; }.admin-app-update .button { flex: 0 0 auto; min-width: 248px; }
+@media (max-width: 780px) { .admin-app-update { align-items: stretch; flex-direction: column; }.admin-app-update .button { width: 100%; } }
 
 @media (min-width: 901px) and (orientation: landscape) {
   .welcome-showcase__header { top: clamp(82px,12vh,122px); }

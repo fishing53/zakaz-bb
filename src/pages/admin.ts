@@ -19,6 +19,7 @@ export function adminPage(products: Product[], promotions: Promotion[], display:
       <label class="admin-switch"><input type="checkbox" data-admin-terminal="isActive" ${terminal?.isActive !== false ? 'checked' : ''}><span></span> Терминал принимает заказы</label>
       <button class="button button--primary" data-action="save-terminal">Сохранить терминал</button>
     </div>
+    <div class="admin-app-update"><div><span class="eyebrow">ОБНОВЛЕНИЕ ПРИЛОЖЕНИЯ</span><h3>Актуальная версия интерфейса</h3><p>Скачает и сразу применит последнюю OTA-версию. Для логотипа при запуске и системных функций всё ещё нужна новая APK.</p></div><button class="button button--secondary" data-action="install-ota-update">Проверить обновления</button></div>
   </section>`;
   const menuView = selected ? `<section class="admin-panel admin-menu-editor">
     <div class="admin-panel__intro"><span class="eyebrow">КАТАЛОГ</span><h2>Карточка блюда</h2><p>Редактируйте коммерческие данные и отображение. Изменения сразу попадают на все терминалы.</p></div>
