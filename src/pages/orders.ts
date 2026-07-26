@@ -6,8 +6,7 @@ const statusNames = ['Принят', 'На кухне', 'Готовится', '�
 
 export const ordersPage = (orders: SubmittedOrder[]) => `<section class="orders-page">
   <header class="page-heading">
-    <span class="eyebrow">МОИ ЗАКАЗЫ</span>
-    <h1>Текущие<br><em>заказы</em></h1>
+    <h1>Мои <em>заказы</em></h1>
     <p>Здесь собраны все заказы этой сессии. Корзина для нового заказа остаётся отдельной.</p>
   </header>
   <div class="orders-list">

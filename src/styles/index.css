@@ -485,7 +485,7 @@ body { position: fixed; inset: 0; }
 .menu-page, .order-page, .payment-confirmation { min-height: 0; }
 
 .orders-page { height: calc(100dvh - 148px); min-height: 0; padding: 10px 0 0; display: grid; grid-template-rows: auto minmax(0,1fr); overflow: hidden; }
-.orders-page .page-heading { margin: 0 0 20px; }.orders-page .page-heading h1 { margin-block: 6px 8px; font-size: clamp(3.2rem,5.2vw,5.8rem); }.orders-page .page-heading p { line-height: 1.4; }
+.orders-page .page-heading { margin: 0 0 20px; }.orders-page .page-heading h1 { margin: 0 0 8px; font-size: clamp(3.2rem,5.2vw,5.8rem); white-space: nowrap; }.orders-page .page-heading p { line-height: 1.4; }
 .orders-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 8px 18px 0; }
 
 .status-page { height: calc(100dvh - 148px); min-height: 0; padding: 8px 0 0; display: grid; grid-template-rows: auto auto auto auto auto minmax(0,1fr) auto; align-content: start; overflow: hidden; }
