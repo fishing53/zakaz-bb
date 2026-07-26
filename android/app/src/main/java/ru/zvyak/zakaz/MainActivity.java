@@ -4,15 +4,14 @@ import android.app.admin.DevicePolicyManager;
 import android.content.Context;
 import android.os.Bundle;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
-import android.widget.TextView;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -59,8 +58,8 @@ public class MainActivity extends BridgeActivity {
 
     /**
      * Android's system splash only permits a small launcher drawable.  This
-     * short native overlay supplies the real Brooklyn Bowl wordmark while the
-     * WebView starts, so the guest never sees the old generic Capacitor splash.
+     * short native overlay supplies the official bundled Brooklyn Bowl wordmark
+     * while the app WebView starts, so it never depends on a network request.
      */
     private void showBrandSplash() {
         ViewGroup content = findViewById(android.R.id.content);
@@ -70,26 +69,20 @@ public class MainActivity extends BridgeActivity {
         splash.setBackgroundColor(Color.rgb(8, 8, 8));
         splash.setClickable(true);
 
-        LinearLayout logo = new LinearLayout(this);
-        logo.setOrientation(LinearLayout.VERTICAL);
-        logo.setGravity(Gravity.CENTER);
+        WebView logo = new WebView(this);
+        logo.setBackgroundColor(Color.TRANSPARENT);
+        logo.setVerticalScrollBarEnabled(false);
+        logo.setHorizontalScrollBarEnabled(false);
+        logo.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        WebSettings settings = logo.getSettings();
+        settings.setJavaScriptEnabled(false);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        logo.loadUrl("file:///android_asset/brooklyn-bowl-logo.svg");
 
-        TextView brooklyn = splashWord("BROOKLYN", Color.rgb(238, 234, 228), 42);
-        brooklyn.setLetterSpacing(0.13f);
-        TextView bowl = splashWord("BOWL", Color.rgb(237, 32, 36), 42);
-        bowl.setLetterSpacing(0.20f);
-        TextView caption = splashWord("KIOSK", Color.rgb(150, 150, 150), 10);
-        caption.setLetterSpacing(0.32f);
-        caption.setPadding(0, dp(11), 0, 0);
-
-        logo.addView(brooklyn);
-        logo.addView(bowl);
-        logo.addView(caption);
-        splash.addView(logo, new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.CENTER
-        ));
+        int logoWidth = Math.min(dp(390), getResources().getDisplayMetrics().widthPixels - dp(72));
+        int logoHeight = Math.round(logoWidth * 43.14795f / 183.84082f);
+        splash.addView(logo, new FrameLayout.LayoutParams(logoWidth, logoHeight, Gravity.CENTER));
         content.addView(splash, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -102,17 +95,6 @@ public class MainActivity extends BridgeActivity {
         splash.postDelayed(() -> splash.animate().alpha(0f).setDuration(280).withEndAction(
             () -> content.removeView(splash)
         ).start(), 1150);
-    }
-
-    private TextView splashWord(String text, int color, int sizeSp) {
-        TextView word = new TextView(this);
-        word.setText(text);
-        word.setTextColor(color);
-        word.setTextSize(sizeSp);
-        word.setGravity(Gravity.CENTER);
-        word.setIncludeFontPadding(false);
-        word.setTypeface(Typeface.create("sans-serif-condensed", Typeface.BOLD));
-        return word;
     }
 
     private int dp(int value) {
