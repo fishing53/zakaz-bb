@@ -616,6 +616,10 @@ body { position: fixed; inset: 0; }
 .status-tablet__steps { margin: 0; }
 .status-tablet__actions { justify-content: stretch; }
 .status-tablet__actions .button { width: 100%; min-width: 0; min-height: 56px; }
+/* The bottom navigation has a 145px blur/safe zone. Reserve it explicitly on
+   wide tablets so the final progress labels and service button never sit
+   underneath the navigation. */
+@media (min-width: 901px) and (orientation: landscape) { .status-page.status-page--tablet { height: calc(100dvh - 184px); }.status-tablet__hero { padding: clamp(20px,2.2vw,32px); }.status-tablet__keep-open { margin-top: 13px; }.status-tablet__steps { padding-block: 10px 11px; }.status-tablet__steps ol { margin-top: 8px; }.status-tablet__steps li { gap: 5px; } }
 @media (max-width: 680px) { .status-page.status-page--tablet { height: calc(100dvh - 122px); }.status-tablet__layout { grid-template-columns: 1fr; grid-template-rows: minmax(0,1fr) minmax(185px,.65fr); }.status-tablet__hero h1 { font-size: 2.6rem; }.status-tablet__number { min-width: 105px; padding-inline: 10px; }.status-tablet__steps li { font-size: .47rem; } }
 
 /* Final order check: compact read-only review, not a second copy of the cart. */
