@@ -587,6 +587,28 @@ body { position: fixed; inset: 0; }
 /* Do not distribute short lists across the full scroll area. */
 .order-lines, .orders-list { align-content: start; grid-auto-rows: max-content; }
 
+/* Keep the order total usable on short landscape tablets. The page used to
+   impose a 560px minimum height, which could push the checkout button below
+   the bottom navigation on 600–700px tall displays. */
+.order-page { min-height: 0; }
+@media (min-width: 681px) and (max-height: 700px) {
+  .order-page { height: calc(100dvh - 174px); }
+  .order-page > .page-heading { margin: 0 0 11px; }
+  .order-page > .page-heading h1 { margin: 3px 0 5px; font-size: clamp(2.65rem,5vw,4.4rem); }
+  .order-page > .page-heading p { font-size: .72rem; }
+  .order-summary { padding: 12px 14px; }
+  .order-summary h2 { margin-bottom: 8px; font-size: 1.5rem; }
+  .order-summary label { gap: 5px; margin-bottom: 8px; font-size: .62rem; }
+  .order-summary textarea { min-height: 42px; max-height: 42px; padding: 8px; font-size: .68rem; }
+  .order-summary .promo-code { grid-template-columns: minmax(0,1fr) auto; gap: 7px; margin-bottom: 5px; }
+  .order-summary .promo-code input { min-height: 34px; padding: 7px 9px; }
+  .order-summary .promo-code button { min-height: 34px; }
+  .order-summary .promo-hint { display: none; }
+  .order-summary .summary-row, .order-summary .summary-total { padding: 7px 0; font-size: .72rem; }
+  .order-summary .summary-total strong { font-size: 1.3rem; }
+  .order-summary .button { min-height: 46px; margin-top: auto; font-size: .8rem; }
+}
+
 /* Welcome: no persistent logo; centre only the call-to-action beside the original banner. */
 .welcome-showcase__mascot[data-action="admin-tap"] { cursor: default; touch-action: manipulation; }
 @media (min-width: 901px) and (orientation: landscape) { .welcome-showcase__action { align-items: center; }.welcome-showcase__copy { margin: 0; align-self: center; transform: translateY(clamp(70px,10vh,120px)); } }
