@@ -92,7 +92,7 @@ ADMIN_PASSWORD_HASH=sha256-hash-of-admin-password
 
 ## Android и kiosk-режим
 
-Скачать актуальную сборку: **[BrooklynBowl-Kiosk.apk](https://github.com/fishing53/zakaz-bb/releases/latest/download/BrooklynBowl-Kiosk.apk)**.
+Скачать актуальную сборку: **[BrooklynBowl-Kiosk.apk](https://github.com/fishing53/zakaz-bb/releases/download/android-latest/BrooklynBowl-Kiosk.apk)**.
 
 APK собирается из GitHub Actions **Build BrooklynBowl Kiosk APK**. В него входят интерфейс и изображения меню, поэтому первый запуск не зависит от загрузки фотографий из сети. При запуске показывается нативный фирменный splash-экран Brooklyn Bowl с мягкой анимацией логотипа.
 
