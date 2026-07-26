@@ -16,14 +16,13 @@ export function welcomePage(featured: Product[], promotions: Promotion[], allPro
   </button>`).join('');
 
   return `<section class="welcome welcome--showcase">
-    <button class="welcome-admin-trigger" data-action="admin-tap" aria-label="Служебный вход"></button>
     <div class="welcome-showcase__promos" aria-label="Предложения ресторана">
       ${slides}
       <article class="welcome-promo welcome-promo--partner"><span class="welcome-promo__partner-mark">МЕСТО ДЛЯ<br>ПАРТНЁРА</span><span class="welcome-promo__partner-copy">Ваше рекламное<br>изображение здесь</span></article>
       <div class="welcome-promo__dots" aria-label="Переключить баннер">${[0, 1, 2].map((index) => `<button data-action="promo-slide" data-promo-index="${index}" aria-label="Баннер ${index + 1}"></button>`).join('')}</div>
     </div>
     <div class="welcome-showcase__action">
-      <div class="welcome-showcase__halo"></div><img class="welcome-showcase__mascot" src="/images/home-mascot.png" alt="" aria-hidden="true">
+      <div class="welcome-showcase__halo"></div><img class="welcome-showcase__mascot" src="/images/home-mascot.png" alt="Маскот Brooklyn Bowl" data-action="admin-tap" role="button" tabindex="0">
       <div class="welcome-showcase__copy"><span class="eyebrow">${terminal?.tableNumber ? `ВАШ СТОЛ №${escapeHtml(terminal.tableNumber)}` : 'ВАШ СТОЛ УЖЕ ВЫБРАН'}</span><h1>ВКУСНЫЙ<br><b>ВЕЧЕР</b> НАЧИНАЕТСЯ</h1><p>Выберите блюда, а мы принесём заказ прямо к вашему столу.</p><div class="welcome-showcase__actions"><button class="button welcome-order-button" data-action="navigate" data-route="menu">Заказать</button><button class="button welcome-waiter-button" data-action="open-service">Позвать официанта</button></div></div>
     </div>
   </section>`;

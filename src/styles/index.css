@@ -588,7 +588,7 @@ body { position: fixed; inset: 0; }
 .order-lines, .orders-list { align-content: start; grid-auto-rows: max-content; }
 
 /* Welcome: no persistent logo; centre only the call-to-action beside the original banner. */
-.welcome-admin-trigger { width: 116px; height: 52px; position: fixed; z-index: 8; top: 0; left: 50%; opacity: 0; transform: translateX(-50%); }
+.welcome-showcase__mascot[data-action="admin-tap"] { cursor: default; touch-action: manipulation; }
 @media (min-width: 901px) and (orientation: landscape) { .welcome-showcase__action { align-items: center; }.welcome-showcase__copy { margin: 0; align-self: center; transform: translateY(clamp(70px,10vh,120px)); } }
 
 /* Tablet order status: one dashboard, no page scroll and no competing cards. */
