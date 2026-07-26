@@ -1,4 +1,4 @@
-name: Build Android kiosk APK
+name: Build BrooklynBowl Kiosk APK
 
 on:
   workflow_dispatch:
@@ -26,9 +26,11 @@ jobs:
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug
+      - name: Name the distributable APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk BrooklynBowl-Kiosk.apk
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: zakaz-bb-kiosk-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: BrooklynBowl-Kiosk-APK
+          path: BrooklynBowl-Kiosk.apk
           if-no-files-found: error

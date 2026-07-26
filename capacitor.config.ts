@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'ru.zvyak.zakaz',
-  appName: 'Заказ Звяк',
+  appName: 'BrooklynBowl Kiosk',
   webDir: 'dist',
   plugins: {
     CapacitorUpdater: {

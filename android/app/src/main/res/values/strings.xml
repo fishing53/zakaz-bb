@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Заказ Звяк</string>
-    <string name="title_activity_main">Заказ Звяк</string>
+    <string name="app_name">BrooklynBowl Kiosk</string>
+    <string name="title_activity_main">BrooklynBowl Kiosk</string>
     <string name="package_name">ru.zvyak.zakaz</string>
     <string name="custom_url_scheme">ru.zvyak.zakaz</string>
 </resources>
