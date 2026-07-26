@@ -108,12 +108,16 @@ const normalizeOrder = async (input) => {
 };
 
 const productFields = ['name', 'category', 'price_rub', 'portion', 'unit', 'description', 'kbju', 'image', 'source_url', 'sauce_options', 'sauce_addon_price_rub', 'addon_options', 'flavor_options', 'size_option', 'pairs_with', 'recommendations_note', 'is_available', 'badge', 'image_position', 'allergens', 'spicy', 'sort_order'];
+const productJsonFields = new Set(['kbju', 'sauce_options', 'addon_options', 'flavor_options', 'size_option', 'pairs_with']);
 const updateProduct = async (id, input, actor) => {
   const before = await pool.query('select * from products where id = $1', [id]);
   if (!before.rowCount) throw Object.assign(new Error('Product not found'), { status: 404 });
   const fields = productFields.filter((field) => Object.hasOwn(input, field));
   if (!fields.length) return before.rows[0];
-  const values = fields.map((field) => input[field]);
+  // node-postgres serialises JavaScript arrays as PostgreSQL arrays. These
+  // columns are JSONB, so JSON.stringify is required for sauce/addon lists,
+  // nutrition and product recommendations.
+  const values = fields.map((field) => productJsonFields.has(field) ? JSON.stringify(input[field] ?? null) : input[field]);
   const assignment = fields.map((field, index) => `${field} = $${index + 1}`).join(', ');
   const result = await pool.query(`update products set ${assignment}, updated_at = now() where id = $${fields.length + 1} returning *`, [...values, id]);
   await audit(actor, 'update', 'product', id, before.rows[0], result.rows[0]);
