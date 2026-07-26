@@ -61,7 +61,7 @@ const inactivityPrompt = (open: boolean, seconds: number) => open ? `<div class=
   <div class="inactivity-dialog__glow"></div><div class="inactivity-dialog__brand"><img src="${brand.logo}" alt="Brooklyn Bowl"></div>
   <div class="inactivity-dialog__timer"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="53"></circle><circle class="inactivity-dialog__progress" cx="60" cy="60" r="53"></circle></svg><strong data-inactivity-countdown>${seconds}</strong><small>СЕК</small></div>
   <span class="eyebrow">ВАШ ЗАКАЗ ПРИОСТАНОВЛЕН</span><h2>Вы ещё здесь?</h2><p>Продолжите оформление или заказ автоматически очистится для следующего гостя.</p>
-  <div class="inactivity-dialog__actions"><button class="button button--primary button--wide" data-action="continue-order">Да, продолжить заказ</button><button class="inactivity-dialog__cancel" data-action="cancel-order">Завершить и очистить</button></div>
+  <div class="inactivity-dialog__actions"><button class="button button--primary button--wide" data-action="continue-order">Да, продолжить заказ</button><button class="button button--secondary button--wide inactivity-dialog__cancel" data-action="cancel-order">Завершить и очистить</button></div>
 </section></div>` : '';
 const iconMarkup = (name: string) => name === 'close' ? '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 6 12 12M18 6 6 18"/></svg>' : '';
 

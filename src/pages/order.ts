@@ -29,7 +29,7 @@ export function orderPage(lines: CartLine[], productFor: (line: CartLine) => Pro
       <aside class="order-summary">
         <h2>Итог заказа</h2>
         <label>Комментарий<textarea data-action="set-comment" placeholder="Например: без лука, пожалуйста">${escapeHtml(comment)}</textarea></label>
-        <div class="promo-code"><label>Промокод<input data-action="set-promo" value="${escapeHtml(promoCode)}" placeholder="Например: BOWL10" /></label><button data-action="apply-promo">Применить</button></div>
+        <div class="promo-code"><label>Промокод<input data-action="set-promo" value="${escapeHtml(promoCode)}" placeholder="Например: BOWL10" /></label><button class="button button--secondary button--compact" data-action="apply-promo">Применить</button></div>
         <small class="promo-hint">Тестовый код: <b>BOWL10</b> даёт скидку 10%</small>
         <div class="summary-row"><span>Блюда</span><b data-order-subtotal>${formatPrice(subtotal)}</b></div>
         <div class="summary-row summary-row--discount"><span>Скидка</span><b data-order-discount>${discount ? `−${formatPrice(discount)}` : '0 ₽'}</b></div>

@@ -23,7 +23,7 @@ export function welcomePage(featured: Product[], promotions: Promotion[], allPro
     </div>
     <div class="welcome-showcase__action">
       <div class="welcome-showcase__halo"></div><img class="welcome-showcase__mascot" src="/images/home-mascot.png" alt="Маскот Brooklyn Bowl" data-action="admin-tap" role="button" tabindex="0">
-      <div class="welcome-showcase__copy"><span class="eyebrow">${terminal?.tableNumber ? `ВАШ СТОЛ №${escapeHtml(terminal.tableNumber)}` : 'ВАШ СТОЛ УЖЕ ВЫБРАН'}</span><h1>ВКУСНЫЙ<br><b>ВЕЧЕР</b> НАЧИНАЕТСЯ</h1><p>Выберите блюда, а мы принесём заказ прямо к вашему столу.</p><div class="welcome-showcase__actions"><button class="button welcome-order-button" data-action="navigate" data-route="menu">Заказать</button><button class="button welcome-waiter-button" data-action="open-service">Позвать официанта</button></div></div>
+      <div class="welcome-showcase__copy"><span class="eyebrow">${terminal?.tableNumber ? `ВАШ СТОЛ №${escapeHtml(terminal.tableNumber)}` : 'ВАШ СТОЛ УЖЕ ВЫБРАН'}</span><h1>ВКУСНЫЙ<br><b>ВЕЧЕР</b> НАЧИНАЕТСЯ</h1><p>Выберите блюда, а мы принесём заказ прямо к вашему столу.</p><div class="welcome-showcase__actions"><button class="button button--primary welcome-order-button" data-action="navigate" data-route="menu">Заказать</button><button class="button button--secondary welcome-waiter-button" data-action="open-service">Позвать официанта</button></div></div>
     </div>
   </section>`;
 }
