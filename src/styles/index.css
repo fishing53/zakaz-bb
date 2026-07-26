@@ -641,6 +641,15 @@ body { position: fixed; inset: 0; }
    underneath the navigation. */
 @media (min-width: 901px) and (orientation: landscape) { .status-page.status-page--tablet { height: calc(100dvh - 184px); }.status-tablet__hero { padding: clamp(20px,2.2vw,32px); }.status-tablet__steps { padding-block: 10px 11px; }.status-tablet__steps ol { margin-top: 8px; }.status-tablet__steps li { gap: 5px; } }
 @media (min-width: 681px) and (max-width: 900px) { .status-page.status-page--tablet { height: calc(100dvh - 168px); gap: 11px; }.status-tablet__top { min-height: 42px; }.status-tablet__number { min-width: 110px; padding: 6px 11px; }.status-tablet__layout { gap: 11px; }.status-tablet__status-column, .status-tablet__order-column { gap: 9px; }.status-tablet__hero { padding: 18px 20px; border-radius: 20px; }.status-tablet__hero h1 { margin: 6px 0 9px; }.status-tablet__hero p { max-width: 68%; font-size: .72rem; }.status-tablet__steps { padding: 9px 12px 10px; }.status-tablet__steps ol { margin-top: 7px; }.status-tablet__steps li { gap: 4px; font-size: .54rem; }.status-tablet__order { padding: 13px; }.status-tablet__order li { padding-block: 7px; }.status-tablet__actions .button { min-height: 50px; font-size: .82rem; } }
+
+/* Match the welcome screen's typographic rhythm and primary call-to-action. */
+.status-tablet__hero .eyebrow { font: 800 .62rem/1 Inter,sans-serif; letter-spacing: .18em; }
+.status-tablet__hero h1 { max-width: 460px; margin: 10px 0 14px; font: 700 clamp(2.9rem,4.85vw,5.45rem)/.8 "Roboto Condensed",sans-serif; letter-spacing: -.03em; text-transform: uppercase; }
+.status-tablet__hero h1 em { font-style: normal; color: var(--accent); }
+.status-tablet__hero p { max-width: 360px; color: #c2c2c2; font-size: .8rem; line-height: 1.55; }
+.status-tablet__actions .welcome-order-button { min-height: 65px; border-radius: 15px; font: 700 1.15rem "Roboto Condensed",sans-serif; letter-spacing: .03em; text-transform: uppercase; color: #fff; background: linear-gradient(105deg,#cf1d19,#fb3c32); box-shadow: 0 15px 34px rgba(221,34,28,.29); }
+.status-tablet__actions .welcome-order-button:hover { transform: translateY(-3px); box-shadow: 0 19px 40px rgba(221,34,28,.42); }
+@media (min-width: 681px) and (max-width: 900px) { .status-tablet__actions .welcome-order-button { min-height: 50px; font-size: .9rem; } }
 @media (max-width: 680px) { .status-page.status-page--tablet { height: calc(100dvh - 122px); }.status-tablet__layout { grid-template-columns: 1fr; grid-template-rows: minmax(0,1fr) minmax(185px,.65fr); }.status-tablet__hero h1 { font-size: 2.6rem; }.status-tablet__number { min-width: 105px; padding-inline: 10px; }.status-tablet__steps li { font-size: .47rem; } }
 
 /* Final order check: compact read-only review, not a second copy of the cart. */
