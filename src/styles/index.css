@@ -692,6 +692,6 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .admin-promo__actions .button--primary { border-color: transparent; color: #fff; background: linear-gradient(105deg,#cf1d19,#fb3c32); }
 .payment-review__edit.button { margin-top: 8px; }
 .inactivity-dialog__cancel.button { margin-top: 9px; }
-.service-actions .button { min-height: 122px; padding: 17px; color: #151515; border-color: #fff; border-radius: 15px; background: #fff; box-shadow: 0 9px 22px rgba(0,0,0,.16); }
-.service-actions .button:hover { color: #fff; background: transparent; transform: translateY(-3px); }
-.service-actions .button .icon { color: var(--accent); }
+.service-actions button { position: relative; overflow: hidden; }
+.service-actions button::before { width: 42px; height: 42px; position: absolute; top: 14px; left: 14px; content: ''; border: 1px solid rgba(255,59,48,.25); border-radius: 13px; background: linear-gradient(145deg,rgba(255,59,48,.16),rgba(255,59,48,.03)); }
+.service-actions .icon { position: relative; z-index: 1; width: 27px; height: 27px; stroke-width: 1.65; }
