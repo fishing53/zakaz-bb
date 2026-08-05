@@ -58,6 +58,17 @@ await pool.query(`
     received_at timestamptz not null default now()
   );
   create index if not exists iiko_webhook_events_order_idx on iiko_webhook_events ((payload #>> '{eventInfo,id}'), received_at desc);
+  create table if not exists iiko_stop_list_items (
+    organization_id text not null,
+    terminal_group_id text not null,
+    product_id text not null,
+    size_id text not null default '',
+    balance numeric not null default 0,
+    sku text,
+    date_added timestamptz,
+    updated_at timestamptz not null default now(),
+    primary key (organization_id, terminal_group_id, product_id, size_id)
+  );
   create table if not exists service_requests (
     id bigserial primary key, terminal_id text not null references terminals(id), table_number text not null default '', request_type text not null check (request_type in ('waiter','cutlery','bill','help')),
     created_at timestamptz not null default now(), handled_at timestamptz

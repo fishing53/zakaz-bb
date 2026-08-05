@@ -132,6 +132,38 @@ const fetchIikoOrder = async (orderId) => {
   if (!body.orders?.length) throw Object.assign(new Error('iiko order not found'), { status: 404 });
   return saveIikoOrder(body.orders[0], { organizationId: iikoOrganizationId });
 };
+const saveIikoStopLists = async (terminalGroupStopLists, organizationId = iikoOrganizationId) => {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    for (const group of terminalGroupStopLists) {
+      const terminalGroupId = String(group?.terminalGroupId ?? '');
+      if (!terminalGroupId) continue;
+      await client.query('delete from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2', [organizationId, terminalGroupId]);
+      for (const item of arrayValue(group?.items)) {
+        if (!item?.productId) continue;
+        await client.query(`insert into iiko_stop_list_items(organization_id,terminal_group_id,product_id,size_id,balance,sku,date_added)
+          values ($1,$2,$3,$4,$5,$6,$7)`, [organizationId, terminalGroupId, String(item.productId), String(item.sizeId ?? ''), Number(item.balance ?? 0), item.sku ?? null, item.dateAdd ?? null]);
+      }
+    }
+    await client.query('commit');
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally { client.release(); }
+};
+const fetchIikoStopLists = async (terminalGroupIds = []) => {
+  const token = await getIikoAccessToken();
+  const result = await fetch(`${iikoApiBase}/api/1/stop_lists`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ organizationIds: [iikoOrganizationId], ...(terminalGroupIds.length ? { terminalGroupsIds: terminalGroupIds } : {}), returnSize: true }),
+  });
+  const body = await result.json().catch(() => ({}));
+  if (!result.ok) throw Object.assign(new Error(body.errorDescription ?? 'Unable to get iiko stop list'), { status: 502 });
+  const groups = arrayValue(body.terminalGroupStopLists).flatMap((wrapper) => arrayValue(wrapper?.items));
+  await saveIikoStopLists(groups, iikoOrganizationId);
+  return groups;
+};
 const publicIikoStatus = (row) => ({
   orderId: row.order_id,
   posId: row.pos_id,
@@ -232,11 +264,20 @@ const server = http.createServer(async (request, response) => {
       if (!Array.isArray(events) || events.length > 100) return json(response, 400, { error: 'Invalid webhook payload' });
       for (const event of events) {
         const eventType = String(event?.eventType ?? '');
-        if (eventType !== 'TableOrderUpdate' && eventType !== 'TableOrderError') continue;
+        if (eventType !== 'TableOrderUpdate' && eventType !== 'TableOrderError' && eventType !== 'StopListUpdate') continue;
         await pool.query('insert into iiko_webhook_events(event_type,organization_id,correlation_id,event_time,payload) values ($1,$2,$3,$4,$5)', [eventType, event.organizationId ?? null, event.correlationId ?? null, event.eventTime ?? null, JSON.stringify(event)]);
         if (event?.eventInfo?.id) await saveIikoOrder(event.eventInfo, { organizationId: event.organizationId ?? iikoOrganizationId, eventType, webhook: true });
+        if (eventType === 'StopListUpdate') {
+          const terminalGroupIds = arrayValue(event?.eventInfo?.terminalGroupsStopListsUpdates).map((item) => String(item?.id ?? '')).filter(Boolean);
+          await fetchIikoStopLists(terminalGroupIds);
+        }
       }
       return json(response, 200, { ok: true });
+    }
+    if (request.method === 'GET' && path === '/api/v1/iiko/stop-list') {
+      const terminalGroupId = url.searchParams.get('terminalGroupId');
+      const groups = await fetchIikoStopLists(terminalGroupId ? [terminalGroupId] : []);
+      return json(response, 200, { terminalGroupStopLists: groups });
     }
     if (request.method === 'GET' && path.startsWith('/api/v1/iiko/orders/') && path.endsWith('/status')) {
       const orderId = decodeURIComponent(path.slice('/api/v1/iiko/orders/'.length, -'/status'.length));
