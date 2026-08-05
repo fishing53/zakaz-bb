@@ -29,6 +29,35 @@ await pool.query(`
     created_at timestamptz not null default now(), updated_at timestamptz not null default now()
   );
   alter table customer_orders add column if not exists completed_at timestamptz;
+  alter table customer_orders add column if not exists iiko_order_id text;
+  alter table customer_orders add column if not exists iiko_pos_id text;
+  create unique index if not exists customer_orders_iiko_order_id_idx on customer_orders(iiko_order_id) where iiko_order_id is not null;
+  create table if not exists iiko_orders (
+    order_id text primary key,
+    organization_id text not null,
+    pos_id text,
+    external_number text,
+    order_status text,
+    item_statuses jsonb not null default '[]'::jsonb,
+    status_step integer not null default 0 check (status_step between 0 and 4),
+    creation_status text,
+    error_info jsonb,
+    last_event_type text,
+    raw_payload jsonb not null,
+    last_webhook_at timestamptz,
+    last_polled_at timestamptz,
+    updated_at timestamptz not null default now()
+  );
+  create table if not exists iiko_webhook_events (
+    id bigserial primary key,
+    event_type text not null,
+    organization_id text,
+    correlation_id text,
+    event_time timestamptz,
+    payload jsonb not null,
+    received_at timestamptz not null default now()
+  );
+  create index if not exists iiko_webhook_events_order_idx on iiko_webhook_events ((payload #>> '{eventInfo,id}'), received_at desc);
   create table if not exists service_requests (
     id bigserial primary key, terminal_id text not null references terminals(id), table_number text not null default '', request_type text not null check (request_type in ('waiter','cutlery','bill','help')),
     created_at timestamptz not null default now(), handled_at timestamptz

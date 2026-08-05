@@ -9,6 +9,9 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const port = Number(process.env.PORT ?? 3107);
 const tokenSecret = process.env.TOKEN_SECRET;
 const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
+const iikoApiBase = process.env.IIKO_API_BASE ?? 'https://api-ru.iiko.services';
+const iikoOrganizationId = process.env.IIKO_ORGANIZATION_ID ?? '528faa64-3219-4cc9-b17f-96fa28fd8627';
+const iikoWebhookToken = process.env.IIKO_WEBHOOK_TOKEN;
 const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/manifest.json';
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
@@ -58,6 +61,88 @@ const audit = (actor, action, entity, entityId, before, after) => pool.query(
   'insert into audit_log(actor, action, entity, entity_id, before_data, after_data) values ($1,$2,$3,$4,$5,$6)',
   [actor, action, entity, entityId, before ?? null, after ?? null],
 );
+
+const iikoItemStatuses = new Set(['Added', 'PrintedNotCooking', 'CookingStarted', 'CookingCompleted', 'Served']);
+const iikoStatusStep = (order) => {
+  const statuses = arrayValue(order?.items).map((item) => item?.status).filter((status) => iikoItemStatuses.has(status));
+  if (order?.status === 'Closed' || (statuses.length && statuses.every((status) => status === 'Served'))) return 4;
+  if (statuses.length && statuses.every((status) => status === 'CookingCompleted' || status === 'Served')) return 3;
+  if (statuses.some((status) => status === 'CookingStarted' || status === 'CookingCompleted' || status === 'Served')) return 2;
+  if (statuses.some((status) => status === 'PrintedNotCooking')) return 1;
+  return 0;
+};
+const iikoOrderSnapshot = (eventInfo) => {
+  const order = eventInfo?.order ?? {};
+  return {
+    orderId: String(eventInfo?.id ?? ''),
+    posId: eventInfo?.posId ? String(eventInfo.posId) : null,
+    externalNumber: eventInfo?.externalNumber ? String(eventInfo.externalNumber) : null,
+    orderStatus: order?.status ? String(order.status) : null,
+    creationStatus: eventInfo?.creationStatus ? String(eventInfo.creationStatus) : null,
+    errorInfo: eventInfo?.errorInfo ?? null,
+    itemStatuses: arrayValue(order?.items).map((item) => ({
+      positionId: item?.positionId ?? null,
+      productId: item?.product?.id ?? null,
+      name: item?.product?.name ?? '',
+      amount: Number(item?.amount ?? 0),
+      status: iikoItemStatuses.has(item?.status) ? item.status : 'Added',
+    })),
+    statusStep: iikoStatusStep(order),
+  };
+};
+const saveIikoOrder = async (eventInfo, { organizationId = iikoOrganizationId, eventType = 'Poll', webhook = false } = {}) => {
+  const snapshot = iikoOrderSnapshot(eventInfo);
+  if (!snapshot.orderId) throw Object.assign(new Error('iiko event has no order id'), { status: 400 });
+  const result = await pool.query(`
+    insert into iiko_orders(order_id,organization_id,pos_id,external_number,order_status,item_statuses,status_step,creation_status,error_info,last_event_type,raw_payload,last_webhook_at,last_polled_at)
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+    on conflict (order_id) do update set
+      organization_id=excluded.organization_id,pos_id=excluded.pos_id,external_number=excluded.external_number,order_status=excluded.order_status,
+      item_statuses=excluded.item_statuses,status_step=excluded.status_step,creation_status=excluded.creation_status,error_info=excluded.error_info,
+      last_event_type=excluded.last_event_type,raw_payload=excluded.raw_payload,
+      last_webhook_at=coalesce(excluded.last_webhook_at,iiko_orders.last_webhook_at),last_polled_at=coalesce(excluded.last_polled_at,iiko_orders.last_polled_at),updated_at=now()
+    returning *`, [
+    snapshot.orderId, organizationId, snapshot.posId, snapshot.externalNumber, snapshot.orderStatus, JSON.stringify(snapshot.itemStatuses), snapshot.statusStep,
+    snapshot.creationStatus, snapshot.errorInfo ? JSON.stringify(snapshot.errorInfo) : null, eventType, JSON.stringify(eventInfo), webhook ? new Date() : null, webhook ? null : new Date(),
+  ]);
+  await pool.query('update customer_orders set status_step=$1,iiko_pos_id=coalesce($2,iiko_pos_id),updated_at=now() where iiko_order_id=$3', [snapshot.statusStep, snapshot.posId, snapshot.orderId]);
+  return result.rows[0];
+};
+let iikoAccessToken = '';
+let iikoAccessTokenExpiresAt = 0;
+const getIikoAccessToken = async () => {
+  if (iikoAccessToken && iikoAccessTokenExpiresAt > Date.now()) return iikoAccessToken;
+  const { IIKO_APP_ID: appId, IIKO_API_LOGIN: apiLogin, IIKO_CLIENT_SECRET: clientSecret } = process.env;
+  if (!appId || !apiLogin || !clientSecret) throw Object.assign(new Error('iiko credentials are not configured'), { status: 503 });
+  const result = await fetch(`${iikoApiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId, apiLogin, clientSecret }) });
+  const body = await result.json().catch(() => ({}));
+  if (!result.ok || !body.token) throw Object.assign(new Error(body.errorDescription ?? 'iiko authorization failed'), { status: 502 });
+  iikoAccessToken = body.token;
+  iikoAccessTokenExpiresAt = Date.now() + 14 * 60 * 1000;
+  return iikoAccessToken;
+};
+const fetchIikoOrder = async (orderId) => {
+  const token = await getIikoAccessToken();
+  const result = await fetch(`${iikoApiBase}/api/1/order/by_id`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ organizationIds: [iikoOrganizationId], orderIds: [orderId] }),
+  });
+  const body = await result.json().catch(() => ({}));
+  if (!result.ok) throw Object.assign(new Error(body.errorDescription ?? 'Unable to get iiko order'), { status: 502 });
+  if (!body.orders?.length) throw Object.assign(new Error('iiko order not found'), { status: 404 });
+  return saveIikoOrder(body.orders[0], { organizationId: iikoOrganizationId });
+};
+const publicIikoStatus = (row) => ({
+  orderId: row.order_id,
+  posId: row.pos_id,
+  externalNumber: row.external_number,
+  orderStatus: row.order_status,
+  itemStatuses: row.item_statuses,
+  statusStep: row.status_step,
+  creationStatus: row.creation_status,
+  error: row.error_info,
+  updatedAt: row.updated_at,
+});
 
 const publicState = async (terminalId) => {
   const [products, promotions, terminal, settings] = await Promise.all([
@@ -138,6 +223,32 @@ const server = http.createServer(async (request, response) => {
       return response.end();
     }
     if (request.method === 'GET' && path === '/api/v1/health') return json(response, 200, { ok: true });
+    if (request.method === 'POST' && path === '/api/v1/iiko/webhook') {
+      if (!iikoWebhookToken) return json(response, 503, { error: 'Webhook is not configured' });
+      const provided = String(request.headers.authorization ?? '');
+      const allowed = new Set([iikoWebhookToken, `Bearer ${iikoWebhookToken}`]);
+      if (!allowed.has(provided)) return json(response, 401, { error: 'Unauthorized' });
+      const events = await readBody(request);
+      if (!Array.isArray(events) || events.length > 100) return json(response, 400, { error: 'Invalid webhook payload' });
+      for (const event of events) {
+        const eventType = String(event?.eventType ?? '');
+        if (eventType !== 'TableOrderUpdate' && eventType !== 'TableOrderError') continue;
+        await pool.query('insert into iiko_webhook_events(event_type,organization_id,correlation_id,event_time,payload) values ($1,$2,$3,$4,$5)', [eventType, event.organizationId ?? null, event.correlationId ?? null, event.eventTime ?? null, JSON.stringify(event)]);
+        if (event?.eventInfo?.id) await saveIikoOrder(event.eventInfo, { organizationId: event.organizationId ?? iikoOrganizationId, eventType, webhook: true });
+      }
+      return json(response, 200, { ok: true });
+    }
+    if (request.method === 'GET' && path.startsWith('/api/v1/iiko/orders/') && path.endsWith('/status')) {
+      const orderId = decodeURIComponent(path.slice('/api/v1/iiko/orders/'.length, -'/status'.length));
+      if (!/^[0-9a-f-]{36}$/i.test(orderId)) return json(response, 400, { error: 'Invalid order id' });
+      let result = await pool.query('select * from iiko_orders where order_id=$1', [orderId]);
+      const isStale = !result.rowCount || Date.now() - new Date(result.rows[0].updated_at).getTime() > 15_000;
+      if (isStale) {
+        const synced = await fetchIikoOrder(orderId);
+        result = { rowCount: 1, rows: [synced] };
+      }
+      return json(response, 200, publicIikoStatus(result.rows[0]));
+    }
     // The native updater sends a POST request with device metadata. The public
     // manifest contains no secrets, so its contents are safe to return here.
     if (request.method === 'POST' && path === '/api/v1/ota/update') {
