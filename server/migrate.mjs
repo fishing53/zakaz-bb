@@ -69,6 +69,30 @@ await pool.query(`
     updated_at timestamptz not null default now(),
     primary key (organization_id, terminal_group_id, product_id, size_id)
   );
+  -- iiko is queried by the server on a controlled schedule. Tablets read only
+  -- these snapshots, which keeps the Cloud API rate limit protected.
+  create table if not exists iiko_menu_items (
+    product_id text primary key,
+    category_id text not null default '', category_name text not null,
+    name text not null, description text, price_rub numeric not null default 0,
+    portion_weight_grams numeric not null default 0, measure_unit text not null default '',
+    nutrition jsonb, image_url text, modifier_groups jsonb not null default '[]'::jsonb,
+    is_hidden boolean not null default false, sort_order integer not null default 0,
+    revision bigint, raw_payload jsonb not null, updated_at timestamptz not null default now()
+  );
+  create index if not exists iiko_menu_items_category_idx on iiko_menu_items(category_name, sort_order);
+  create table if not exists iiko_tables (
+    table_id text primary key, organization_id text not null, terminal_group_id text not null,
+    section_id text not null default '', section_name text not null default '',
+    table_number text not null default '', table_name text not null default '',
+    updated_at timestamptz not null default now()
+  );
+  create index if not exists iiko_tables_group_idx on iiko_tables(terminal_group_id, section_name, table_number);
+  create table if not exists terminal_table_selections (
+    terminal_id text primary key references terminals(id) on delete cascade,
+    table_id text not null, table_number text not null default '', table_name text not null default '',
+    selected_at timestamptz not null default now(), updated_at timestamptz not null default now()
+  );
   create table if not exists service_requests (
     id bigserial primary key, terminal_id text not null references terminals(id), table_number text not null default '', request_type text not null check (request_type in ('waiter','cutlery','bill','help')),
     created_at timestamptz not null default now(), handled_at timestamptz

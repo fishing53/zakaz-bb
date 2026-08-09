@@ -1,4 +1,4 @@
-import type { CartLine, Product, ProductDisplaySettings, Promotion, SubmittedOrder, TerminalSettings } from '../types/menu';
+import type { CartLine, Product, ProductDisplaySettings, Promotion, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
 import { Capacitor } from '@capacitor/core';
 
 let token = sessionStorage.getItem('zakaz-admin-token') ?? '';
@@ -10,7 +10,7 @@ const apiBase = Capacitor.isNativePlatform() ? 'https://xn--80aatcn.xn--b1ajk7f.
 
 type ServerProduct = Product & { is_available: boolean; badge: string; image_position: string; allergens: string; spicy: 'none' | 'mild' | 'hot'; sort_order: number };
 type ServerPromotion = { id: number | string; product_id: string; title: string; subtitle: string; label: string; active: boolean; sort_order: number };
-type ServerTerminal = { id: string; label: string; table_number: string; is_active: boolean; idle_seconds: number };
+type ServerTerminal = { id: string; label: string; table_number: string; is_active: boolean; idle_seconds: number; table_source?: 'admin' | 'guest' | null; table_id?: string | null };
 type ServerOrder = { order_number: string; items: CartLine[]; total: number; status_step: number; table_number: string; created_at: string };
 
 const request = async <T>(path: string, init: RequestInit = {}) => {
@@ -34,10 +34,11 @@ const product = (item: ServerProduct): Product => ({
   id: item.id, name: item.name, category: item.category, price_rub: Number(item.price_rub), portion: item.portion, unit: item.unit, description: item.description,
   kbju: item.kbju, image: item.image, source_url: item.source_url, sauce_options: item.sauce_options ?? [], sauce_addon_price_rub: item.sauce_addon_price_rub ?? undefined,
   addon_options: item.addon_options ?? [], flavor_options: item.flavor_options ?? [], size_option: item.size_option ?? undefined, pairs_with: item.pairs_with ?? [], recommendations_note: item.recommendations_note ?? undefined,
+  modifier_groups: item.modifier_groups ?? [],
 });
 const display = (item: ServerProduct): ProductDisplaySettings => ({ badge: item.badge ?? '', unavailable: !item.is_available, imagePosition: item.image_position ?? 'center', allergens: item.allergens ?? '', spicy: item.spicy ?? 'none' });
 const promotion = (item: ServerPromotion): Promotion => ({ id: String(item.id), productId: item.product_id, title: item.title, subtitle: item.subtitle, label: item.label, active: item.active });
-const terminal = (item: ServerTerminal): TerminalSettings => ({ id: item.id, label: item.label, tableNumber: item.table_number, isActive: item.is_active, idleSeconds: item.idle_seconds });
+const terminal = (item: ServerTerminal): TerminalSettings => ({ id: item.id, label: item.label, tableNumber: item.table_number, isActive: item.is_active, idleSeconds: item.idle_seconds, tableSource: item.table_source ?? null, tableId: item.table_id ?? null });
 const order = (item: ServerOrder): SubmittedOrder => ({ id: item.order_number, items: item.items, total: Number(item.total), statusStep: item.status_step, createdAt: item.created_at, orderType: null, tableNumber: item.table_number });
 
 export const apiService = {
@@ -59,6 +60,13 @@ export const apiService = {
   async submitOrder(value: { items: CartLine[]; total: number; comment: string; promoCode: string }) {
     const data = await request<ServerOrder>('/orders', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, items: value.items, total: value.total, comment: value.comment, promo_code: value.promoCode }) });
     return order(data);
+  },
+  async tables() {
+    const data = await request<{ tables: Array<{ table_id: string; section_name: string; table_number: string; table_name: string }> }>(`/tables?terminalId=${terminalId}`);
+    return data.tables.map((item): RestaurantTable => ({ id: item.table_id, section: item.section_name, number: item.table_number, name: item.table_name }));
+  },
+  async selectTable(tableId: string) {
+    return request<{ table_number: string; table_id: string; source: 'guest' }>('/tables/select', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, table_id: tableId }) });
   },
   async requestService(type: string) {
     await request<{ ok: true }>('/service-requests', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, type }) });

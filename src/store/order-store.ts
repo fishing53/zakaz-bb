@@ -2,7 +2,8 @@ import { menuService } from '../services/menu-service';
 import { appStore } from './app-store';
 import type { CartLine, Product } from '../types/menu';
 
-const lineKey = (line: Pick<CartLine, 'productId' | 'kind' | 'customName' | 'sauce' | 'addon' | 'flavor'>) => [line.kind, line.productId, line.customName, line.sauce, line.addon, line.flavor].filter(Boolean).join('|');
+const lineKey = (line: Pick<CartLine, 'productId' | 'kind' | 'customName' | 'sauce' | 'addon' | 'flavor' | 'modifiers'>) => [line.kind, line.productId, line.customName, line.sauce, line.addon, line.flavor, line.modifiers?.map((item) => `${item.productId}:${item.amount}`).join(',')].filter(Boolean).join('|');
+const linePrice = (line: CartLine) => (line.customPrice ?? menuService.find(line.productId)?.price_rub ?? 0) + (line.modifiers ?? []).reduce((sum, item) => sum + item.price * item.amount, 0);
 const append = (cart: CartLine[], next: Omit<CartLine, 'key' | 'quantity'>) => {
   const key = lineKey(next);
   const found = cart.find((line) => line.key === key);
@@ -20,7 +21,7 @@ export const orderStore = {
       portion: '1', unit: 'шт.', description: null, kbju: null, image: product?.image ?? '/icons/app-icon.svg', source_url: '',
     };
   },
-  subtotal: () => appStore.get().cart.reduce((sum, line) => sum + (line.customPrice ?? menuService.find(line.productId)?.price_rub ?? 0) * line.quantity, 0),
+  subtotal: () => appStore.get().cart.reduce((sum, line) => sum + linePrice(line) * line.quantity, 0),
   discount: () => appStore.get().promoCode.trim().toUpperCase() === 'BOWL10' ? Math.round(orderStore.subtotal() * .1) : 0,
   total: () => Math.max(0, orderStore.subtotal() - orderStore.discount()),
   count: () => appStore.get().cart.reduce((sum, line) => sum + line.quantity, 0),

@@ -6,6 +6,8 @@ const choice = (name: string, values?: string[], multiple = false, price = 0) =>
   ? `<section class="option-group" data-multiple="${multiple}" data-option-group="${name}"><div class="option-group__heading"><h3>${name}</h3>${multiple ? '<span><b data-sauce-count>0</b> выбрано</span>' : ''}</div><div class="option-chips">${values.map((value, index) => `<button data-action="set-option" data-option="${name}" data-value="${escapeHtml(value)}" class="option-chip${name === 'Соусы' ? ' option-chip--sauce' : ''}${!multiple && index === 0 ? ' is-selected' : ''}"><span class="option-chip__check">${icon('check')}</span><span class="option-chip__label">${escapeHtml(value)}</span>${name === 'Соусы' ? `<small>${price ? `+${formatPrice(price)}` : 'Бесплатно'}</small>` : ''}</button>`).join('')}</div></section>`
   : '';
 
+const iikoChoices = (product: Product) => (product.modifier_groups ?? []).map((group, groupIndex) => group.items.length ? `<section class="option-group" data-multiple="${(group.maxQuantity ?? 99) > 1}" data-iiko-group="${groupIndex}"><div class="option-group__heading"><h3>${escapeHtml(group.name)}</h3><span>${group.minQuantity ? `Выберите от ${group.minQuantity}` : 'По желанию'}</span></div><div class="option-chips">${group.items.map((item) => `<button data-action="set-option" data-iiko-modifier="true" data-product-id="${escapeHtml(item.productId)}" data-value="${escapeHtml(item.name)}" data-price="${item.price}" class="option-chip${item.defaultQuantity ? ' is-selected' : ''}"><span class="option-chip__check">${icon('check')}</span><span class="option-chip__label">${escapeHtml(item.name)}</span><small>${item.price ? `+${formatPrice(item.price)}` : 'Включено'}</small></button>`).join('')}</div></section>` : '').join('');
+
 const spicyLabel = (level?: ProductDisplaySettings['spicy']) => level === 'hot'
   ? '<span class="product-fact product-fact--hot">Острое</span>'
   : level === 'mild' ? '<span class="product-fact product-fact--mild">Слегка острое</span>' : '';
@@ -30,6 +32,7 @@ export function productModal(product: Product | undefined, display: ProductDispl
           ${choice('Соусы', product.sauce_options, true, saucePrice)}
           ${choice('Добавки', product.addon_options)}
           ${choice('Вкус', product.flavor_options)}
+          ${iikoChoices(product)}
           ${related.length ? `<section class="modal-related"><h3>Идеально с этим блюдом</h3><p>Можно выбрать несколько позиций</p><div class="related-grid" data-related-for="${escapeHtml(product.id)}"></div></section>` : ''}
           <section class="bundle-summary">
             <div class="bundle-summary__heading"><div><span class="eyebrow">ВАШ ВЫБОР</span><h3>Состав заказа</h3></div><div class="modal-quantity"><button data-action="change-modal-quantity" data-delta="-1" aria-label="Уменьшить">${icon('minus')}</button><strong data-modal-quantity>1</strong><button data-action="change-modal-quantity" data-delta="1" aria-label="Увеличить">${icon('plus')}</button></div></div>

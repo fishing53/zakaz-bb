@@ -1,6 +1,6 @@
 import type { RouteName } from '../types/menu';
 
-const routes: RouteName[] = ['welcome', 'menu', 'order', 'orders', 'payment', 'status', 'admin'];
+const routes: RouteName[] = ['welcome', 'table', 'menu', 'order', 'orders', 'payment', 'status', 'admin'];
 export const router = {
   current(): RouteName {
     const route = location.hash.replace('#/', '') as RouteName;

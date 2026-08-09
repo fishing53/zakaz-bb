@@ -15,6 +15,7 @@ import { ordersPage } from './pages/orders';
 import { paymentPage } from './pages/payment';
 import { statusPage } from './pages/status';
 import { welcomePage } from './pages/welcome';
+import { tablePage } from './pages/table';
 import { adminPage } from './pages/admin';
 import { debounce, formatPrice } from './utils/helpers';
 import { marketingService } from './services/marketing-service';
@@ -31,6 +32,7 @@ let lastAdminTap = 0;
 let submittingOrder = false;
 let promoSwipeStart: { x: number; y: number } | null = null;
 let suppressPromoOpenUntil = 0;
+let statusRefreshTimer = 0;
 let auditLog: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [];
 const updateSearch = debounce((value: string) => {
   appStore.set({ search: value }, false);
@@ -43,6 +45,7 @@ function page() {
   const route = router.current();
   switch (route) {
     case 'welcome': return welcomePage(menuService.featured(), state.promotions, menuService.all(), state.productDisplay, state.terminal);
+    case 'table': return tablePage(state.tables);
     case 'menu': return menuPage(menuService.categories(), menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay);
     case 'order': return orderPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment, state.promoCode);
     case 'orders': return ordersPage(state.orders);
@@ -77,13 +80,16 @@ export function render() {
   if (product && related) related.innerHTML = relatedCards(menuService.related(product), state.productDisplay);
   applyLanguage(root, state.language);
   resetInactivity();
+  if (route === 'status' && !statusRefreshTimer) statusRefreshTimer = window.setInterval(() => { void syncServer(); }, 15_000);
+  if (route !== 'status' && statusRefreshTimer) { clearInterval(statusRefreshTimer); statusRefreshTimer = 0; }
 }
 
 function updateModalTotal() {
   const product = menuService.find(appStore.get().productId ?? '');
   if (!product) return;
   const saucePrice = Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0;
-  const sauceItems = [...root.querySelectorAll<HTMLElement>('.option-group[data-multiple="true"] button.is-selected')];
+  const sauceItems = [...root.querySelectorAll<HTMLElement>('.option-group[data-option-group="Соусы"] button.is-selected')];
+  const iikoItems = [...root.querySelectorAll<HTMLElement>('[data-iiko-modifier="true"].is-selected')];
   const sauceCount = sauceItems.length;
   const relatedItems = [...root.querySelectorAll<HTMLElement>('.related-choice.is-selected')];
   const selectedOptions = [...root.querySelectorAll<HTMLElement>('.option-group[data-multiple="false"] button.is-selected')]
@@ -91,8 +97,9 @@ function updateModalTotal() {
   const relatedTotal = relatedItems.reduce((sum, item) => sum + Number(item.dataset.price ?? 0), 0);
   const quantity = Number(root.querySelector<HTMLElement>('[data-modal-quantity]')?.textContent ?? 1);
   const sauceTotal = sauceCount * saucePrice;
+  const iikoTotal = iikoItems.reduce((sum, item) => sum + Number(item.dataset.price ?? 0), 0);
   const total = root.querySelector<HTMLElement>('[data-modal-total]');
-  if (total) total.textContent = formatPrice(product.price_rub * quantity + sauceTotal + relatedTotal);
+  if (total) total.textContent = formatPrice((product.price_rub + sauceTotal + iikoTotal) * quantity + relatedTotal);
   const setText = (selector: string, value: string | number) => {
     const target = root.querySelector<HTMLElement>(selector);
     if (target) target.textContent = String(value);
@@ -106,8 +113,8 @@ function updateModalTotal() {
   setText('[data-summary-related-count]', relatedItems.length);
   setText('[data-summary-related-label]', relatedItems.map((item) => item.dataset.productName).join(', '));
   setText('[data-summary-related]', formatPrice(relatedTotal));
-  setText('[data-summary-options-label]', selectedOptions.join(' · '));
-  root.querySelector<HTMLElement>('[data-summary-options-row]')?.toggleAttribute('hidden', selectedOptions.length === 0);
+  setText('[data-summary-options-label]', [...selectedOptions, ...iikoItems.map((item) => item.dataset.value ?? '')].join(' · '));
+  root.querySelector<HTMLElement>('[data-summary-options-row]')?.toggleAttribute('hidden', selectedOptions.length + iikoItems.length === 0);
   root.querySelector<HTMLElement>('[data-summary-sauces-row]')?.toggleAttribute('hidden', sauceCount === 0);
   root.querySelector<HTMLElement>('[data-summary-related-row]')?.toggleAttribute('hidden', relatedItems.length === 0);
 }
@@ -158,6 +165,27 @@ async function action(element: HTMLElement) {
   const type = element.dataset.action;
   if (!type) return;
   if (type === 'navigate') { router.go(element.dataset.route as never); return; }
+  if (type === 'start-order') {
+    const terminal = appStore.get().terminal;
+    if (terminal?.tableNumber) { router.go('menu'); return; }
+    try {
+      const tables = await apiService.tables();
+      appStore.set({ tables });
+      router.go('table');
+    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось загрузить столы'); }
+    return;
+  }
+  if (type === 'select-table') {
+    const tableId = element.dataset.tableId;
+    if (!tableId) return;
+    element.setAttribute('disabled', '');
+    try {
+      await apiService.selectTable(tableId);
+      await syncServer();
+      router.go('menu');
+    } catch (error) { element.removeAttribute('disabled'); flash(error instanceof Error ? error.message : 'Не удалось выбрать стол'); }
+    return;
+  }
   if (type === 'admin-tap') {
     const now = Date.now();
     adminTaps = now - lastAdminTap < 1800 ? adminTaps + 1 : 1;
@@ -237,7 +265,8 @@ async function action(element: HTMLElement) {
     const relatedIds = [...root.querySelectorAll<HTMLElement>('.related-choice.is-selected')].map((item) => item.dataset.productId ?? '');
     const quantity = Number(root.querySelector<HTMLElement>('[data-modal-quantity]')?.textContent ?? 1);
     const related = relatedIds.map((id) => menuService.find(id)).filter((item): item is Product => Boolean(item));
-    orderStore.addBundle(product, { addon: valueAt('Добавки'), flavor: valueAt('Вкус') }, sauces, related, quantity);
+    const modifiers = [...root.querySelectorAll<HTMLElement>('[data-iiko-modifier="true"].is-selected')].map((item) => ({ productId: item.dataset.productId ?? '', name: item.dataset.value ?? '', amount: 1, price: Number(item.dataset.price ?? 0) })).filter((item) => item.productId);
+    orderStore.addBundle(product, { addon: valueAt('Добавки'), flavor: valueAt('Вкус'), ...(modifiers.length ? { modifiers } : {}) }, sauces, related, quantity);
     transientToast('Выбранные позиции добавлены в заказ');
     return;
   }

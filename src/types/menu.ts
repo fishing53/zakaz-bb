@@ -18,7 +18,11 @@ export interface Product {
   size_option?: string[] | string;
   pairs_with?: string[];
   recommendations_note?: string;
+  modifier_groups?: IikoModifierGroup[];
 }
+
+export interface IikoModifier { productId: string; name: string; price: number; defaultQuantity?: number; minQuantity?: number; maxQuantity?: number }
+export interface IikoModifierGroup { name: string; minQuantity?: number; maxQuantity?: number; freeQuantity?: number; items: IikoModifier[] }
 
 export interface Catalog { menu: Product[] }
 
@@ -32,6 +36,7 @@ export interface CartLine {
   sauce?: string;
   addon?: string;
   flavor?: string;
+  modifiers?: Array<{ productId: string; name: string; amount: number; price: number }>;
 }
 
 export interface Promotion {
@@ -67,7 +72,11 @@ export interface TerminalSettings {
   tableNumber: string;
   isActive: boolean;
   idleSeconds: number;
+  tableSource?: 'admin' | 'guest' | null;
+  tableId?: string | null;
 }
 
-export type RouteName = 'welcome' | 'menu' | 'order' | 'orders' | 'payment' | 'status' | 'admin';
+export interface RestaurantTable { id: string; section: string; number: string; name: string }
+
+export type RouteName = 'welcome' | 'table' | 'menu' | 'order' | 'orders' | 'payment' | 'status' | 'admin';
 export type OrderType = 'dine-in' | 'takeaway' | 'pickup' | null;

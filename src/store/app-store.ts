@@ -1,4 +1,4 @@
-import type { CartLine, OrderType, ProductDisplaySettings, Promotion, SubmittedOrder, TerminalSettings } from '../types/menu';
+import type { CartLine, OrderType, ProductDisplaySettings, Promotion, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
 import { storage } from '../services/storage';
 import { marketingService } from '../services/marketing-service';
 
@@ -29,6 +29,7 @@ export interface AppState {
   statusStep: number;
   toast: string | null;
   terminal: TerminalSettings | null;
+  tables: RestaurantTable[];
   upsellId: string | null;
 }
 
@@ -61,6 +62,7 @@ let state: AppState = {
   serviceOpen: false,
   toast: null,
   terminal: null,
+  tables: [],
   upsellId: null,
   ...persisted,
   cart: persisted.cart ?? [],

@@ -12,6 +12,9 @@ const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
 const iikoApiBase = process.env.IIKO_API_BASE ?? 'https://api-ru.iiko.services';
 const iikoOrganizationId = process.env.IIKO_ORGANIZATION_ID ?? '528faa64-3219-4cc9-b17f-96fa28fd8627';
 const iikoWebhookToken = process.env.IIKO_WEBHOOK_TOKEN;
+const iikoTerminalGroupId = process.env.IIKO_TERMINAL_GROUP_ID ?? '';
+const iikoExternalMenuId = process.env.IIKO_EXTERNAL_MENU_ID ?? '';
+const iikoOrderTypeId = process.env.IIKO_ORDER_TYPE_ID ?? '';
 const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/manifest.json';
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
@@ -110,6 +113,20 @@ const saveIikoOrder = async (eventInfo, { organizationId = iikoOrganizationId, e
 };
 let iikoAccessToken = '';
 let iikoAccessTokenExpiresAt = 0;
+let iikoRetryAfter = 0;
+const iikoRequest = async (path, body) => {
+  if (Date.now() < iikoRetryAfter) throw Object.assign(new Error('iiko временно ограничил запросы, используем сохранённые данные'), { status: 503 });
+  const token = await getIikoAccessToken();
+  const result = await fetch(`${iikoApiBase}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+  const payload = await result.json().catch(() => ({}));
+  if (result.status === 429) {
+    const seconds = Math.max(30, Number(result.headers.get('retry-after') ?? 60));
+    iikoRetryAfter = Date.now() + seconds * 1_000;
+    throw Object.assign(new Error('iiko временно ограничил запросы'), { status: 503 });
+  }
+  if (!result.ok) throw Object.assign(new Error(payload.errorDescription ?? `iiko request failed: ${path}`), { status: 502 });
+  return payload;
+};
 const getIikoAccessToken = async () => {
   if (iikoAccessToken && iikoAccessTokenExpiresAt > Date.now()) return iikoAccessToken;
   const { IIKO_APP_ID: appId, IIKO_API_LOGIN: apiLogin, IIKO_CLIENT_SECRET: clientSecret } = process.env;
@@ -120,6 +137,48 @@ const getIikoAccessToken = async () => {
   iikoAccessToken = body.token;
   iikoAccessTokenExpiresAt = Date.now() + 14 * 60 * 1000;
   return iikoAccessToken;
+};
+const defaultItemSize = (item) => arrayValue(item?.itemSizes).find((size) => size?.isDefault) ?? arrayValue(item?.itemSizes)[0] ?? {};
+const iikoPrice = (size) => Number(arrayValue(size?.prices).find((price) => String(price?.organizationId) === iikoOrganizationId)?.price ?? arrayValue(size?.prices)[0]?.price ?? 0);
+const publicModifierGroups = (groups) => arrayValue(groups).map((group) => ({
+  name: String(group?.name ?? 'Дополнения'), minQuantity: Number(group?.restrictions?.minQuantity ?? 0), maxQuantity: Number(group?.restrictions?.maxQuantity ?? 99), freeQuantity: Number(group?.restrictions?.freeQuantity ?? 0),
+  items: arrayValue(group?.items).filter((item) => item?.itemId && !item?.isHidden).map((item) => {
+    const restrictions = arrayValue(item?.restrictions)[0] ?? {};
+    return { productId: String(item.itemId), name: String(item.name ?? ''), price: iikoPrice(item), defaultQuantity: Number(restrictions.byDefault ?? 0), minQuantity: Number(restrictions.minQuantity ?? 0), maxQuantity: Number(restrictions.maxQuantity ?? 1) };
+  }),
+})).filter((group) => group.items.length);
+const syncIikoMenu = async () => {
+  if (!iikoExternalMenuId) return 0;
+  const menu = await iikoRequest('/api/2/menu/by_id', { organizationIds: [iikoOrganizationId], externalMenuId: iikoExternalMenuId, version: 2 });
+  const rows = [];
+  let sortOrder = 0;
+  for (const category of arrayValue(menu?.itemCategories)) for (const item of arrayValue(category?.items)) {
+    const size = defaultItemSize(item);
+    if (!item?.itemId) continue;
+    rows.push([String(item.itemId), String(category?.id ?? ''), String(category?.name ?? 'Без категории'), String(item?.name ?? ''), item?.description ?? null, iikoPrice(size), Number(size?.portionWeightGrams ?? 0), String(size?.measureUnitType ?? ''), JSON.stringify(size?.nutritionPerHundredGrams ?? size?.nutritions?.[0] ?? null), size?.buttonImageUrl ?? null, JSON.stringify(size?.itemModifierGroups ?? []), Boolean(item?.isHidden || size?.isHidden), sortOrder++, Number(menu?.revision ?? 0), JSON.stringify({ item, size })]);
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    for (const row of rows) await client.query(`insert into iiko_menu_items(product_id,category_id,category_name,name,description,price_rub,portion_weight_grams,measure_unit,nutrition,image_url,modifier_groups,is_hidden,sort_order,revision,raw_payload)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      on conflict(product_id) do update set category_id=excluded.category_id,category_name=excluded.category_name,name=excluded.name,description=excluded.description,price_rub=excluded.price_rub,portion_weight_grams=excluded.portion_weight_grams,measure_unit=excluded.measure_unit,nutrition=excluded.nutrition,image_url=excluded.image_url,modifier_groups=excluded.modifier_groups,is_hidden=excluded.is_hidden,sort_order=excluded.sort_order,revision=excluded.revision,raw_payload=excluded.raw_payload,updated_at=now()`, row);
+    await client.query('commit');
+  } catch (error) { await client.query('rollback'); throw error; } finally { client.release(); }
+  return rows.length;
+};
+const syncIikoTables = async () => {
+  if (!iikoTerminalGroupId) return 0;
+  const payload = await iikoRequest('/api/1/reserve/available_restaurant_sections', { organizationIds: [iikoOrganizationId], terminalGroupIds: [iikoTerminalGroupId], returnSchema: true });
+  const sections = arrayValue(payload?.restaurantSections);
+  const rows = [];
+  for (const section of sections) for (const table of arrayValue(section?.tables)) {
+    if (!table?.id) continue;
+    rows.push([String(table.id), iikoOrganizationId, iikoTerminalGroupId, String(section?.id ?? ''), String(section?.name ?? ''), String(table?.number ?? table?.name ?? ''), String(table?.name ?? table?.number ?? '')]);
+  }
+  for (const row of rows) await pool.query(`insert into iiko_tables(table_id,organization_id,terminal_group_id,section_id,section_name,table_number,table_name)
+    values($1,$2,$3,$4,$5,$6,$7) on conflict(table_id) do update set organization_id=excluded.organization_id,terminal_group_id=excluded.terminal_group_id,section_id=excluded.section_id,section_name=excluded.section_name,table_number=excluded.table_number,table_name=excluded.table_name,updated_at=now()`, row);
+  return rows.length;
 };
 const fetchIikoOrder = async (orderId) => {
   const token = await getIikoAccessToken();
@@ -177,14 +236,27 @@ const publicIikoStatus = (row) => ({
 });
 
 const publicState = async (terminalId) => {
-  const [products, promotions, terminal, settings] = await Promise.all([
+  const [localProducts, iikoProducts, promotions, terminal, selection, settings] = await Promise.all([
     pool.query('select * from products order by category, sort_order, name'),
+    pool.query(`select m.*, coalesce(p.image,'') as fallback_image, p.source_url as fallback_source_url, p.pairs_with, p.recommendations_note, p.badge, p.image_position, p.allergens, p.spicy,
+      exists(select 1 from iiko_stop_list_items s where s.organization_id=$1 and s.terminal_group_id=$2 and s.product_id=m.product_id and s.balance <= 0) as stopped
+      from iiko_menu_items m left join products p on p.id=m.product_id where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId, iikoTerminalGroupId]),
     pool.query('select * from promotions order by sort_order, created_at desc'),
     pool.query('insert into terminals(id) values ($1) on conflict (id) do update set last_seen_at = now() returning *', [terminalId]),
+    pool.query('select * from terminal_table_selections where terminal_id=$1', [terminalId]),
     pool.query('select key, value from app_settings'),
   ]);
+  const fixedTable = String(terminal.rows[0].table_number ?? '').trim();
+  const chosen = selection.rows[0];
+  const effectiveTable = fixedTable || chosen?.table_number || '';
+  const products = iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
+    id: item.product_id, name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
+    description: item.description, kbju: item.nutrition ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
+    image: item.image_url || item.fallback_image || '', source_url: item.fallback_source_url || '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
+    pairs_with: item.pairs_with ?? [], recommendations_note: item.recommendations_note ?? null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.badge ?? ''), image_position: item.image_position ?? 'center', allergens: item.allergens ?? '', spicy: item.spicy ?? 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
+  })) : localProducts.rows;
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId]);
-  return { products: products.rows, promotions: promotions.rows, terminal: terminal.rows[0], orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
+  return { products, promotions: promotions.rows, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? 'guest' : null), table_id: fixedTable ? null : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
 };
 
 const serviceTypes = new Set(['waiter', 'cutlery', 'bill', 'help']);
@@ -222,6 +294,51 @@ const normalizeOrder = async (input) => {
   const promoCode = String(input.promo_code ?? '').trim().toUpperCase();
   const discount = promoCode === 'BOWL10' ? Math.round(subtotal * 0.1) : 0;
   return { items, total: Math.max(0, subtotal - discount), promoCode };
+};
+const normalizeIikoOrder = async (input) => {
+  if (!Array.isArray(input.items) || !input.items.length || input.items.length > 50) throw Object.assign(new Error('Некорректный состав заказа'), { status: 400 });
+  const ids = [...new Set(input.items.filter((line) => line?.kind !== 'sauce').map((line) => String(line?.productId ?? '')).filter(Boolean))];
+  const result = await pool.query(`select m.*, exists(select 1 from iiko_stop_list_items s where s.organization_id=$1 and s.terminal_group_id=$2 and s.product_id=m.product_id and s.balance<=0) as stopped from iiko_menu_items m where m.product_id = any($3::text[]) and not m.is_hidden`, [iikoOrganizationId, iikoTerminalGroupId, ids]);
+  const products = new Map(result.rows.map((item) => [item.product_id, item]));
+  if (products.size !== ids.length) throw Object.assign(new Error('Одно из блюд больше недоступно'), { status: 409 });
+  let total = 0;
+  const items = [];
+  for (const line of input.items) {
+    if (line?.kind === 'sauce') continue; // legacy local sauce lines are not valid for iiko products
+    const product = products.get(String(line.productId));
+    const amount = Number(line.quantity);
+    if (!product || product.stopped) throw Object.assign(new Error('Одно из блюд больше недоступно'), { status: 409 });
+    if (!Number.isInteger(amount) || amount < 1 || amount > 20) throw Object.assign(new Error('Некорректное количество'), { status: 400 });
+    const allowedModifiers = new Map();
+    for (const group of arrayValue(product.modifier_groups)) for (const modifier of arrayValue(group?.items)) if (modifier?.itemId) allowedModifiers.set(String(modifier.itemId), modifier);
+    const modifiers = arrayValue(line.modifiers).map((modifier) => {
+      const productId = String(modifier?.productId ?? ''); const modifierItem = allowedModifiers.get(productId); const modifierAmount = Number(modifier?.amount ?? 1);
+      if (!modifierItem || !Number.isInteger(modifierAmount) || modifierAmount < 1 || modifierAmount > 20) throw Object.assign(new Error('Некорректная добавка'), { status: 400 });
+      return { productId, amount: modifierAmount, name: String(modifierItem.name ?? ''), price: iikoPrice(modifierItem) };
+    });
+    total += (Number(product.price_rub) + modifiers.reduce((sum, modifier) => sum + modifier.price * modifier.amount, 0)) * amount;
+    items.push({ key: `product|${product.product_id}|${modifiers.map((modifier) => modifier.productId).join(',')}`, productId: product.product_id, kind: 'product', quantity: amount, ...(modifiers.length ? { modifiers } : {}) });
+  }
+  if (!items.length) throw Object.assign(new Error('В заказе нет блюд'), { status: 400 });
+  return { items, total: Math.round(total), promoCode: '', iikoItems: items.map((line) => ({ type: 'Product', productId: line.productId, amount: line.quantity, ...(line.modifiers?.length ? { modifiers: line.modifiers.map((modifier) => ({ productId: modifier.productId, amount: modifier.amount })) } : {}) })) };
+};
+const effectiveTableForTerminal = async (terminal) => {
+  const fixed = String(terminal.table_number ?? '').trim();
+  if (fixed) {
+    const table = await pool.query('select * from iiko_tables where terminal_group_id=$1 and table_number=$2 limit 1', [iikoTerminalGroupId, fixed]);
+    if (!table.rowCount) throw Object.assign(new Error('Стол из настроек терминала не найден в iiko'), { status: 409 });
+    return table.rows[0];
+  }
+  const selection = await pool.query('select * from terminal_table_selections where terminal_id=$1', [terminal.id]);
+  if (!selection.rowCount) throw Object.assign(new Error('Перед заказом выберите стол'), { status: 409 });
+  return selection.rows[0];
+};
+const createIikoOrder = async ({ number, table, items, comment }) => {
+  if (!iikoTerminalGroupId || !iikoOrderTypeId) throw Object.assign(new Error('Интеграция iiko ещё не настроена на сервере'), { status: 503 });
+  const id = crypto.randomUUID();
+  const payload = await iikoRequest('/api/1/order/create', { organizationId: iikoOrganizationId, terminalGroupId: iikoTerminalGroupId, createOrderSettings: { id, externalNumber: number, tableIds: [table.table_id], orderType: { id: iikoOrderTypeId }, items, comment: String(comment ?? '').slice(0, 1000), servicePrint: true, checkStopList: true } });
+  if (payload?.errorInfo) throw Object.assign(new Error(payload.errorInfo?.message ?? 'iiko не принял заказ'), { status: 409 });
+  return { id, response: payload };
 };
 
 const productFields = ['name', 'category', 'price_rub', 'portion', 'unit', 'description', 'kbju', 'image', 'source_url', 'sauce_options', 'sauce_addon_price_rub', 'addon_options', 'flavor_options', 'size_option', 'pairs_with', 'recommendations_note', 'is_available', 'badge', 'image_position', 'allergens', 'spicy', 'sort_order'];
@@ -283,11 +400,7 @@ const server = http.createServer(async (request, response) => {
       const orderId = decodeURIComponent(path.slice('/api/v1/iiko/orders/'.length, -'/status'.length));
       if (!/^[0-9a-f-]{36}$/i.test(orderId)) return json(response, 400, { error: 'Invalid order id' });
       let result = await pool.query('select * from iiko_orders where order_id=$1', [orderId]);
-      const isStale = !result.rowCount || Date.now() - new Date(result.rows[0].updated_at).getTime() > 15_000;
-      if (isStale) {
-        const synced = await fetchIikoOrder(orderId);
-        result = { rowCount: 1, rows: [synced] };
-      }
+      if (!result.rowCount) return json(response, 404, { error: 'Статус заказа пока не получен' });
       return json(response, 200, publicIikoStatus(result.rows[0]));
     }
     // The native updater sends a POST request with device metadata. The public
@@ -306,6 +419,25 @@ const server = http.createServer(async (request, response) => {
       if (!terminalId || !/^[a-zA-Z0-9_-]{8,80}$/.test(terminalId)) return json(response, 400, { error: 'Invalid terminalId' });
       return json(response, 200, await publicState(terminalId));
     }
+    if (request.method === 'GET' && path === '/api/v1/tables') {
+      const terminalId = url.searchParams.get('terminalId');
+      if (!terminalId || !/^[a-zA-Z0-9_-]{8,80}$/.test(terminalId)) return json(response, 400, { error: 'Invalid terminalId' });
+      const tables = await pool.query('select table_id,section_name,table_number,table_name from iiko_tables where terminal_group_id=$1 order by section_name, table_number', [iikoTerminalGroupId]);
+      return json(response, 200, { tables: tables.rows });
+    }
+    if (request.method === 'POST' && path === '/api/v1/tables/select') {
+      const body = await readBody(request);
+      const terminalId = String(body.terminal_id ?? '');
+      if (!/^[a-zA-Z0-9_-]{8,80}$/.test(terminalId) || !body.table_id) return json(response, 400, { error: 'Некорректный стол' });
+      const terminal = await pool.query('insert into terminals(id) values($1) on conflict(id) do update set last_seen_at=now() returning *', [terminalId]);
+      if (String(terminal.rows[0].table_number ?? '').trim()) return json(response, 409, { error: 'Для этого планшета стол уже задан администратором' });
+      const table = await pool.query('select * from iiko_tables where table_id=$1 and terminal_group_id=$2', [String(body.table_id), iikoTerminalGroupId]);
+      if (!table.rowCount) return json(response, 409, { error: 'Такого стола нет в актуальной схеме iiko' });
+      const selected = table.rows[0];
+      await pool.query(`insert into terminal_table_selections(terminal_id,table_id,table_number,table_name) values($1,$2,$3,$4)
+        on conflict(terminal_id) do update set table_id=excluded.table_id,table_number=excluded.table_number,table_name=excluded.table_name,updated_at=now()`, [terminalId, selected.table_id, selected.table_number, selected.table_name]);
+      return json(response, 200, { table_number: selected.table_number, table_id: selected.table_id, source: 'guest' });
+    }
     if (request.method === 'POST' && path === '/api/v1/admin/login') {
       const { password } = await readBody(request);
       if (!password || sha256(password) !== adminPasswordHash) return json(response, 401, { error: 'Неверный пароль' });
@@ -316,12 +448,16 @@ const server = http.createServer(async (request, response) => {
       if (!body.terminal_id) return json(response, 400, { error: 'Некорректный заказ' });
       const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно не принимает заказы' });
-      const order = await normalizeOrder(body);
+      const useIiko = (await pool.query('select count(*)::int as count from iiko_menu_items')).rows[0].count > 0;
+      const order = useIiko ? await normalizeIikoOrder(body) : await normalizeOrder(body);
+      const table = useIiko ? await effectiveTableForTerminal(terminal.rows[0]) : { table_number: terminal.rows[0].table_number };
       let saved;
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const number = `B-${crypto.randomInt(1000, 10000)}`;
         try {
-          saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code) values ($1,$2,$3,$4,$5,$6,$7) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, terminal.rows[0].table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode]);
+          let iikoOrderId = null;
+          if (useIiko) iikoOrderId = (await createIikoOrder({ number, table, items: order.iikoItems, comment: body.comment })).id;
+          saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id) values ($1,$2,$3,$4,$5,$6,$7,$8) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, iikoOrderId]);
           break;
         } catch (error) { if (error.code !== '23505') throw error; }
       }
@@ -332,9 +468,10 @@ const server = http.createServer(async (request, response) => {
       const body = await readBody(request);
       const type = String(body.type ?? '');
       if (!body.terminal_id || !serviceTypes.has(type)) return json(response, 400, { error: 'Некорректный запрос' });
-      const terminal = await pool.query('select table_number from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
+      const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно недоступен' });
-      await pool.query('insert into service_requests(terminal_id, table_number, request_type) values ($1,$2,$3)', [String(body.terminal_id), terminal.rows[0].table_number, type]);
+      const table = await effectiveTableForTerminal(terminal.rows[0]);
+      await pool.query('insert into service_requests(terminal_id, table_number, request_type) values ($1,$2,$3)', [String(body.terminal_id), table.table_number, type]);
       return json(response, 201, { ok: true });
     }
     if (request.method === 'POST' && path.startsWith('/api/v1/orders/') && path.endsWith('/complete')) {
@@ -343,6 +480,8 @@ const server = http.createServer(async (request, response) => {
       if (!body.terminal_id || !orderNumber) return json(response, 400, { error: 'Некорректный заказ' });
       const result = await pool.query('update customer_orders set completed_at = now(), updated_at = now() where order_number = $1 and terminal_id = $2 and completed_at is null', [orderNumber, String(body.terminal_id)]);
       if (!result.rowCount) return json(response, 404, { error: 'Заказ не найден или уже завершён' });
+      const terminal = await pool.query('select table_number from terminals where id=$1', [String(body.terminal_id)]);
+      if (!String(terminal.rows[0]?.table_number ?? '').trim()) await pool.query('delete from terminal_table_selections where terminal_id=$1', [String(body.terminal_id)]);
       return json(response, 204, {});
     }
     if (!path.startsWith('/api/v1/admin/')) return json(response, 404, { error: 'Not found' });
@@ -394,4 +533,27 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(port, '127.0.0.1', () => console.log(`Zakaz API listening on ${port}`));
+let backgroundSyncRunning = false;
+const syncActiveIikoOrders = async () => {
+  const active = await pool.query(`select iiko_order_id from customer_orders where iiko_order_id is not null and completed_at is null and status_step < 4 and updated_at > now() - interval '8 hours' limit 30`);
+  for (const row of active.rows) await fetchIikoOrder(row.iiko_order_id);
+};
+const backgroundSync = async () => {
+  if (backgroundSyncRunning) return;
+  backgroundSyncRunning = true;
+  try {
+    const results = await Promise.allSettled([syncIikoMenu(), syncIikoTables(), fetchIikoStopLists(iikoTerminalGroupId ? [iikoTerminalGroupId] : [])]);
+    results.filter((result) => result.status === 'rejected').forEach((result) => console.warn('iiko cache sync:', result.reason?.message ?? result.reason));
+    await syncActiveIikoOrders();
+  } catch (error) { console.warn('iiko background sync:', error.message); }
+  finally { backgroundSyncRunning = false; }
+};
+
+server.listen(port, '127.0.0.1', () => {
+  console.log(`Zakaz API listening on ${port}`);
+  setTimeout(() => { void backgroundSync(); }, 3_000);
+  // No tablet makes these calls. Menu/tables/stop-list are refreshed in one
+  // controlled server task; active orders use webhooks first and this fallback.
+  setInterval(() => { void backgroundSync(); }, 10 * 60 * 1_000).unref();
+  setInterval(() => { void syncActiveIikoOrders().catch((error) => console.warn('iiko order sync:', error.message)); }, 2 * 60 * 1_000).unref();
+});
