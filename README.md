@@ -90,6 +90,10 @@ ADMIN_PASSWORD_HASH=sha256-hash-of-admin-password
 
 Секреты, пароли и ключи развёртывания не коммитятся. `menu.json` используется как исходный набор данных; в работающем продукте изменения меню вносятся через сервер и админ-панель.
 
+## iiko Cloud API
+
+Интеграция с iiko Cloud API подготовлена на сервере: внешнее меню, столы, создание заказа, статусы кухни, webhook-и и стоп-лист. Полная инструкция по настройке, переменным окружения, запросам, rate limit и проверке — [docs/IIKO_CLOUD_API.md](docs/IIKO_CLOUD_API.md).
+
 ## Android и kiosk-режим
 
 Скачать актуальную сборку: **[BrooklynBowl-Kiosk.apk](https://github.com/fishing53/zakaz-bb/releases/download/android-latest/BrooklynBowl-Kiosk.apk)**.
