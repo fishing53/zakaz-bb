@@ -149,7 +149,7 @@ const publicModifierGroups = (groups) => arrayValue(groups).map((group) => ({
 })).filter((group) => group.items.length);
 const syncIikoMenu = async () => {
   if (!iikoExternalMenuId) return 0;
-  const menu = await iikoRequest('/api/2/menu/by_id', { organizationIds: [iikoOrganizationId], externalMenuId: iikoExternalMenuId, version: 2 });
+  const menu = await iikoRequest('/api/2/menu/by_id', { organizationIds: [iikoOrganizationId], externalMenuId: iikoExternalMenuId, version: 2, language: 'ru', asyncMode: false });
   const rows = [];
   let sortOrder = 0;
   for (const category of arrayValue(menu?.itemCategories)) for (const item of arrayValue(category?.items)) {
