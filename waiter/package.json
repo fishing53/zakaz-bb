@@ -2,6 +2,9 @@
   "name": "brooklynbowl-waiter",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "@capacitor/push-notifications": "^8.0.2"
+  },
   "scripts": {
     "sync:android": "capacitor sync android",
     "build:android": "npm run sync:android && cd android && ./gradlew assembleDebug"
