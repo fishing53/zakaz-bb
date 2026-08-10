@@ -206,7 +206,7 @@ async function action(element: HTMLElement) {
   }
   if (type === 'logout-admin') { apiService.logout(); appStore.set({ adminAuthenticated: false, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
-    const adminTab = element.dataset.adminTab as 'terminal' | 'menu' | 'stock' | 'promotions' | 'quality' | 'audit';
+    const adminTab = element.dataset.adminTab as 'terminal' | 'menu' | 'promotions' | 'quality' | 'audit';
     appStore.set({ adminTab });
     if (adminTab === 'audit') apiService.audit().then((items) => { auditLog = items; render(); }).catch((error) => flash(error.message));
     return;
@@ -309,18 +309,9 @@ async function action(element: HTMLElement) {
     try {
       const pairs = [...(input<HTMLSelectElement>('pairs')?.selectedOptions ?? [])].map((option) => option.value);
       const calories = input<HTMLInputElement>('calories')?.value.trim() ?? '';
-      const result = await apiService.saveProduct(id, { name: input<HTMLInputElement>('name')?.value.trim(), category: input<HTMLInputElement>('category')?.value.trim(), price_rub: Number(input<HTMLInputElement>('price_rub')?.value ?? 0), portion: input<HTMLInputElement>('portion')?.value.trim(), unit: input<HTMLSelectElement>('unit')?.value.trim(), description: input<HTMLTextAreaElement>('description')?.value.trim() || null, image: input<HTMLInputElement>('image')?.value.trim(), allergens: input<HTMLInputElement>('allergens')?.value.trim(), spicy: input<HTMLSelectElement>('spicy')?.value as 'none' | 'mild' | 'hot', unavailable: input<HTMLInputElement>('unavailable')?.checked, badge: input<HTMLSelectElement>('badge')?.value.trim(), kbju: calories ? { calories, protein: input<HTMLInputElement>('protein')?.value.trim() ?? '', fat: input<HTMLInputElement>('fat')?.value.trim() ?? '', carbs: input<HTMLInputElement>('carbs')?.value.trim() ?? '' } : null, sauce_options: values('sauces'), sauce_addon_price_rub: input<HTMLInputElement>('saucePrice')?.value.trim() || undefined, addon_options: values('addons'), flavor_options: values('flavors'), pairs_with: pairs });
+      const result = await apiService.saveProduct(id, { name: input<HTMLInputElement>('name')?.value.trim(), category: input<HTMLInputElement>('category')?.value.trim(), price_rub: Number(input<HTMLInputElement>('price_rub')?.value ?? 0), portion: input<HTMLInputElement>('portion')?.value.trim(), unit: input<HTMLSelectElement>('unit')?.value.trim(), description: input<HTMLTextAreaElement>('description')?.value.trim() || null, image: input<HTMLInputElement>('image')?.value.trim(), allergens: input<HTMLInputElement>('allergens')?.value.trim(), spicy: input<HTMLSelectElement>('spicy')?.value as 'none' | 'mild' | 'hot', badge: input<HTMLSelectElement>('badge')?.value.trim(), kbju: calories ? { calories, protein: input<HTMLInputElement>('protein')?.value.trim() ?? '', fat: input<HTMLInputElement>('fat')?.value.trim() ?? '', carbs: input<HTMLInputElement>('carbs')?.value.trim() ?? '' } : null, sauce_options: values('sauces'), sauce_addon_price_rub: input<HTMLInputElement>('saucePrice')?.value.trim() || undefined, addon_options: values('addons'), flavor_options: values('flavors'), pairs_with: pairs });
       applyServerProduct(result.product, result.display); flash('Карточка блюда сохранена');
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить блюдо'); }
-    return;
-  }
-  if (type === 'toggle-product-stock') {
-    const product = menuService.find(element.dataset.productId!);
-    if (!product) return;
-    try {
-      const result = await apiService.saveProduct(product.id, { unavailable: !appStore.get().productDisplay[product.id]?.unavailable });
-      applyServerProduct(result.product, result.display); flash(result.display.unavailable ? `${product.name}: в стоп-листе` : `${product.name}: возвращено в меню`);
-    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось изменить стоп-лист'); }
     return;
   }
   if (type === 'create-promotion') {
