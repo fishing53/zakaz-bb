@@ -42,3 +42,7 @@ jobs:
           scp "zakaz-bb-${VERSION}.zip" root@194.226.142.35:"/var/www/zakaz-zvyak/ota/zakaz-bb-${VERSION}.zip"
           scp ota-manifest.json root@194.226.142.35:/var/www/zakaz-zvyak/ota/manifest.json
           ssh root@194.226.142.35 'chown -R www-data:www-data /var/www/zakaz-zvyak/ota'
+      - name: Deploy API and database migrations
+        run: |
+          scp server/index.mjs server/migrate.mjs root@194.226.142.35:/opt/zakaz-api/
+          ssh root@194.226.142.35 'set -a; . /etc/zakaz-api.env; set +a; cd /opt/zakaz-api && node --check index.mjs && node migrate.mjs && systemctl restart zakaz-api && systemctl is-active zakaz-api'
