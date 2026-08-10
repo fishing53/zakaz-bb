@@ -300,6 +300,12 @@ const publicState = async (terminalId) => {
 };
 
 const serviceTypes = new Set(['waiter', 'cutlery', 'bill', 'help']);
+const servicePushText = {
+  waiter: 'Позвали официанта',
+  cutlery: 'Попросили приборы за стол',
+  bill: 'Попросили счёт',
+  help: 'Нужна помощь за столом',
+};
 const arrayValue = (value) => Array.isArray(value) ? value : [];
 const sauceName = (value) => /^Соус «(.+)»$/u.exec(String(value ?? ''))?.[1] ?? '';
 
@@ -552,7 +558,7 @@ const server = http.createServer(async (request, response) => {
       const sessionId = await createGuestSession({ terminalId: String(body.terminal_id), table });
       const created = await pool.query('insert into service_requests(terminal_id, table_number, request_type, restaurant_id, guest_session_id) values ($1,$2,$3,$4,$5) returning id', [String(body.terminal_id), table.table_number, type, iikoOrganizationId, sessionId]);
       await publishEvent('waiter_called', 'service_request', String(created.rows[0].id), { tableNumber: table.table_number, type });
-      void notifyWaiters(`Стол №${table.table_number}`, `Новый вызов: ${type}`, { type: 'service_request', requestId: created.rows[0].id, tableNumber: table.table_number, requestType: type });
+      void notifyWaiters(`СТОЛ №${table.table_number}`, servicePushText[type] ?? 'Новый вызов за столом', { type: 'service_request', requestId: created.rows[0].id, tableNumber: table.table_number, requestType: type });
       return json(response, 201, { ok: true });
     }
     if (request.method === 'POST' && path.startsWith('/api/v1/orders/') && path.endsWith('/complete')) {
