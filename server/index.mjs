@@ -12,6 +12,7 @@ const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
 const iikoApiBase = process.env.IIKO_API_BASE ?? 'https://api-ru.iiko.services';
 const iikoOrganizationId = process.env.IIKO_ORGANIZATION_ID ?? '528faa64-3219-4cc9-b17f-96fa28fd8627';
 const iikoWebhookToken = process.env.IIKO_WEBHOOK_TOKEN;
+const firebaseServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
 const iikoTerminalGroupId = process.env.IIKO_TERMINAL_GROUP_ID ?? '';
 const iikoExternalMenuId = process.env.IIKO_EXTERNAL_MENU_ID ?? '';
 const iikoOrderTypeId = process.env.IIKO_ORDER_TYPE_ID ?? '';
@@ -74,6 +75,26 @@ const publishEvent = (eventType, aggregateType, aggregateId, payload, restaurant
   'insert into app_events(restaurant_id,event_type,aggregate_type,aggregate_id,payload) values($1,$2,$3,$4,$5)',
   [restaurantId, eventType, aggregateType, aggregateId, JSON.stringify(payload)],
 );
+let firebaseMessagingPromise;
+const firebaseMessaging = async () => {
+  if (!firebaseServiceAccountPath) return null;
+  if (!firebaseMessagingPromise) firebaseMessagingPromise = (async () => {
+    const [{ cert, getApps, initializeApp }, { getMessaging }] = await Promise.all([import('firebase-admin/app'), import('firebase-admin/messaging')]);
+    const serviceAccount = JSON.parse(await fs.readFile(firebaseServiceAccountPath, 'utf8'));
+    const app = getApps()[0] ?? initializeApp({ credential: cert(serviceAccount) });
+    return getMessaging(app);
+  })();
+  return firebaseMessagingPromise;
+};
+const notifyWaiters = async (title, body, data = {}) => {
+  try {
+    const messaging = await firebaseMessaging(); if (!messaging) return;
+    const tokens = await pool.query(`select d.token from waiter_devices d join waiter_profiles w on w.id=d.waiter_id where w.restaurant_id=$1 and w.is_active=true and d.is_active=true`, [iikoOrganizationId]);
+    if (!tokens.rowCount) return;
+    const result = await messaging.sendEachForMulticast({ tokens: tokens.rows.map((row) => row.token), notification: { title, body }, data: Object.fromEntries(Object.entries(data).map(([key,value]) => [key,String(value)])), android: { priority: 'high', notification: { channelId: 'bb_waiter_urgent', sound: 'default', priority: 'PRIORITY_MAX' } } });
+    result.responses.forEach((response, index) => { if (!response.success && /registration-token-not-registered|invalid-registration-token/.test(response.error?.code ?? '')) void pool.query('update waiter_devices set is_active=false where token=$1', [tokens.rows[index].token]); });
+  } catch (error) { console.warn('Firebase waiter notification:', error.message); }
+};
 const createGuestSession = async ({ terminalId = null, source = 'tablet', table = null, metadata = {} }) => {
   const id = crypto.randomUUID();
   await pool.query('insert into guest_sessions(id,restaurant_id,terminal_id,source,table_id,table_number,metadata) values($1,$2,$3,$4,$5,$6,$7)', [id, iikoOrganizationId, terminalId, source, table?.table_id ?? null, table?.table_number ?? '', JSON.stringify(metadata)]);
@@ -474,6 +495,12 @@ const server = http.createServer(async (request, response) => {
       ]);
       return json(response, 200, { requests: requests.rows, orders: orders.rows, serverTime: new Date().toISOString() });
     }
+    if (request.method === 'POST' && path === '/api/v1/waiter/devices') {
+      const waiter = requireWaiter(request); const body = await readBody(request); const deviceToken = String(body.token ?? '');
+      if (deviceToken.length < 32 || deviceToken.length > 4096) return json(response, 400, { error: 'Некорректный токен устройства' });
+      await pool.query(`insert into waiter_devices(waiter_id,token,platform) values($1,$2,$3) on conflict(token) do update set waiter_id=excluded.waiter_id,platform=excluded.platform,is_active=true,last_seen_at=now()`, [waiter.waiterId, deviceToken, String(body.platform ?? 'android')]);
+      return json(response, 204, {});
+    }
     if (request.method === 'POST' && path.startsWith('/api/v1/waiter/requests/') && path.endsWith('/accept')) {
       const waiter = requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/accept'.length));
       if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный вызов' });
@@ -508,6 +535,7 @@ const server = http.createServer(async (request, response) => {
       }
       if (!saved) throw new Error('Unable to allocate order number');
       await publishEvent('order_created', 'order', saved.rows[0].order_number, { tableNumber: saved.rows[0].table_number, source: body.source === 'qr' ? 'qr' : 'tablet', total: Number(saved.rows[0].total) });
+      void notifyWaiters(`Новый заказ · стол №${saved.rows[0].table_number}`, `Заказ ${saved.rows[0].order_number} на ${saved.rows[0].total} ₽`, { type: 'order', orderNumber: saved.rows[0].order_number, tableNumber: saved.rows[0].table_number });
       return json(response, 201, saved.rows[0]);
     }
     if (request.method === 'POST' && path === '/api/v1/service-requests') {
@@ -520,6 +548,7 @@ const server = http.createServer(async (request, response) => {
       const sessionId = await createGuestSession({ terminalId: String(body.terminal_id), table });
       const created = await pool.query('insert into service_requests(terminal_id, table_number, request_type, restaurant_id, guest_session_id) values ($1,$2,$3,$4,$5) returning id', [String(body.terminal_id), table.table_number, type, iikoOrganizationId, sessionId]);
       await publishEvent('waiter_called', 'service_request', String(created.rows[0].id), { tableNumber: table.table_number, type });
+      void notifyWaiters(`Стол №${table.table_number}`, `Новый вызов: ${type}`, { type: 'service_request', requestId: created.rows[0].id, tableNumber: table.table_number, requestType: type });
       return json(response, 201, { ok: true });
     }
     if (request.method === 'POST' && path.startsWith('/api/v1/orders/') && path.endsWith('/complete')) {

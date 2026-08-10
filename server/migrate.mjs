@@ -128,6 +128,11 @@ await pool.query(`
     restaurant_id text not null, table_id text not null, waiter_id text not null references waiter_profiles(id),
     assigned_at timestamptz not null default now(), released_at timestamptz, primary key(restaurant_id, table_id, waiter_id, assigned_at)
   );
+  create table if not exists waiter_devices (
+    id bigserial primary key, waiter_id text not null references waiter_profiles(id) on delete cascade,
+    token text not null unique, platform text not null default 'android', is_active boolean not null default true,
+    last_seen_at timestamptz not null default now(), created_at timestamptz not null default now()
+  );
   create table if not exists app_events (
     id bigserial primary key, restaurant_id text not null, event_type text not null,
     aggregate_type text not null, aggregate_id text not null, payload jsonb not null,
