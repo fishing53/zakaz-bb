@@ -1,0 +1,32 @@
+name: Build BrooklynBowl Waiter APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-waiter-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - run: npm ci
+      - run: npm run build:waiter
+      - name: Create and sync Android wrapper
+        working-directory: waiter
+        run: |
+          npx cap add android || true
+          npx cap sync android
+      - name: Build debug APK
+        working-directory: waiter/android
+        run: ./gradlew assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrooklynBowl-Waiter-APK
+          path: waiter/android/app/build/outputs/apk/debug/app-debug.apk
