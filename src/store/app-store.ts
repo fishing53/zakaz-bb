@@ -12,7 +12,7 @@ export interface AppState {
   adminAuthenticated: boolean;
   adminLoginOpen: boolean;
   adminProductId: string | null;
-  adminTab: 'terminal' | 'menu' | 'promotions' | 'quality' | 'audit';
+  adminTab: 'terminal' | 'menu' | 'promotions' | 'staff' | 'quality' | 'audit';
   inactivityWarning: boolean;
   inactivitySeconds: number;
   orderNumber: string | null;

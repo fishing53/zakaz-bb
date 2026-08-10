@@ -12,6 +12,8 @@ type ServerProduct = Product & { is_available: boolean; badge: string; image_pos
 type ServerPromotion = { id: number | string; product_id: string; title: string; subtitle: string; label: string; active: boolean; sort_order: number };
 type ServerTerminal = { id: string; label: string; table_number: string; is_active: boolean; idle_seconds: number; table_source?: 'admin' | 'guest' | null; table_id?: string | null };
 type ServerOrder = { order_number: string; items: CartLine[]; total: number; status_step: number; table_number: string; created_at: string };
+export type IikoEmployee = { employee_id: string; display_name: string; role_name: string; is_active: boolean };
+export type WaiterProfile = { id: string; display_name: string; is_active: boolean; iiko_employee_id: string | null; role_name?: string; iiko_active?: boolean };
 
 const request = async <T>(path: string, init: RequestInit = {}) => {
   try {
@@ -92,5 +94,10 @@ export const apiService = {
     return promotion(data);
   },
   async deletePromotion(id: string) { await request<void>(`/admin/promotions/${id}`, { method: 'DELETE' }); },
+  iikoEmployees: () => request<IikoEmployee[]>('/admin/iiko-employees'),
+  waiters: () => request<WaiterProfile[]>('/admin/waiters'),
+  async syncIikoEmployees() { return request<{ count: number }>('/admin/iiko-employees/sync', { method: 'POST' }); },
+  createWaiter: (value: { iikoEmployeeId: string; pin: string }) => request<WaiterProfile>('/admin/waiters', { method: 'POST', body: JSON.stringify({ iiko_employee_id: value.iikoEmployeeId, pin: value.pin }) }),
+  updateWaiter: (id: string, value: { pin?: string; isActive?: boolean }) => request<WaiterProfile>(`/admin/waiters/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ pin: value.pin ?? '', is_active: value.isActive }) }),
   audit: () => request<Array<{ id: number; action: string; entity: string; entity_id: string; created_at: string }>>('/admin/audit'),
 };

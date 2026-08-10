@@ -124,6 +124,14 @@ await pool.query(`
     id text primary key, restaurant_id text not null, display_name text not null, pin_hash text, is_active boolean not null default true,
     created_at timestamptz not null default now(), updated_at timestamptz not null default now()
   );
+  create table if not exists iiko_employees (
+    employee_id text primary key, organization_id text not null, display_name text not null,
+    role_name text not null default '', is_active boolean not null default true,
+    raw_payload jsonb not null default '{}'::jsonb, updated_at timestamptz not null default now()
+  );
+  create index if not exists iiko_employees_organization_idx on iiko_employees(organization_id, is_active, display_name);
+  alter table waiter_profiles add column if not exists iiko_employee_id text references iiko_employees(employee_id) on delete set null;
+  create unique index if not exists waiter_profiles_iiko_employee_idx on waiter_profiles(restaurant_id, iiko_employee_id) where iiko_employee_id is not null;
   create table if not exists waiter_table_assignments (
     restaurant_id text not null, table_id text not null, waiter_id text not null references waiter_profiles(id),
     assigned_at timestamptz not null default now(), released_at timestamptz, primary key(restaurant_id, table_id, waiter_id, assigned_at)

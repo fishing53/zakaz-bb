@@ -22,6 +22,7 @@ import { marketingService } from './services/marketing-service';
 import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
 import type { Product } from './types/menu';
+import type { IikoEmployee, WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
@@ -34,6 +35,8 @@ let promoSwipeStart: { x: number; y: number } | null = null;
 let suppressPromoOpenUntil = 0;
 let statusRefreshTimer = 0;
 let auditLog: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [];
+let iikoEmployees: IikoEmployee[] = [];
+let waiterProfiles: WaiterProfile[] = [];
 const updateSearch = debounce((value: string) => {
   appStore.set({ search: value }, false);
   refreshMenuResults();
@@ -54,7 +57,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), state.promotions, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog) : welcomePage(menuService.featured(), state.promotions, menuService.all(), state.productDisplay, state.terminal);
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), state.promotions, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, iikoEmployees, waiterProfiles) : welcomePage(menuService.featured(), state.promotions, menuService.all(), state.productDisplay, state.terminal);
   }
 }
 
@@ -206,11 +209,15 @@ async function action(element: HTMLElement) {
   }
   if (type === 'logout-admin') { apiService.logout(); appStore.set({ adminAuthenticated: false, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
-    const adminTab = element.dataset.adminTab as 'terminal' | 'menu' | 'promotions' | 'quality' | 'audit';
+    const adminTab = element.dataset.adminTab as 'terminal' | 'menu' | 'promotions' | 'staff' | 'quality' | 'audit';
     appStore.set({ adminTab });
     if (adminTab === 'audit') apiService.audit().then((items) => { auditLog = items; render(); }).catch((error) => flash(error.message));
+    if (adminTab === 'staff') Promise.all([apiService.iikoEmployees(), apiService.waiters()]).then(([employees, waiters]) => { iikoEmployees = employees; waiterProfiles = waiters; render(); }).catch((error) => flash(error.message));
     return;
   }
+  if (type === 'sync-iiko-employees') { try { const result = await apiService.syncIikoEmployees(); iikoEmployees = await apiService.iikoEmployees(); flash(`Синхронизировано: ${result.count}`); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось обновить сотрудников'); } return; }
+  if (type === 'save-waiter') { try { const employee = root.querySelector<HTMLSelectElement>('[data-admin-waiter="employee"]')?.value ?? ''; const pin = root.querySelector<HTMLInputElement>('[data-admin-waiter="pin"]')?.value ?? ''; await apiService.createWaiter({ iikoEmployeeId: employee, pin }); waiterProfiles = await apiService.waiters(); flash('Доступ официанту выдан'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось выдать доступ'); } return; }
+  if (type === 'update-waiter' || type === 'toggle-waiter') { try { const id = element.dataset.waiterId ?? ''; const pin = root.querySelector<HTMLInputElement>(`[data-waiter-pin="${CSS.escape(id)}"]`)?.value ?? ''; const isActive = element.dataset.waiterActive === 'true'; await apiService.updateWaiter(id, { pin, isActive: type === 'toggle-waiter' ? isActive : undefined }); waiterProfiles = await apiService.waiters(); flash('Доступ обновлён'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось обновить доступ'); } return; }
   if (type === 'toggle-fullscreen') {
     if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => flash('Полноэкранный режим недоступен в этом браузере'));
     return;
