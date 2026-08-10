@@ -81,6 +81,11 @@ await pool.query(`
     revision bigint, raw_payload jsonb not null, updated_at timestamptz not null default now()
   );
   create index if not exists iiko_menu_items_category_idx on iiko_menu_items(category_name, sort_order);
+  create table if not exists iiko_product_overrides (
+    product_id text primary key references iiko_menu_items(product_id) on delete cascade,
+    image text not null default '', image_position text not null default 'center', badge text not null default '',
+    pairs_with jsonb not null default '[]'::jsonb, updated_at timestamptz not null default now()
+  );
   create table if not exists iiko_tables (
     table_id text primary key, organization_id text not null, terminal_group_id text not null,
     section_id text not null default '', section_name text not null default '',

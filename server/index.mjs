@@ -238,9 +238,9 @@ const publicIikoStatus = (row) => ({
 const publicState = async (terminalId) => {
   const [localProducts, iikoProducts, promotions, terminal, selection, settings] = await Promise.all([
     pool.query('select * from products order by category, sort_order, name'),
-    pool.query(`select m.*, coalesce(p.image,'') as fallback_image, p.source_url as fallback_source_url, p.pairs_with, p.recommendations_note, p.badge, p.image_position, p.allergens, p.spicy,
+    pool.query(`select m.*, o.image as override_image, o.pairs_with as override_pairs_with, o.badge as override_badge, o.image_position as override_image_position,
       exists(select 1 from iiko_stop_list_items s where s.organization_id=$1 and s.terminal_group_id=$2 and s.product_id=m.product_id and s.balance <= 0) as stopped
-      from iiko_menu_items m left join products p on p.id=m.product_id where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId, iikoTerminalGroupId]),
+      from iiko_menu_items m left join iiko_product_overrides o on o.product_id=m.product_id where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId, iikoTerminalGroupId]),
     pool.query('select * from promotions order by sort_order, created_at desc'),
     pool.query('insert into terminals(id) values ($1) on conflict (id) do update set last_seen_at = now() returning *', [terminalId]),
     pool.query('select * from terminal_table_selections where terminal_id=$1', [terminalId]),
@@ -252,8 +252,8 @@ const publicState = async (terminalId) => {
   const products = iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
     id: item.product_id, name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, kbju: item.nutrition ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
-    image: item.image_url || item.fallback_image || '', source_url: item.fallback_source_url || '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
-    pairs_with: item.pairs_with ?? [], recommendations_note: item.recommendations_note ?? null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.badge ?? ''), image_position: item.image_position ?? 'center', allergens: item.allergens ?? '', spicy: item.spicy ?? 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
+    image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
+    pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: '', spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
   })) : localProducts.rows;
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId]);
   return { products, promotions: promotions.rows, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? 'guest' : null), table_id: fixedTable ? null : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
@@ -487,6 +487,14 @@ const server = http.createServer(async (request, response) => {
     if (!path.startsWith('/api/v1/admin/')) return json(response, 404, { error: 'Not found' });
     const actor = requireAdmin(request).admin ? 'admin' : 'unknown';
     if (request.method === 'GET' && path === '/api/v1/admin/state') return json(response, 200, await publicState(url.searchParams.get('terminalId') ?? 'admin-preview'));
+    if (request.method === 'PUT' && path.startsWith('/api/v1/admin/iiko-products/')) {
+      const id = decodeURIComponent(path.slice('/api/v1/admin/iiko-products/'.length)); const body = await readBody(request);
+      const exists = await pool.query('select product_id from iiko_menu_items where product_id=$1', [id]);
+      if (!exists.rowCount) return json(response, 404, { error: 'Блюдо iiko не найдено' });
+      const result = await pool.query(`insert into iiko_product_overrides(product_id,image,image_position,badge,pairs_with) values($1,$2,$3,$4,$5)
+        on conflict(product_id) do update set image=excluded.image,image_position=excluded.image_position,badge=excluded.badge,pairs_with=excluded.pairs_with,updated_at=now() returning *`, [id, String(body.image ?? ''), String(body.image_position ?? 'center'), String(body.badge ?? ''), JSON.stringify(arrayValue(body.pairs_with))]);
+      await audit(actor, 'update', 'iiko_product_override', id, null, result.rows[0]); return json(response, 200, result.rows[0]);
+    }
     if (request.method === 'PUT' && path.startsWith('/api/v1/admin/products/')) {
       const product = await updateProduct(decodeURIComponent(path.slice('/api/v1/admin/products/'.length)), await readBody(request), actor);
       return json(response, 200, product);

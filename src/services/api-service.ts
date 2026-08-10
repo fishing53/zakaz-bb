@@ -79,6 +79,10 @@ export const apiService = {
     const data = await request<ServerProduct>(`/admin/products/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) });
     return { product: product(data), display: display(data) };
   },
+  async saveIikoPresentation(id: string, value: { image: string; imagePosition: string; badge: string; pairsWith: string[] }) {
+    const data = await request<{ image: string; image_position: string; badge: string; pairs_with: string[] }>(`/admin/iiko-products/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ image: value.image, image_position: value.imagePosition, badge: value.badge, pairs_with: value.pairsWith }) });
+    return { image: data.image, imagePosition: data.image_position, badge: data.badge, pairsWith: data.pairs_with };
+  },
   async createPromotion(value: Omit<Promotion, 'id'>) {
     const data = await request<ServerPromotion>('/admin/promotions', { method: 'POST', body: JSON.stringify({ product_id: value.productId, title: value.title, subtitle: value.subtitle, label: value.label, active: value.active }) });
     return promotion(data);
