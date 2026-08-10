@@ -91,7 +91,9 @@ const notifyWaiters = async (title, body, data = {}) => {
     const messaging = await firebaseMessaging(); if (!messaging) return;
     const tokens = await pool.query(`select d.token from waiter_devices d join waiter_profiles w on w.id=d.waiter_id where w.restaurant_id=$1 and w.is_active=true and d.is_active=true`, [iikoOrganizationId]);
     if (!tokens.rowCount) return;
-    const result = await messaging.sendEachForMulticast({ tokens: tokens.rows.map((row) => row.token), notification: { title, body }, data: Object.fromEntries(Object.entries(data).map(([key,value]) => [key,String(value)])), android: { priority: 'high', notification: { channelId: 'bb_waiter_urgent', sound: 'default', priority: 'PRIORITY_MAX' } } });
+    // Data-only message lets the native waiter client show an urgent full-screen notification.
+    const payload = Object.fromEntries(Object.entries({ title, body, ...data }).map(([key, value]) => [key, String(value ?? '')]));
+    const result = await messaging.sendEachForMulticast({ tokens: tokens.rows.map((row) => row.token), data: payload, android: { priority: 'high' } });
     result.responses.forEach((response, index) => { if (!response.success && /registration-token-not-registered|invalid-registration-token/.test(response.error?.code ?? '')) void pool.query('update waiter_devices set is_active=false where token=$1', [tokens.rows[index].token]); });
   } catch (error) { console.warn('Firebase waiter notification:', error.message); }
 };
