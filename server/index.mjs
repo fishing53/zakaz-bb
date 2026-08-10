@@ -219,20 +219,6 @@ const syncIikoTables = async () => {
     values($1,$2,$3,$4,$5,$6,$7) on conflict(table_id) do update set organization_id=excluded.organization_id,terminal_group_id=excluded.terminal_group_id,section_id=excluded.section_id,section_name=excluded.section_name,table_number=excluded.table_number,table_name=excluded.table_name,updated_at=now()`, row);
   return rows.length;
 };
-const syncIikoEmployees = async () => {
-  const payload = await iikoRequest('/api/1/employees/info', { organizationIds: [iikoOrganizationId], returnDeleted: false });
-  const employees = arrayValue(payload?.employees);
-  for (const employee of employees) {
-    const id = String(employee?.id ?? '');
-    if (!id) continue;
-    const name = String(employee?.name ?? employee?.firstName ?? 'Сотрудник').trim();
-    const role = String(employee?.role ?? employee?.roleName ?? employee?.department ?? '');
-    const active = !Boolean(employee?.isDeleted ?? employee?.deleted);
-    await pool.query(`insert into iiko_employees(employee_id,organization_id,display_name,role_name,is_active,raw_payload)
-      values($1,$2,$3,$4,$5,$6) on conflict(employee_id) do update set organization_id=excluded.organization_id,display_name=excluded.display_name,role_name=excluded.role_name,is_active=excluded.is_active,raw_payload=excluded.raw_payload,updated_at=now()`, [id, iikoOrganizationId, name, role, active, JSON.stringify(employee)]);
-  }
-  return employees.length;
-};
 const fetchIikoOrder = async (orderId) => {
   const token = await getIikoAccessToken();
   const result = await fetch(`${iikoApiBase}/api/1/order/by_id`, {
@@ -581,33 +567,13 @@ const server = http.createServer(async (request, response) => {
     const actor = requireAdmin(request).admin ? 'admin' : 'unknown';
     if (request.method === 'GET' && path === '/api/v1/admin/state') return json(response, 200, await publicState(url.searchParams.get('terminalId') ?? 'admin-preview'));
     if (request.method === 'GET' && path === '/api/v1/admin/waiters') {
-      const result = await pool.query(`select w.id,w.display_name,w.is_active,w.iiko_employee_id,w.created_at,e.role_name,e.is_active as iiko_active
-        from waiter_profiles w left join iiko_employees e on e.employee_id=w.iiko_employee_id
-        where w.restaurant_id=$1 order by w.display_name`, [iikoOrganizationId]); return json(response, 200, result.rows);
-    }
-    if (request.method === 'GET' && path === '/api/v1/admin/iiko-employees') {
-      const result = await pool.query('select employee_id,display_name,role_name,is_active,updated_at from iiko_employees where organization_id=$1 order by is_active desc,display_name', [iikoOrganizationId]); return json(response, 200, result.rows);
-    }
-    if (request.method === 'POST' && path === '/api/v1/admin/iiko-employees/sync') {
-      const count = await syncIikoEmployees(); await audit(actor, 'sync', 'iiko_employees', iikoOrganizationId, null, { count }); return json(response, 200, { count });
+      const result = await pool.query('select id,display_name,is_active,created_at from waiter_profiles where restaurant_id=$1 order by display_name', [iikoOrganizationId]); return json(response, 200, result.rows);
     }
     if (request.method === 'POST' && path === '/api/v1/admin/waiters') {
-      const body = await readBody(request); const employeeId=String(body.iiko_employee_id??'').trim(); const pin=String(body.pin??'');
-      if (!employeeId || !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'Выберите сотрудника iiko и укажите PIN из 4–8 цифр'});
-      const employee = await pool.query('select employee_id,display_name from iiko_employees where employee_id=$1 and organization_id=$2 and is_active=true', [employeeId, iikoOrganizationId]);
-      if (!employee.rowCount) return json(response,400,{error:'Сотрудник не найден в синхронизированном списке iiko'});
-      const id=crypto.randomUUID(); const result=await pool.query(`insert into waiter_profiles(id,restaurant_id,display_name,pin_hash,iiko_employee_id)
-        values($1,$2,$3,$4,$5) on conflict(restaurant_id,iiko_employee_id) where iiko_employee_id is not null do update set display_name=excluded.display_name,pin_hash=excluded.pin_hash,is_active=true,updated_at=now()
-        returning id,display_name,is_active,iiko_employee_id,created_at`,[id,iikoOrganizationId,employee.rows[0].display_name,sha256(pin),employeeId]);
+      const body = await readBody(request); const name=String(body.name??'').trim(); const pin=String(body.pin??'');
+      if (!name || !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'Укажите имя и PIN из 4–8 цифр'});
+      const id=crypto.randomUUID(); const result=await pool.query('insert into waiter_profiles(id,restaurant_id,display_name,pin_hash) values($1,$2,$3,$4) returning id,display_name,is_active,created_at',[id,iikoOrganizationId,name,sha256(pin)]);
       await audit(actor,'create','waiter',id,null,result.rows[0]); return json(response,201,result.rows[0]);
-    }
-    if (request.method === 'PUT' && path.startsWith('/api/v1/admin/waiters/')) {
-      const id = decodeURIComponent(path.slice('/api/v1/admin/waiters/'.length)); const body = await readBody(request); const pin=String(body.pin??'');
-      if (pin && !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'PIN должен содержать 4–8 цифр'});
-      const before = await pool.query('select * from waiter_profiles where id=$1 and restaurant_id=$2',[id,iikoOrganizationId]);
-      const result = await pool.query(`update waiter_profiles set is_active=$1,pin_hash=case when $2='' then pin_hash else $3 end,updated_at=now() where id=$4 and restaurant_id=$5 returning id,display_name,is_active,iiko_employee_id,created_at`,[body.is_active !== false,pin,pin ? sha256(pin) : '',id,iikoOrganizationId]);
-      if (!result.rowCount) return json(response,404,{error:'Официант не найден'});
-      await audit(actor,'update','waiter',id,before.rows[0],result.rows[0]); return json(response,200,result.rows[0]);
     }
     if (request.method === 'PUT' && path.startsWith('/api/v1/admin/iiko-products/')) {
       const id = decodeURIComponent(path.slice('/api/v1/admin/iiko-products/'.length)); const body = await readBody(request);
@@ -672,7 +638,7 @@ const backgroundSync = async () => {
   if (backgroundSyncRunning) return;
   backgroundSyncRunning = true;
   try {
-    const results = await Promise.allSettled([syncIikoMenu(), syncIikoTables(), syncIikoEmployees(), fetchIikoStopLists(iikoTerminalGroupId ? [iikoTerminalGroupId] : [])]);
+    const results = await Promise.allSettled([syncIikoMenu(), syncIikoTables(), fetchIikoStopLists(iikoTerminalGroupId ? [iikoTerminalGroupId] : [])]);
     results.filter((result) => result.status === 'rejected').forEach((result) => console.warn('iiko cache sync:', result.reason?.message ?? result.reason));
     await syncActiveIikoOrders();
   } catch (error) { console.warn('iiko background sync:', error.message); }
