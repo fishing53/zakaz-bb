@@ -220,7 +220,7 @@ const syncIikoTables = async () => {
   return rows.length;
 };
 const syncIikoEmployees = async () => {
-  const payload = await iikoRequest('/api/1/employees/info', { organizationIds: [iikoOrganizationId], returnDeleted: false });
+  const payload = await iikoRequest('/api/1/employees/info', { organizationId: iikoOrganizationId, returnDeleted: false });
   const employees = arrayValue(payload?.employees);
   for (const employee of employees) {
     const id = String(employee?.id ?? '');
