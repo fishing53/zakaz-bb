@@ -9,6 +9,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const port = Number(process.env.PORT ?? 3107);
 const tokenSecret = process.env.TOKEN_SECRET;
 const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
+const terminalAdminPasswordHash = process.env.TERMINAL_ADMIN_PASSWORD_HASH ?? adminPasswordHash;
 const iikoApiBase = process.env.IIKO_API_BASE ?? 'https://api-ru.iiko.services';
 const iikoOrganizationId = process.env.IIKO_ORGANIZATION_ID ?? '528faa64-3219-4cc9-b17f-96fa28fd8627';
 const iikoWebhookToken = process.env.IIKO_WEBHOOK_TOKEN;
@@ -478,9 +479,10 @@ const server = http.createServer(async (request, response) => {
       return json(response, 200, { table_number: selected.table_number, table_id: selected.table_id, source: 'guest' });
     }
     if (request.method === 'POST' && path === '/api/v1/admin/login') {
-      const { password } = await readBody(request);
-      if (!password || sha256(password) !== adminPasswordHash) return json(response, 401, { error: 'Неверный пароль' });
-      return json(response, 200, { token: sign({ admin: true, exp: Date.now() + 8 * 60 * 60 * 1000 }) });
+      const { password, scope } = await readBody(request); const requestedScope = scope === 'terminal' ? 'terminal' : 'restaurant';
+      const expectedHash = requestedScope === 'terminal' ? terminalAdminPasswordHash : adminPasswordHash;
+      if (!password || sha256(password) !== expectedHash) return json(response, 401, { error: 'Неверный пароль' });
+      return json(response, 200, { token: sign({ admin: true, scope: requestedScope, exp: Date.now() + 8 * 60 * 60 * 1000 }), scope: requestedScope });
     }
     if (request.method === 'POST' && path === '/api/v1/waiter/login') {
       const body = await readBody(request); const pin = String(body.pin ?? '');
@@ -564,7 +566,10 @@ const server = http.createServer(async (request, response) => {
       return json(response, 204, {});
     }
     if (!path.startsWith('/api/v1/admin/')) return json(response, 404, { error: 'Not found' });
-    const actor = requireAdmin(request).admin ? 'admin' : 'unknown';
+    const admin = requireAdmin(request);
+    const terminalOnly = request.method === 'PUT' && path.startsWith('/api/v1/admin/terminals/');
+    if (admin.scope === 'terminal' && !terminalOnly) throw Object.assign(new Error('Недостаточно прав'), { status: 403 });
+    const actor = admin.scope === 'terminal' ? 'terminal-admin' : 'restaurant-admin';
     if (request.method === 'GET' && path === '/api/v1/admin/state') return json(response, 200, await publicState(url.searchParams.get('terminalId') ?? 'admin-preview'));
     if (request.method === 'GET' && path === '/api/v1/admin/waiters') {
       const result = await pool.query('select id,display_name,is_active,created_at from waiter_profiles where restaurant_id=$1 order by display_name', [iikoOrganizationId]); return json(response, 200, result.rows);
@@ -574,6 +579,12 @@ const server = http.createServer(async (request, response) => {
       if (!name || !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'Укажите имя и PIN из 4–8 цифр'});
       const id=crypto.randomUUID(); const result=await pool.query('insert into waiter_profiles(id,restaurant_id,display_name,pin_hash) values($1,$2,$3,$4) returning id,display_name,is_active,created_at',[id,iikoOrganizationId,name,sha256(pin)]);
       await audit(actor,'create','waiter',id,null,result.rows[0]); return json(response,201,result.rows[0]);
+    }
+    if (request.method === 'PUT' && path.startsWith('/api/v1/admin/waiters/')) {
+      const id=decodeURIComponent(path.slice('/api/v1/admin/waiters/'.length)); const body=await readBody(request); const pin=String(body.pin ?? '');
+      if (pin && !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'PIN должен содержать 4–8 цифр'});
+      const result=await pool.query(`update waiter_profiles set is_active=$1,pin_hash=case when $2='' then pin_hash else $3 end,updated_at=now() where id=$4 and restaurant_id=$5 returning id,display_name,is_active,created_at`,[body.is_active !== false,pin,pin ? sha256(pin) : '',id,iikoOrganizationId]);
+      if (!result.rowCount) return json(response,404,{error:'Официант не найден'}); return json(response,200,result.rows[0]);
     }
     if (request.method === 'PUT' && path.startsWith('/api/v1/admin/iiko-products/')) {
       const id = decodeURIComponent(path.slice('/api/v1/admin/iiko-products/'.length)); const body = await readBody(request);

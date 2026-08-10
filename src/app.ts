@@ -54,11 +54,11 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), state.promotions, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog) : welcomePage(menuService.featured(), state.promotions, menuService.all(), state.productDisplay, state.terminal);
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), state.promotions, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope) : '';
   }
 }
 
-const adminLogin = (open: boolean) => open ? `<div class="overlay admin-login-overlay"><section class="admin-login"><button class="modal__close" data-action="close-admin-login">${iconMarkup('close')}</button><span class="eyebrow">СЛУЖЕБНЫЙ ВХОД</span><h2>Введите пароль</h2><p>Доступ только для сотрудников.</p><input type="password" inputmode="numeric" data-admin-password placeholder="Пароль" autocomplete="off"><button class="button button--primary button--wide" data-action="login-admin">Войти</button></section></div>` : '';
+const adminLogin = (open: boolean, scope: 'terminal' | 'restaurant' = 'terminal') => open ? `<div class="overlay admin-login-overlay"><section class="admin-login"><button class="modal__close" data-action="close-admin-login">${iconMarkup('close')}</button><span class="eyebrow">${scope === 'terminal' ? 'СЕРВИСНЫЙ ВХОД' : 'АДМИНИСТРИРОВАНИЕ РЕСТОРАНА'}</span><h2>Введите пароль</h2><p>${scope === 'terminal' ? 'Настройки этого планшета.' : 'Меню, сотрудники и настройки ресторана.'}</p><input type="password" inputmode="numeric" data-admin-password placeholder="Пароль" autocomplete="off"><button class="button button--primary button--wide" data-action="login-admin" data-admin-scope="${scope}">Войти</button></section></div>` : '';
 const inactivityPrompt = (open: boolean, seconds: number) => open ? `<div class="overlay inactivity-overlay"><section class="inactivity-dialog">
   <img class="inactivity-dialog__character" src="/images/inactivity-character.png" alt="" aria-hidden="true">
   <div class="inactivity-dialog__glow"></div><div class="inactivity-dialog__brand"><img src="${brand.logo}" alt="Brooklyn Bowl"></div>
@@ -71,10 +71,10 @@ const iconMarkup = (name: string) => name === 'close' ? '<svg class="icon" aria-
 export function render() {
   const state = appStore.get();
   const route = router.current();
-  if (route === 'admin' && !state.adminAuthenticated) { router.go('welcome'); return; }
+  if (route === 'admin' && !state.adminAuthenticated) { root.innerHTML = adminLogin(true, 'restaurant'); return; }
   if (route === 'payment' && !orderStore.count()) { router.go('menu'); return; }
   if (route === 'status' && !state.selectedOrderId && !state.orderNumber) { router.go('orders'); return; }
-  root.innerHTML = appShell(page(), route) + serviceSheet(state.serviceOpen) + productModal(state.productId ? menuService.find(state.productId) : undefined, state.productId ? state.productDisplay[state.productId] : undefined, state.productDisplay) + upsellSheet(state.upsellId ? menuService.find(state.upsellId) : undefined) + adminLogin(state.adminLoginOpen) + inactivityPrompt(state.inactivityWarning, state.inactivitySeconds) + (!state.isOnline ? '<div class="network-banner">Нет сети. Доступны ранее загруженные данные.</div>' : '') + (state.pwaUpdateReady ? '<button class="pwa-update" data-action="refresh-app">Доступно обновление. Обновить</button>' : '') + (state.toast ? `<div class="toast">${state.toast}</div>` : '');
+  root.innerHTML = appShell(page(), route) + serviceSheet(state.serviceOpen) + productModal(state.productId ? menuService.find(state.productId) : undefined, state.productId ? state.productDisplay[state.productId] : undefined, state.productDisplay) + upsellSheet(state.upsellId ? menuService.find(state.upsellId) : undefined) + adminLogin(state.adminLoginOpen, 'terminal') + inactivityPrompt(state.inactivityWarning, state.inactivitySeconds) + (!state.isOnline ? '<div class="network-banner">Нет сети. Доступны ранее загруженные данные.</div>' : '') + (state.pwaUpdateReady ? '<button class="pwa-update" data-action="refresh-app">Доступно обновление. Обновить</button>' : '') + (state.toast ? `<div class="toast">${state.toast}</div>` : '');
   const product = state.productId ? menuService.find(state.productId) : undefined;
   const related = root.querySelector<HTMLElement>('[data-related-for]');
   if (product && related) related.innerHTML = relatedCards(menuService.related(product), state.productDisplay);
@@ -197,14 +197,15 @@ async function action(element: HTMLElement) {
   if (type === 'login-admin') {
     const password = root.querySelector<HTMLInputElement>('[data-admin-password]')?.value ?? '';
     try {
-      await apiService.login(password);
+      const scope = (element.dataset.adminScope as 'terminal' | 'restaurant') ?? 'terminal';
+      const authenticatedScope = await apiService.login(password, scope);
       await syncServer(true);
-      appStore.set({ adminAuthenticated: true, adminLoginOpen: false });
+      appStore.set({ adminAuthenticated: true, adminLoginOpen: false, adminScope: authenticatedScope, adminTab: authenticatedScope === 'terminal' ? 'terminal' : 'menu' });
       router.go('admin');
     } catch (error) { flash(error instanceof Error ? error.message : 'Неверный пароль'); }
     return;
   }
-  if (type === 'logout-admin') { apiService.logout(); appStore.set({ adminAuthenticated: false, adminTab: 'terminal' }); router.go('welcome'); return; }
+  if (type === 'logout-admin') { apiService.logout(); appStore.set({ adminAuthenticated: false, adminScope: null, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
     const adminTab = element.dataset.adminTab as 'terminal' | 'menu' | 'promotions' | 'quality' | 'audit';
     appStore.set({ adminTab });

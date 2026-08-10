@@ -2,6 +2,7 @@ import type { CartLine, Product, ProductDisplaySettings, Promotion, RestaurantTa
 import { Capacitor } from '@capacitor/core';
 
 let token = sessionStorage.getItem('zakaz-admin-token') ?? '';
+let adminScope = sessionStorage.getItem('zakaz-admin-scope') as 'terminal' | 'restaurant' | null;
 const terminalKey = 'zakaz-terminal-id';
 const rawTerminalId = localStorage.getItem(terminalKey);
 export const terminalId = rawTerminalId ?? crypto.randomUUID().replace(/-/g, '');
@@ -47,12 +48,15 @@ export const apiService = {
     const data = await request<{ products: ServerProduct[]; promotions: ServerPromotion[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown> }>(`/bootstrap?terminalId=${terminalId}`);
     return { products: data.products.map(product), display: Object.fromEntries(data.products.map((item) => [item.id, display(item)])), promotions: data.promotions.map(promotion), terminal: terminal(data.terminal), orders: data.orders.map(order), settings: data.settings };
   },
-  async login(password: string) {
-    const data = await request<{ token: string }>('/admin/login', { method: 'POST', body: JSON.stringify({ password }) });
+  async login(password: string, scope: 'terminal' | 'restaurant') {
+    const data = await request<{ token: string; scope: 'terminal' | 'restaurant' }>('/admin/login', { method: 'POST', body: JSON.stringify({ password, scope }) });
     token = data.token;
     sessionStorage.setItem('zakaz-admin-token', token);
+    adminScope = data.scope; sessionStorage.setItem('zakaz-admin-scope', data.scope);
+    return data.scope;
   },
-  logout() { token = ''; sessionStorage.removeItem('zakaz-admin-token'); },
+  scope: () => adminScope,
+  logout() { token = ''; adminScope = null; sessionStorage.removeItem('zakaz-admin-token'); sessionStorage.removeItem('zakaz-admin-scope'); },
   async saveTerminal(value: TerminalSettings) {
     const data = await request<ServerTerminal>(`/admin/terminals/${encodeURIComponent(value.id)}`, { method: 'PUT', body: JSON.stringify({ label: value.label, table_number: value.tableNumber, is_active: value.isActive, idle_seconds: value.idleSeconds }) });
     return terminal(data);

@@ -11,6 +11,7 @@ export interface AppState {
   isOnline: boolean;
   adminAuthenticated: boolean;
   adminLoginOpen: boolean;
+  adminScope: 'terminal' | 'restaurant' | null;
   adminProductId: string | null;
   adminTab: 'terminal' | 'menu' | 'promotions' | 'quality' | 'audit';
   inactivityWarning: boolean;
@@ -51,6 +52,7 @@ let state: AppState = {
   isOnline: navigator.onLine,
   adminAuthenticated: false,
   adminLoginOpen: false,
+  adminScope: null,
   adminProductId: null,
   adminTab: 'terminal',
   inactivityWarning: false,
