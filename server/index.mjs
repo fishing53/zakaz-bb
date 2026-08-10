@@ -60,6 +60,12 @@ const requireAdmin = (request) => {
   if (!payload?.admin) throw Object.assign(new Error('Unauthorized'), { status: 401 });
   return payload;
 };
+const requireWaiter = (request) => {
+  const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
+  const payload = verify(token);
+  if (!payload?.waiterId) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+  return payload;
+};
 const audit = (actor, action, entity, entityId, before, after) => pool.query(
   'insert into audit_log(actor, action, entity, entity_id, before_data, after_data) values ($1,$2,$3,$4,$5,$6)',
   [actor, action, entity, entityId, before ?? null, after ?? null],
@@ -452,6 +458,29 @@ const server = http.createServer(async (request, response) => {
       const { password } = await readBody(request);
       if (!password || sha256(password) !== adminPasswordHash) return json(response, 401, { error: 'Неверный пароль' });
       return json(response, 200, { token: sign({ admin: true, exp: Date.now() + 8 * 60 * 60 * 1000 }) });
+    }
+    if (request.method === 'POST' && path === '/api/v1/waiter/login') {
+      const body = await readBody(request); const pin = String(body.pin ?? '');
+      const waiter = await pool.query('select id,display_name from waiter_profiles where restaurant_id=$1 and is_active=true and pin_hash=$2', [iikoOrganizationId, sha256(pin)]);
+      if (!waiter.rowCount) return json(response, 401, { error: 'Неверный PIN-код' });
+      const profile = waiter.rows[0];
+      return json(response, 200, { token: sign({ waiterId: profile.id, exp: Date.now() + 12 * 60 * 60 * 1000 }), waiter: { id: profile.id, name: profile.display_name } });
+    }
+    if (request.method === 'GET' && path === '/api/v1/waiter/queue') {
+      const waiter = requireWaiter(request);
+      const [requests, orders] = await Promise.all([
+        pool.query(`select id,table_number,request_type,status,created_at,accepted_by,accepted_at from service_requests where restaurant_id=$1 and status in ('new','accepted') and (accepted_by is null or accepted_by=$2) and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
+        pool.query(`select order_number,table_number,items,total,status_step,created_at,source from customer_orders where restaurant_id=$1 and completed_at is null and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId]),
+      ]);
+      return json(response, 200, { requests: requests.rows, orders: orders.rows, serverTime: new Date().toISOString() });
+    }
+    if (request.method === 'POST' && path.startsWith('/api/v1/waiter/requests/') && path.endsWith('/accept')) {
+      const waiter = requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/accept'.length));
+      if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный вызов' });
+      const result = await pool.query(`update service_requests set status='accepted',accepted_by=$1,accepted_at=now() where id=$2 and restaurant_id=$3 and status='new' returning *`, [waiter.waiterId, id, iikoOrganizationId]);
+      if (!result.rowCount) return json(response, 409, { error: 'Этот вызов уже принял другой официант' });
+      await publishEvent('waiter_request_accepted', 'service_request', String(id), { waiterId: waiter.waiterId, tableNumber: result.rows[0].table_number });
+      return json(response, 200, result.rows[0]);
     }
     if (request.method === 'POST' && path === '/api/v1/orders') {
       const body = await readBody(request);
