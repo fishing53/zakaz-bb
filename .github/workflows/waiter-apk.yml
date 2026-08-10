@@ -20,8 +20,8 @@ jobs:
       - name: Create and sync Android wrapper
         working-directory: waiter
         run: |
-          npx cap add android || true
-          npx cap sync android
+          ../node_modules/.bin/cap add android || true
+          ../node_modules/.bin/cap sync android
       - name: Build debug APK
         working-directory: waiter/android
         run: ./gradlew assembleDebug
