@@ -535,6 +535,15 @@ const server = http.createServer(async (request, response) => {
     if (!path.startsWith('/api/v1/admin/')) return json(response, 404, { error: 'Not found' });
     const actor = requireAdmin(request).admin ? 'admin' : 'unknown';
     if (request.method === 'GET' && path === '/api/v1/admin/state') return json(response, 200, await publicState(url.searchParams.get('terminalId') ?? 'admin-preview'));
+    if (request.method === 'GET' && path === '/api/v1/admin/waiters') {
+      const result = await pool.query('select id,display_name,is_active,created_at from waiter_profiles where restaurant_id=$1 order by display_name', [iikoOrganizationId]); return json(response, 200, result.rows);
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/waiters') {
+      const body = await readBody(request); const name=String(body.name??'').trim(); const pin=String(body.pin??'');
+      if (!name || !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'Укажите имя и PIN из 4–8 цифр'});
+      const id=crypto.randomUUID(); const result=await pool.query('insert into waiter_profiles(id,restaurant_id,display_name,pin_hash) values($1,$2,$3,$4) returning id,display_name,is_active,created_at',[id,iikoOrganizationId,name,sha256(pin)]);
+      await audit(actor,'create','waiter',id,null,result.rows[0]); return json(response,201,result.rows[0]);
+    }
     if (request.method === 'PUT' && path.startsWith('/api/v1/admin/iiko-products/')) {
       const id = decodeURIComponent(path.slice('/api/v1/admin/iiko-products/'.length)); const body = await readBody(request);
       const exists = await pool.query('select product_id from iiko_menu_items where product_id=$1', [id]);

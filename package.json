@@ -7,6 +7,7 @@
     "dev": "vite",
     "sync:images": "node scripts/mirror-menu-images.mjs",
     "build": "tsc --noEmit && vite build",
+    "build:waiter": "vite build --config waiter/vite.config.ts",
     "android:sync": "npm run build && cap sync android",
     "android:debug": "npm run android:sync && cd android && ./gradlew assembleDebug",
     "preview": "vite preview",
