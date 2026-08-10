@@ -21,6 +21,7 @@ jobs:
         working-directory: waiter
         run: |
           ../node_modules/.bin/cap add android || true
+          cp google-services.json android/app/google-services.json
           ../node_modules/.bin/cap sync android
       - name: Build debug APK
         working-directory: waiter/android

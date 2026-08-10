@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "426531218519",
+    "project_id": "brooklynbowl-waiter-43bec",
+    "storage_bucket": "brooklynbowl-waiter-43bec.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:426531218519:android:452e15780060b18c632f12",
+        "android_client_info": {
+          "package_name": "ru.zvyak.brooklynbowl.waiter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC2KKpYPOcXU84YNyat7JLtRunZqSpAWEQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

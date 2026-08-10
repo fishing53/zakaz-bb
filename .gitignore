@@ -4,6 +4,8 @@ dist/
 .tools-node-*.json
 .tools-node-*.txt
 .DS_Store
+waiter/android/
+waiter/firebase-admin*.json
 .env
 .env.*
 !.env.example
