@@ -13,6 +13,7 @@ type ServerProduct = Product & { is_available: boolean; badge: string; image_pos
 type ServerPromotion = { id: number | string; product_id: string; title: string; subtitle: string; label: string; active: boolean; sort_order: number };
 type ServerTerminal = { id: string; label: string; table_number: string; is_active: boolean; idle_seconds: number; table_source?: 'admin' | 'guest' | null; table_id?: string | null };
 type ServerOrder = { order_number: string; items: CartLine[]; total: number; status_step: number; table_number: string; created_at: string };
+export type WaiterProfile = { id: string; display_name: string; is_active: boolean; created_at: string };
 
 const request = async <T>(path: string, init: RequestInit = {}) => {
   try {
@@ -96,5 +97,8 @@ export const apiService = {
     return promotion(data);
   },
   async deletePromotion(id: string) { await request<void>(`/admin/promotions/${id}`, { method: 'DELETE' }); },
+  waiters: () => request<WaiterProfile[]>('/admin/waiters'),
+  createWaiter: (value: { name: string; pin: string }) => request<WaiterProfile>('/admin/waiters', { method: 'POST', body: JSON.stringify(value) }),
+  updateWaiter: (id: string, value: { pin?: string; isActive?: boolean }) => request<WaiterProfile>(`/admin/waiters/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ pin: value.pin ?? '', is_active: value.isActive }) }),
   audit: () => request<Array<{ id: number; action: string; entity: string; entity_id: string; created_at: string }>>('/admin/audit'),
 };

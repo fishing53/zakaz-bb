@@ -22,6 +22,7 @@ import { marketingService } from './services/marketing-service';
 import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
 import type { Product } from './types/menu';
+import type { WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
@@ -34,6 +35,7 @@ let promoSwipeStart: { x: number; y: number } | null = null;
 let suppressPromoOpenUntil = 0;
 let statusRefreshTimer = 0;
 let auditLog: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [];
+let waiterProfiles: WaiterProfile[] = [];
 const updateSearch = debounce((value: string) => {
   appStore.set({ search: value }, false);
   refreshMenuResults();
@@ -54,7 +56,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), state.promotions, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), state.promotions, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, waiterProfiles) : '';
   }
 }
 
@@ -207,11 +209,14 @@ async function action(element: HTMLElement) {
   }
   if (type === 'logout-admin') { apiService.logout(); appStore.set({ adminAuthenticated: false, adminScope: null, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
-    const adminTab = element.dataset.adminTab as 'terminal' | 'menu' | 'promotions' | 'quality' | 'audit';
+    const adminTab = element.dataset.adminTab as 'terminal' | 'menu' | 'promotions' | 'staff' | 'quality' | 'audit';
     appStore.set({ adminTab });
     if (adminTab === 'audit') apiService.audit().then((items) => { auditLog = items; render(); }).catch((error) => flash(error.message));
+    if (adminTab === 'staff') apiService.waiters().then((items) => { waiterProfiles = items; render(); }).catch((error) => flash(error.message));
     return;
   }
+  if (type === 'create-waiter') { try { const name = root.querySelector<HTMLInputElement>('[data-admin-waiter="name"]')?.value.trim() ?? ''; const pin = root.querySelector<HTMLInputElement>('[data-admin-waiter="pin"]')?.value ?? ''; await apiService.createWaiter({ name, pin }); waiterProfiles = await apiService.waiters(); flash('Официант добавлен'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить официанта'); } return; }
+  if (type === 'save-waiter' || type === 'toggle-waiter') { try { const id = element.dataset.waiterId ?? ''; const pin = root.querySelector<HTMLInputElement>(`[data-waiter-pin="${CSS.escape(id)}"]`)?.value ?? ''; const isActive = type === 'toggle-waiter' ? element.dataset.waiterActive === 'true' : undefined; await apiService.updateWaiter(id, { pin, isActive }); waiterProfiles = await apiService.waiters(); flash('Доступ обновлён'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось обновить доступ'); } return; }
   if (type === 'toggle-fullscreen') {
     if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => flash('Полноэкранный режим недоступен в этом браузере'));
     return;
