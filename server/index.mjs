@@ -64,6 +64,16 @@ const audit = (actor, action, entity, entityId, before, after) => pool.query(
   'insert into audit_log(actor, action, entity, entity_id, before_data, after_data) values ($1,$2,$3,$4,$5,$6)',
   [actor, action, entity, entityId, before ?? null, after ?? null],
 );
+const publishEvent = (eventType, aggregateType, aggregateId, payload, restaurantId = iikoOrganizationId) => pool.query(
+  'insert into app_events(restaurant_id,event_type,aggregate_type,aggregate_id,payload) values($1,$2,$3,$4,$5)',
+  [restaurantId, eventType, aggregateType, aggregateId, JSON.stringify(payload)],
+);
+const createGuestSession = async ({ terminalId = null, source = 'tablet', table = null, metadata = {} }) => {
+  const id = crypto.randomUUID();
+  await pool.query('insert into guest_sessions(id,restaurant_id,terminal_id,source,table_id,table_number,metadata) values($1,$2,$3,$4,$5,$6,$7)', [id, iikoOrganizationId, terminalId, source, table?.table_id ?? null, table?.table_number ?? '', JSON.stringify(metadata)]);
+  await publishEvent('guest_session_started', 'guest_session', id, { source, tableNumber: table?.table_number ?? '' });
+  return id;
+};
 
 const iikoItemStatuses = new Set(['Added', 'PrintedNotCooking', 'CookingStarted', 'CookingCompleted', 'Served']);
 const iikoStatusStep = (order) => {
@@ -451,17 +461,24 @@ const server = http.createServer(async (request, response) => {
       const useIiko = (await pool.query('select count(*)::int as count from iiko_menu_items')).rows[0].count > 0;
       const order = useIiko ? await normalizeIikoOrder(body) : await normalizeOrder(body);
       const table = useIiko ? await effectiveTableForTerminal(terminal.rows[0]) : { table_number: terminal.rows[0].table_number };
+      const clientRequestId = String(body.client_request_id ?? '').trim();
+      if (clientRequestId) {
+        const existing = await pool.query('select order_number,items,total,status_step,table_number,created_at from customer_orders where restaurant_id=$1 and client_request_id=$2', [iikoOrganizationId, clientRequestId]);
+        if (existing.rowCount) return json(response, 200, existing.rows[0]);
+      }
+      const sessionId = await createGuestSession({ terminalId: String(body.terminal_id), source: body.source === 'qr' ? 'qr' : 'tablet', table, metadata: { clientRequestId: clientRequestId || null } });
       let saved;
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const number = `B-${crypto.randomInt(1000, 10000)}`;
         try {
           let iikoOrderId = null;
           if (useIiko) iikoOrderId = (await createIikoOrder({ number, table, items: order.iikoItems, comment: body.comment })).id;
-          saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id) values ($1,$2,$3,$4,$5,$6,$7,$8) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, iikoOrderId]);
+          saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, iikoOrderId, iikoOrganizationId, sessionId, body.source === 'qr' ? 'qr' : 'tablet', clientRequestId || null]);
           break;
         } catch (error) { if (error.code !== '23505') throw error; }
       }
       if (!saved) throw new Error('Unable to allocate order number');
+      await publishEvent('order_created', 'order', saved.rows[0].order_number, { tableNumber: saved.rows[0].table_number, source: body.source === 'qr' ? 'qr' : 'tablet', total: Number(saved.rows[0].total) });
       return json(response, 201, saved.rows[0]);
     }
     if (request.method === 'POST' && path === '/api/v1/service-requests') {
@@ -471,7 +488,9 @@ const server = http.createServer(async (request, response) => {
       const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно недоступен' });
       const table = await effectiveTableForTerminal(terminal.rows[0]);
-      await pool.query('insert into service_requests(terminal_id, table_number, request_type) values ($1,$2,$3)', [String(body.terminal_id), table.table_number, type]);
+      const sessionId = await createGuestSession({ terminalId: String(body.terminal_id), table });
+      const created = await pool.query('insert into service_requests(terminal_id, table_number, request_type, restaurant_id, guest_session_id) values ($1,$2,$3,$4,$5) returning id', [String(body.terminal_id), table.table_number, type, iikoOrganizationId, sessionId]);
+      await publishEvent('waiter_called', 'service_request', String(created.rows[0].id), { tableNumber: table.table_number, type });
       return json(response, 201, { ok: true });
     }
     if (request.method === 'POST' && path.startsWith('/api/v1/orders/') && path.endsWith('/complete')) {

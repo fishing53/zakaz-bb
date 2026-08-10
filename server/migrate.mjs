@@ -102,6 +102,38 @@ await pool.query(`
     id bigserial primary key, terminal_id text not null references terminals(id), table_number text not null default '', request_type text not null check (request_type in ('waiter','cutlery','bill','help')),
     created_at timestamptz not null default now(), handled_at timestamptz
   );
+  -- Foundation shared by kiosk, QR ordering and the future waiter application.
+  create table if not exists guest_sessions (
+    id uuid primary key, restaurant_id text not null, terminal_id text references terminals(id) on delete set null,
+    source text not null check (source in ('tablet','qr','waiter')), table_id text, table_number text not null default '',
+    status text not null default 'active' check (status in ('active','closed','expired')),
+    started_at timestamptz not null default now(), ended_at timestamptz, last_seen_at timestamptz not null default now(), metadata jsonb not null default '{}'::jsonb
+  );
+  create index if not exists guest_sessions_active_idx on guest_sessions(restaurant_id, table_number, status, last_seen_at desc);
+  alter table customer_orders add column if not exists restaurant_id text not null default '';
+  alter table customer_orders add column if not exists guest_session_id uuid references guest_sessions(id) on delete set null;
+  alter table customer_orders add column if not exists source text not null default 'tablet';
+  alter table customer_orders add column if not exists client_request_id text;
+  create unique index if not exists customer_orders_client_request_idx on customer_orders(restaurant_id, client_request_id) where client_request_id is not null;
+  alter table service_requests add column if not exists restaurant_id text not null default '';
+  alter table service_requests add column if not exists guest_session_id uuid references guest_sessions(id) on delete set null;
+  alter table service_requests add column if not exists status text not null default 'new';
+  alter table service_requests add column if not exists accepted_by text;
+  alter table service_requests add column if not exists accepted_at timestamptz;
+  create table if not exists waiter_profiles (
+    id text primary key, restaurant_id text not null, display_name text not null, pin_hash text, is_active boolean not null default true,
+    created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+  );
+  create table if not exists waiter_table_assignments (
+    restaurant_id text not null, table_id text not null, waiter_id text not null references waiter_profiles(id),
+    assigned_at timestamptz not null default now(), released_at timestamptz, primary key(restaurant_id, table_id, waiter_id, assigned_at)
+  );
+  create table if not exists app_events (
+    id bigserial primary key, restaurant_id text not null, event_type text not null,
+    aggregate_type text not null, aggregate_id text not null, payload jsonb not null,
+    created_at timestamptz not null default now()
+  );
+  create index if not exists app_events_restaurant_idx on app_events(restaurant_id, id desc);
 `);
 const existing = await pool.query('select count(*)::int as count from products');
 if (!existing.rows[0].count) {
