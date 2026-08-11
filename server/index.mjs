@@ -203,6 +203,15 @@ const syncIikoMenu = async () => {
     for (const row of rows) await client.query(`insert into iiko_menu_items(product_id,category_id,category_name,name,description,price_rub,portion_weight_grams,measure_unit,nutrition,image_url,modifier_groups,is_hidden,sort_order,revision,raw_payload)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       on conflict(product_id) do update set category_id=excluded.category_id,category_name=excluded.category_name,name=excluded.name,description=excluded.description,price_rub=excluded.price_rub,portion_weight_grams=excluded.portion_weight_grams,measure_unit=excluded.measure_unit,nutrition=excluded.nutrition,image_url=excluded.image_url,modifier_groups=excluded.modifier_groups,is_hidden=excluded.is_hidden,sort_order=excluded.sort_order,revision=excluded.revision,raw_payload=excluded.raw_payload,updated_at=now()`, row);
+    // An external menu is a complete snapshot. Hide items that disappeared from
+    // the current snapshot so switching menu versions cannot leave stale dishes
+    // visible in the kiosk. Never mass-hide on an unexpectedly empty response.
+    if (rows.length) {
+      await client.query(
+        'update iiko_menu_items set is_hidden=true,updated_at=now() where not (product_id = any($1::text[]))',
+        [rows.map((row) => row[0])],
+      );
+    }
     await client.query('commit');
   } catch (error) { await client.query('rollback'); throw error; } finally { client.release(); }
   return rows.length;
