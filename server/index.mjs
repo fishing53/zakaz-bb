@@ -390,11 +390,28 @@ const normalizeIikoOrder = async (input) => {
     if (!product || product.stopped) throw Object.assign(new Error('Одно из блюд больше недоступно'), { status: 409 });
     if (!Number.isInteger(amount) || amount < 1 || amount > 20) throw Object.assign(new Error('Некорректное количество'), { status: 400 });
     const allowedModifiers = new Map();
-    for (const group of arrayValue(product.modifier_groups)) for (const modifier of arrayValue(group?.items)) if (modifier?.itemId) allowedModifiers.set(String(modifier.itemId), modifier);
+    for (const group of arrayValue(product.modifier_groups)) {
+      for (const modifier of arrayValue(group?.items)) {
+        if (!modifier?.itemId) continue;
+        allowedModifiers.set(String(modifier.itemId), {
+          item: modifier,
+          productGroupId: group?.itemGroupId ? String(group.itemGroupId) : '',
+        });
+      }
+    }
     const modifiers = arrayValue(line.modifiers).map((modifier) => {
-      const productId = String(modifier?.productId ?? ''); const modifierItem = allowedModifiers.get(productId); const modifierAmount = Number(modifier?.amount ?? 1);
+      const productId = String(modifier?.productId ?? '');
+      const binding = allowedModifiers.get(productId);
+      const modifierItem = binding?.item;
+      const modifierAmount = Number(modifier?.amount ?? 1);
       if (!modifierItem || !Number.isInteger(modifierAmount) || modifierAmount < 1 || modifierAmount > 20) throw Object.assign(new Error('Некорректная добавка'), { status: 400 });
-      return { productId, amount: modifierAmount, name: String(modifierItem.name ?? ''), price: iikoPrice(modifierItem) };
+      return {
+        productId,
+        amount: modifierAmount,
+        name: String(modifierItem.name ?? ''),
+        price: iikoPrice(modifierItem),
+        ...(binding.productGroupId ? { productGroupId: binding.productGroupId } : {}),
+      };
     });
     total += (Number(product.price_rub) + modifiers.reduce((sum, modifier) => sum + modifier.price * modifier.amount, 0)) * amount;
     items.push({ key: `product|${product.product_id}|${modifiers.map((modifier) => modifier.productId).join(',')}`, productId: product.product_id, kind: 'product', quantity: amount, ...(modifiers.length ? { modifiers } : {}) });
@@ -409,7 +426,13 @@ const normalizeIikoOrder = async (input) => {
       productId: line.productId,
       amount: line.quantity,
       price: Number(products.get(line.productId)?.price_rub ?? 0),
-      ...(line.modifiers?.length ? { modifiers: line.modifiers.map((modifier) => ({ productId: modifier.productId, amount: modifier.amount })) } : {}),
+      ...(line.modifiers?.length ? {
+        modifiers: line.modifiers.map((modifier) => ({
+          productId: modifier.productId,
+          amount: modifier.amount,
+          ...(modifier.productGroupId ? { productGroupId: modifier.productGroupId } : {}),
+        })),
+      } : {}),
     })),
   };
 };
@@ -449,6 +472,34 @@ const createIikoOrder = async ({ number, table, items, comment }) => {
   });
   if (payload?.errorInfo) throw Object.assign(new Error(payload.errorInfo?.message ?? 'iiko не принял заказ'), { status: 409 });
   return { id, response: payload };
+};
+
+const waitForIikoCreation = async (orderId, timeoutMs = 8_000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query('select creation_status,error_info from iiko_orders where order_id=$1', [orderId]);
+    const status = String(result.rows[0]?.creation_status ?? '');
+    if (status === 'Success' || status === 'Error') return result.rows[0];
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return null;
+};
+
+const readableIikoOrderError = (value) => {
+  let error = value;
+  for (let depth = 0; depth < 2; depth += 1) {
+    if (typeof error !== 'string') break;
+    try { error = JSON.parse(error); } catch { return error.slice(0, 240); }
+  }
+  if (!error || typeof error !== 'object') return 'iiko не смог создать заказ';
+  const nested = error.description ?? error.message;
+  if (typeof nested === 'string') {
+    try {
+      const parsed = JSON.parse(nested);
+      return String(parsed.description ?? parsed.message ?? 'iiko не смог создать заказ').slice(0, 240);
+    } catch { return nested.slice(0, 240); }
+  }
+  return 'iiko не смог создать заказ';
 };
 
 const productFields = ['name', 'category', 'price_rub', 'portion', 'unit', 'description', 'kbju', 'image', 'source_url', 'sauce_options', 'sauce_addon_price_rub', 'addon_options', 'flavor_options', 'size_option', 'pairs_with', 'recommendations_note', 'is_available', 'badge', 'image_position', 'allergens', 'spicy', 'sort_order'];
@@ -598,16 +649,29 @@ const server = http.createServer(async (request, response) => {
       }
       const sessionId = await createGuestSession({ terminalId: String(body.terminal_id), source: body.source === 'qr' ? 'qr' : 'tablet', table, metadata: { clientRequestId: clientRequestId || null } });
       let saved;
+      let submittedIikoOrderId = null;
+      let initialIikoCreationStatus = '';
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const number = `B-${crypto.randomInt(1000, 10000)}`;
         try {
-          let iikoOrderId = null;
-          if (useIiko) iikoOrderId = (await createIikoOrder({ number, table, items: order.iikoItems, comment: body.comment })).id;
-          saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, iikoOrderId, iikoOrganizationId, sessionId, body.source === 'qr' ? 'qr' : 'tablet', clientRequestId || null]);
+          if (useIiko) {
+            const created = await createIikoOrder({ number, table, items: order.iikoItems, comment: body.comment });
+            submittedIikoOrderId = created.id;
+            initialIikoCreationStatus = String(created.response?.creationStatus ?? '');
+          }
+          saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, submittedIikoOrderId, iikoOrganizationId, sessionId, body.source === 'qr' ? 'qr' : 'tablet', clientRequestId || null]);
           break;
         } catch (error) { if (error.code !== '23505') throw error; }
       }
       if (!saved) throw new Error('Unable to allocate order number');
+      if (useIiko && submittedIikoOrderId && initialIikoCreationStatus !== 'Success') {
+        const creation = await waitForIikoCreation(submittedIikoOrderId);
+        if (creation?.creation_status === 'Error') {
+          await pool.query('delete from customer_orders where order_number=$1', [saved.rows[0].order_number]);
+          await pool.query('delete from guest_sessions where id=$1', [sessionId]);
+          throw Object.assign(new Error(`iiko не создал заказ: ${readableIikoOrderError(creation.error_info)}`), { status: 409 });
+        }
+      }
       await publishEvent('order_created', 'order', saved.rows[0].order_number, { tableNumber: saved.rows[0].table_number, source: body.source === 'qr' ? 'qr' : 'tablet', total: Number(saved.rows[0].total) });
       void notifyWaiters(`Новый заказ · стол №${saved.rows[0].table_number}`, `Заказ ${saved.rows[0].order_number} на ${saved.rows[0].total} ₽`, { type: 'order', orderNumber: saved.rows[0].order_number, tableNumber: saved.rows[0].table_number });
       return json(response, 201, saved.rows[0]);
