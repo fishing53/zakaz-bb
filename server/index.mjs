@@ -17,6 +17,7 @@ const firebaseServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
 const iikoTerminalGroupId = process.env.IIKO_TERMINAL_GROUP_ID ?? '';
 const iikoExternalMenuId = process.env.IIKO_EXTERNAL_MENU_ID ?? '';
 const iikoOrderTypeId = process.env.IIKO_ORDER_TYPE_ID ?? '';
+const iikoOrderSourceKey = process.env.IIKO_ORDER_SOURCE_KEY ?? 'BrooklynBowl Kiosk';
 const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/manifest.json';
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
@@ -164,7 +165,19 @@ const iikoRequest = async (path, body) => {
     iikoRetryAfter = Date.now() + seconds * 1_000;
     throw Object.assign(new Error('iiko временно ограничил запросы'), { status: 503 });
   }
-  if (!result.ok) throw Object.assign(new Error(payload.errorDescription ?? `iiko request failed: ${path}`), { status: 502 });
+  if (!result.ok) {
+    const correlationId = String(payload.correlationId ?? result.headers.get('x-correlation-id') ?? '');
+    console.error('iiko request failed', {
+      path,
+      status: result.status,
+      correlationId: correlationId || undefined,
+      error: payload.errorDescription ?? payload.error ?? payload.message ?? 'Unknown iiko error',
+    });
+    const message = path === '/api/1/order/create'
+      ? `iiko не принял заказ${correlationId ? `. Код обращения: ${correlationId}` : ''}`
+      : (payload.errorDescription ?? `iiko request failed: ${path}`);
+    throw Object.assign(new Error(message), { status: 502, correlationId });
+  }
   return payload;
 };
 const getIikoAccessToken = async () => {
@@ -387,7 +400,18 @@ const normalizeIikoOrder = async (input) => {
     items.push({ key: `product|${product.product_id}|${modifiers.map((modifier) => modifier.productId).join(',')}`, productId: product.product_id, kind: 'product', quantity: amount, ...(modifiers.length ? { modifiers } : {}) });
   }
   if (!items.length) throw Object.assign(new Error('В заказе нет блюд'), { status: 400 });
-  return { items, total: Math.round(total), promoCode: '', iikoItems: items.map((line) => ({ type: 'Product', productId: line.productId, amount: line.quantity, ...(line.modifiers?.length ? { modifiers: line.modifiers.map((modifier) => ({ productId: modifier.productId, amount: modifier.amount })) } : {}) })) };
+  return {
+    items,
+    total: Math.round(total),
+    promoCode: '',
+    iikoItems: items.map((line) => ({
+      type: 'Product',
+      productId: line.productId,
+      amount: line.quantity,
+      price: Number(products.get(line.productId)?.price_rub ?? 0),
+      ...(line.modifiers?.length ? { modifiers: line.modifiers.map((modifier) => ({ productId: modifier.productId, amount: modifier.amount })) } : {}),
+    })),
+  };
 };
 const effectiveTableForTerminal = async (terminal) => {
   const fixed = String(terminal.table_number ?? '').trim();
@@ -403,7 +427,26 @@ const effectiveTableForTerminal = async (terminal) => {
 const createIikoOrder = async ({ number, table, items, comment }) => {
   if (!iikoTerminalGroupId || !iikoOrderTypeId) throw Object.assign(new Error('Интеграция iiko ещё не настроена на сервере'), { status: 503 });
   const id = crypto.randomUUID();
-  const payload = await iikoRequest('/api/1/order/create', { organizationId: iikoOrganizationId, terminalGroupId: iikoTerminalGroupId, createOrderSettings: { id, externalNumber: number, tableIds: [table.table_id], orderType: { id: iikoOrderTypeId }, items, comment: String(comment ?? '').slice(0, 1000), servicePrint: true, checkStopList: true } });
+  const payload = await iikoRequest('/api/1/order/create', {
+    organizationId: iikoOrganizationId,
+    terminalGroupId: iikoTerminalGroupId,
+    order: {
+      id,
+      externalNumber: number,
+      tableIds: [table.table_id],
+      guests: { count: 1 },
+      ...(iikoExternalMenuId ? { menuId: iikoExternalMenuId } : {}),
+      orderTypeId: iikoOrderTypeId,
+      sourceKey: iikoOrderSourceKey,
+      items,
+      comment: String(comment ?? '').slice(0, 1000),
+    },
+    createOrderSettings: {
+      servicePrint: true,
+      transportToFrontTimeout: 30,
+      checkStopList: true,
+    },
+  });
   if (payload?.errorInfo) throw Object.assign(new Error(payload.errorInfo?.message ?? 'iiko не принял заказ'), { status: 409 });
   return { id, response: payload };
 };
