@@ -240,14 +240,23 @@ const fetchIikoOrder = async (orderId) => {
   if (!body.orders?.length) throw Object.assign(new Error('iiko order not found'), { status: 404 });
   return saveIikoOrder(body.orders[0], { organizationId: iikoOrganizationId });
 };
-const saveIikoStopLists = async (terminalGroupStopLists, organizationId = iikoOrganizationId) => {
+const saveIikoStopLists = async (terminalGroupStopLists, organizationId = iikoOrganizationId, requestedTerminalGroupIds = []) => {
   const client = await pool.connect();
   try {
     await client.query('begin');
+    const targetTerminalGroupIds = new Set([
+      ...requestedTerminalGroupIds.map(String),
+      ...terminalGroupStopLists.map((group) => String(group?.terminalGroupId ?? '')).filter(Boolean),
+    ]);
+    // The response is a complete snapshot for every requested terminal group.
+    // Clear its previous cache even when iiko returns an empty list; otherwise a
+    // removed stop-list item remains unavailable forever in the kiosk.
+    for (const terminalGroupId of targetTerminalGroupIds) {
+      await client.query('delete from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2', [organizationId, terminalGroupId]);
+    }
     for (const group of terminalGroupStopLists) {
       const terminalGroupId = String(group?.terminalGroupId ?? '');
       if (!terminalGroupId) continue;
-      await client.query('delete from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2', [organizationId, terminalGroupId]);
       for (const item of arrayValue(group?.items)) {
         if (!item?.productId) continue;
         await client.query(`insert into iiko_stop_list_items(organization_id,terminal_group_id,product_id,size_id,balance,sku,date_added)
@@ -261,15 +270,18 @@ const saveIikoStopLists = async (terminalGroupStopLists, organizationId = iikoOr
   } finally { client.release(); }
 };
 const fetchIikoStopLists = async (terminalGroupIds = []) => {
+  const requestedTerminalGroupIds = terminalGroupIds.length
+    ? terminalGroupIds.map(String)
+    : (iikoTerminalGroupId ? [iikoTerminalGroupId] : []);
   const token = await getIikoAccessToken();
   const result = await fetch(`${iikoApiBase}/api/1/stop_lists`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ organizationIds: [iikoOrganizationId], ...(terminalGroupIds.length ? { terminalGroupsIds: terminalGroupIds } : {}), returnSize: true }),
+    body: JSON.stringify({ organizationIds: [iikoOrganizationId], ...(requestedTerminalGroupIds.length ? { terminalGroupsIds: requestedTerminalGroupIds } : {}), returnSize: true }),
   });
   const body = await result.json().catch(() => ({}));
   if (!result.ok) throw Object.assign(new Error(body.errorDescription ?? 'Unable to get iiko stop list'), { status: 502 });
   const groups = arrayValue(body.terminalGroupStopLists).flatMap((wrapper) => arrayValue(wrapper?.items));
-  await saveIikoStopLists(groups, iikoOrganizationId);
+  await saveIikoStopLists(groups, iikoOrganizationId, requestedTerminalGroupIds);
   return groups;
 };
 const publicIikoStatus = (row) => ({
