@@ -46,18 +46,25 @@ const bannerKinds = new Set(['restaurant', 'advertising']);
 const bannerPayload = (body) => {
   const kind = String(body.kind ?? 'restaurant');
   const imageUrl = String(body.image_url ?? '').trim();
+  const productId = String(body.product_id ?? '').trim() || null;
   const startsAt = body.starts_at ? new Date(body.starts_at) : null;
   const endsAt = body.ends_at ? new Date(body.ends_at) : null;
   const impressionLimit = body.impression_limit === null || body.impression_limit === undefined || body.impression_limit === '' ? null : Number(body.impression_limit);
   const sortOrder = Number(body.sort_order ?? 0);
   if (!bannerKinds.has(kind)) throw Object.assign(new Error('Некорректный тип баннера'), { status: 400 });
+  if (productId && productId.length > 160) throw Object.assign(new Error('Некорректное блюдо для баннера'), { status: 400 });
   if (!imageUrl || (!imageUrl.startsWith('/uploads/banners/') && !imageUrl.startsWith('/images/') && !/^https:\/\//i.test(imageUrl))) throw Object.assign(new Error('Загрузите изображение баннера'), { status: 400 });
   if ((startsAt && Number.isNaN(startsAt.getTime())) || (endsAt && Number.isNaN(endsAt.getTime()))) throw Object.assign(new Error('Некорректный период показа'), { status: 400 });
   if (startsAt && endsAt && endsAt <= startsAt) throw Object.assign(new Error('Окончание показа должно быть позже начала'), { status: 400 });
   if (impressionLimit !== null && (!Number.isInteger(impressionLimit) || impressionLimit < 1)) throw Object.assign(new Error('Лимит показов должен быть целым положительным числом'), { status: 400 });
   if (!Number.isInteger(sortOrder)) throw Object.assign(new Error('Некорректный порядок баннера'), { status: 400 });
   if (kind === 'advertising' && (!startsAt || !endsAt || !impressionLimit)) throw Object.assign(new Error('Для рекламного баннера укажите начало, окончание и лимит показов'), { status: 400 });
-  return { name: String(body.name ?? '').trim().slice(0, 120) || 'Баннер', imageUrl, kind, active: body.active !== false, startsAt, endsAt, impressionLimit, sortOrder };
+  return { name: String(body.name ?? '').trim().slice(0, 120) || 'Баннер', imageUrl, productId, kind, active: body.active !== false, startsAt, endsAt, impressionLimit, sortOrder };
+};
+const ensureBannerProduct = async (productId) => {
+  if (!productId) return;
+  const exists = await pool.query(`select 1 from iiko_menu_items where product_id=$1 union all select 1 from products where id=$1 limit 1`, [productId]);
+  if (!exists.rowCount) throw Object.assign(new Error('Выбранное блюдо не найдено в актуальном меню'), { status: 400 });
 };
 const removeUploadedBanner = async (imageUrl) => {
   if (!String(imageUrl ?? '').startsWith(`${bannerPublicPath}/`)) return;
@@ -822,7 +829,8 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'POST' && path === '/api/v1/admin/banners') {
       const value = bannerPayload(await readBody(request));
-      const result = await pool.query('insert into banners(name,image_url,kind,active,starts_at,ends_at,impression_limit,sort_order) values($1,$2,$3,$4,$5,$6,$7,$8) returning *', [value.name, value.imageUrl, value.kind, value.active, value.startsAt, value.endsAt, value.impressionLimit, value.sortOrder]);
+      await ensureBannerProduct(value.productId);
+      const result = await pool.query('insert into banners(name,image_url,product_id,kind,active,starts_at,ends_at,impression_limit,sort_order) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *', [value.name, value.imageUrl, value.productId, value.kind, value.active, value.startsAt, value.endsAt, value.impressionLimit, value.sortOrder]);
       await audit(actor, 'create', 'banner', result.rows[0].id, null, result.rows[0]);
       return json(response, 201, result.rows[0]);
     }
@@ -840,9 +848,10 @@ const server = http.createServer(async (request, response) => {
       const id = Number(path.slice('/api/v1/admin/banners/'.length));
       if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный баннер' });
       const value = bannerPayload(await readBody(request));
+      await ensureBannerProduct(value.productId);
       const before = await pool.query('select * from banners where id=$1', [id]);
       if (!before.rowCount) return json(response, 404, { error: 'Баннер не найден' });
-      const result = await pool.query('update banners set name=$1,image_url=$2,kind=$3,active=$4,starts_at=$5,ends_at=$6,impression_limit=$7,sort_order=$8,updated_at=now() where id=$9 returning *', [value.name, value.imageUrl, value.kind, value.active, value.startsAt, value.endsAt, value.impressionLimit, value.sortOrder, id]);
+      const result = await pool.query('update banners set name=$1,image_url=$2,product_id=$3,kind=$4,active=$5,starts_at=$6,ends_at=$7,impression_limit=$8,sort_order=$9,updated_at=now() where id=$10 returning *', [value.name, value.imageUrl, value.productId, value.kind, value.active, value.startsAt, value.endsAt, value.impressionLimit, value.sortOrder, id]);
       if (before.rows[0].image_url !== value.imageUrl) await removeUploadedBanner(before.rows[0].image_url);
       await audit(actor, 'update', 'banner', id, before.rows[0], result.rows[0]);
       return json(response, 200, result.rows[0]);

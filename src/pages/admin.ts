@@ -43,6 +43,7 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
       <div class="banner-form-grid">
         <label>Название в админке<input data-banner-create="name" placeholder="Например: Летнее меню"></label>
         <label>Тип<select data-banner-create="kind"><option value="restaurant">Баннер заведения</option><option value="advertising">Рекламный баннер</option></select></label>
+        <label class="banner-form-grid__wide">Открывать блюдо<select data-banner-create="productId"><option value="">Без перехода к блюду</option>${options(products)}</select></label>
         <label class="banner-form-grid__wide">Файл изображения<input type="file" accept="image/png,image/jpeg,image/webp" data-action="upload-banner-image" data-banner-target="create"><input type="hidden" data-banner-create="image"></label>
         <label>Показывать с<input type="datetime-local" data-banner-create="startsAt"></label><label>Показывать до<input type="datetime-local" data-banner-create="endsAt"></label>
         <label>Лимит показов<input type="number" min="1" step="1" data-banner-create="impressionLimit" placeholder="Только для рекламы"></label><label>Порядок<input type="number" step="1" data-banner-create="sortOrder" value="0"></label>
@@ -54,6 +55,7 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
       <div class="banner-form-grid">
         <label>Название<input data-banner-field="name" value="${escapeHtml(item.name)}"></label>
         <label>Тип<select data-banner-field="kind"><option value="restaurant" ${item.kind === 'restaurant' ? 'selected' : ''}>Баннер заведения</option><option value="advertising" ${item.kind === 'advertising' ? 'selected' : ''}>Рекламный баннер</option></select></label>
+        <label class="banner-form-grid__wide">Открывать блюдо<select data-banner-field="productId"><option value="">Без перехода к блюду</option>${options(products, item.productId ?? '')}</select></label>
         <label class="banner-form-grid__wide">Заменить изображение<input type="file" accept="image/png,image/jpeg,image/webp" data-action="upload-banner-image" data-banner-target="${escapeHtml(item.id)}"><input type="hidden" data-banner-field="image" value="${escapeHtml(item.image)}"></label>
         <label>Показывать с<input type="datetime-local" data-banner-field="startsAt" value="${localDateTime(item.startsAt)}"></label><label>Показывать до<input type="datetime-local" data-banner-field="endsAt" value="${localDateTime(item.endsAt)}"></label>
         <label>Лимит показов<input type="number" min="1" step="1" data-banner-field="impressionLimit" value="${item.impressionLimit ?? ''}" placeholder="Только для рекламы"></label><label>Порядок<input type="number" step="1" data-banner-field="sortOrder" value="${item.sortOrder}"></label>

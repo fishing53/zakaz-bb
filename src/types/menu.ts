@@ -43,6 +43,7 @@ export interface Banner {
   id: string;
   name: string;
   image: string;
+  productId: string | null;
   kind: 'restaurant' | 'advertising';
   active: boolean;
   startsAt: string | null;

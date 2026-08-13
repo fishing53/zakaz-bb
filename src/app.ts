@@ -33,6 +33,7 @@ let submittingOrder = false;
 let bannerSwipeStart: { x: number; y: number } | null = null;
 let bannerRotationTimer = 0;
 let currentBannerId = '';
+let suppressBannerOpenUntil = 0;
 let statusRefreshTimer = 0;
 let auditLog: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [];
 let waiterProfiles: WaiterProfile[] = [];
@@ -251,6 +252,7 @@ async function action(element: HTMLElement) {
   }
   if (type === 'banner-slide') { selectBanner(Number(element.dataset.bannerIndex ?? 0)); return; }
   if (type === 'open-product') {
+    if (router.current() === 'welcome' && Date.now() < suppressBannerOpenUntil) return;
     const id = element.dataset.productId ?? null;
     const recentProductIds = id ? [id, ...appStore.get().recentProductIds.filter((item) => item !== id)].slice(0, 8) : appStore.get().recentProductIds;
     const fromWelcome = router.current() === 'welcome';
@@ -377,7 +379,7 @@ async function action(element: HTMLElement) {
     const date = (name: string) => input<HTMLInputElement>(name)?.value ? new Date(input<HTMLInputElement>(name)!.value).toISOString() : null;
     const limit = Number(input<HTMLInputElement>('impressionLimit')?.value || 0) || null;
     try {
-      await apiService.createBanner({ name: input<HTMLInputElement>('name')?.value.trim() ?? '', image: input<HTMLInputElement>('image')?.value ?? '', kind: (input<HTMLSelectElement>('kind')?.value ?? 'restaurant') as Banner['kind'], active: true, startsAt: date('startsAt'), endsAt: date('endsAt'), impressionLimit: limit, sortOrder: Number(input<HTMLInputElement>('sortOrder')?.value ?? 0) });
+      await apiService.createBanner({ name: input<HTMLInputElement>('name')?.value.trim() ?? '', image: input<HTMLInputElement>('image')?.value ?? '', productId: input<HTMLSelectElement>('productId')?.value || null, kind: (input<HTMLSelectElement>('kind')?.value ?? 'restaurant') as Banner['kind'], active: true, startsAt: date('startsAt'), endsAt: date('endsAt'), impressionLimit: limit, sortOrder: Number(input<HTMLInputElement>('sortOrder')?.value ?? 0) });
       adminBanners = await apiService.banners();
       await syncServer();
       flash('Баннер добавлен');
@@ -392,7 +394,7 @@ async function action(element: HTMLElement) {
     const input = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => card.querySelector<T>(`[data-banner-field="${name}"]`);
     const date = (name: string) => input<HTMLInputElement>(name)?.value ? new Date(input<HTMLInputElement>(name)!.value).toISOString() : null;
     try {
-      await apiService.saveBanner({ ...current, name: input<HTMLInputElement>('name')?.value.trim() ?? '', image: input<HTMLInputElement>('image')?.value ?? current.image, kind: (input<HTMLSelectElement>('kind')?.value ?? 'restaurant') as Banner['kind'], startsAt: date('startsAt'), endsAt: date('endsAt'), impressionLimit: Number(input<HTMLInputElement>('impressionLimit')?.value || 0) || null, sortOrder: Number(input<HTMLInputElement>('sortOrder')?.value ?? 0) });
+      await apiService.saveBanner({ ...current, name: input<HTMLInputElement>('name')?.value.trim() ?? '', image: input<HTMLInputElement>('image')?.value ?? current.image, productId: input<HTMLSelectElement>('productId')?.value || null, kind: (input<HTMLSelectElement>('kind')?.value ?? 'restaurant') as Banner['kind'], startsAt: date('startsAt'), endsAt: date('endsAt'), impressionLimit: Number(input<HTMLInputElement>('impressionLimit')?.value || 0) || null, sortOrder: Number(input<HTMLInputElement>('sortOrder')?.value ?? 0) });
       adminBanners = await apiService.banners();
       await syncServer();
       flash('Баннер сохранён');
@@ -630,6 +632,7 @@ export function startApp() {
     if (Math.abs(distanceX) < 42 || Math.abs(distanceX) < Math.abs(distanceY)) return;
     const current = [...root.querySelectorAll('.welcome-banner')].findIndex((banner) => banner.classList.contains('is-active'));
     selectBanner((current < 0 ? 0 : current) + (distanceX < 0 ? 1 : -1));
+    suppressBannerOpenUntil = Date.now() + 450;
   }, { passive: true });
   ['pointerdown', 'touchstart', 'keydown'].forEach((event) => addEventListener(event, resetInactivity, { passive: true }));
   addEventListener('online', () => { appStore.set({ isOnline: true }); flash('Соединение восстановлено'); });

@@ -18,6 +18,7 @@ await pool.query(`
     id bigserial primary key,
     name text not null default '',
     image_url text not null,
+    product_id text,
     kind text not null default 'restaurant' check (kind in ('restaurant','advertising')),
     active boolean not null default true,
     starts_at timestamptz,
@@ -29,6 +30,7 @@ await pool.query(`
     updated_at timestamptz not null default now(),
     check (ends_at is null or starts_at is null or ends_at > starts_at)
   );
+  alter table banners add column if not exists product_id text;
   create index if not exists banners_public_idx on banners(active, sort_order, id);
   create table if not exists banner_impressions (
     id bigserial primary key,
