@@ -48,7 +48,6 @@ let iikoConfigLockTimer = 0;
 let iikoDiscovery: IikoConnectionDiscovery | null = null;
 let iikoRestaurantOptions: IikoRestaurantOptions | null = null;
 let iikoSelectedOrganizationId = '';
-let newIikoWebhookToken = '';
 let adminOrderFilter: 'active' | 'all' = 'active';
 let adminOrderRefreshTimer = 0;
 const updateSearch = debounce((value: string) => {
@@ -71,7 +70,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, newIikoWebhookToken) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId) : '';
   }
 }
 
@@ -274,7 +273,7 @@ async function action(element: HTMLElement) {
     } catch (error) { flash(error instanceof Error ? error.message : 'Неверный пароль'); }
     return;
   }
-  if (type === 'logout-admin') { apiService.logout(); clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; newIikoWebhookToken = ''; appStore.set({ adminAuthenticated: false, adminScope: null, adminRole: null, adminTab: 'terminal' }); router.go('welcome'); return; }
+  if (type === 'logout-admin') { apiService.logout(); clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; appStore.set({ adminAuthenticated: false, adminScope: null, adminRole: null, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
     const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'staff' | 'quality' | 'audit';
     appStore.set({ adminTab });
@@ -283,7 +282,7 @@ async function action(element: HTMLElement) {
     if (adminTab === 'banners') apiService.banners().then((items) => { adminBanners = items; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'orders') void loadAdminOrders();
     if (adminTab === 'quality') void loadAdminDiagnostics();
-    else { clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; newIikoWebhookToken = ''; }
+    else { clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; }
     return;
   }
   if (type === 'set-admin-order-filter') { adminOrderFilter = element.dataset.orderFilter === 'all' ? 'all' : 'active'; await loadAdminOrders(); return; }
@@ -293,8 +292,8 @@ async function action(element: HTMLElement) {
     const password = root.querySelector<HTMLInputElement>('[data-iiko-config-password]')?.value ?? '';
     try {
       const access = await apiService.unlockIikoConfig(password); iikoConfigAccessToken = access.token;
-      adminIikoConfig = await apiService.iikoConfig(access.token); iikoConfigTestToken = ''; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; newIikoWebhookToken = ''; render();
-      clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = window.setTimeout(() => { iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; newIikoWebhookToken = ''; if (router.current() === 'admin' && appStore.get().adminTab === 'quality') render(); }, access.expiresIn * 1000);
+      adminIikoConfig = await apiService.iikoConfig(access.token); iikoConfigTestToken = ''; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; render();
+      clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = window.setTimeout(() => { iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; if (router.current() === 'admin' && appStore.get().adminTab === 'quality') render(); }, access.expiresIn * 1000);
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось открыть настройки iiko'); }
     return;
   }
@@ -323,15 +322,13 @@ async function action(element: HTMLElement) {
     finally { button.disabled = false; }
     return;
   }
-  if (type === 'copy-new-iiko-webhook-token') { try { await navigator.clipboard.writeText(newIikoWebhookToken); flash('Webhook-токен скопирован'); } catch { flash('Не удалось скопировать токен'); } return; }
-  if (type === 'dismiss-new-iiko-webhook-token') { newIikoWebhookToken = ''; render(); return; }
   if (type === 'apply-iiko-config') {
     const button = element as HTMLButtonElement; const resultBox = root.querySelector<HTMLElement>('[data-iiko-test-result]');
     try {
       button.disabled = true; if (resultBox) { resultBox.dataset.state = 'loading'; resultBox.textContent = 'Применяем настройки и обновляем меню, столы и стоп-лист…'; }
       const applied = await apiService.applyIikoConfig(iikoConfigAccessToken, readIikoConnectionSelection(), iikoConfigTestToken);
-      clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; newIikoWebhookToken = applied.webhookToken ?? '';
-      await loadAdminDiagnostics(false); await syncServer(true); flash(`iiko подключена: ${applied.sync.menuItems} блюд, ${applied.sync.tables} столов`);
+      clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = '';
+      await loadAdminDiagnostics(false); await syncServer(true); flash(`iiko подключена: ${applied.sync.menuItems} блюд, ${applied.sync.tables} столов, webhook активен`);
     } catch (error) { button.disabled = false; if (resultBox) { resultBox.dataset.state = 'error'; resultBox.textContent = error instanceof Error ? error.message : 'Не удалось применить настройки'; } }
     return;
   }

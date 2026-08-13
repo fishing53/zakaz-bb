@@ -15,6 +15,7 @@ let iikoApiBase = process.env.IIKO_API_BASE || 'https://api-ru.iiko.services';
 let iikoOrganizationId = process.env.IIKO_ORGANIZATION_ID ?? '';
 let iikoWebhookToken = process.env.IIKO_WEBHOOK_TOKEN ?? '';
 const firebaseServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+const publicIikoWebhookUrl = process.env.IIKO_WEBHOOK_URL || 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1/iiko/webhook';
 let iikoTerminalGroupId = process.env.IIKO_TERMINAL_GROUP_ID ?? '';
 let iikoExternalMenuId = process.env.IIKO_EXTERNAL_MENU_ID ?? '';
 let iikoOrderTypeId = process.env.IIKO_ORDER_TYPE_ID ?? '';
@@ -31,6 +32,7 @@ const productPublicPath = process.env.PRODUCT_PUBLIC_PATH ?? '/uploads/products'
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
 if (!process.env.DATABASE_URL || !tokenSecret || !adminPasswordHash || !/^[a-f0-9]{64}$/i.test(iikoConfigEncryptionKeyHex)) throw new Error('DATABASE_URL, TOKEN_SECRET, ADMIN_PASSWORD_HASH and a 32-byte IIKO_CONFIG_ENCRYPTION_KEY are required');
+if (!/^https:\/\/[^\s]+$/i.test(publicIikoWebhookUrl)) throw new Error('IIKO_WEBHOOK_URL must be a public HTTPS URL');
 const iikoConfigEncryptionKey = Buffer.from(iikoConfigEncryptionKeyHex, 'hex');
 
 const json = (response, status, body) => {
@@ -437,6 +439,68 @@ const discoverIikoRestaurantOptions = async (session, organizationId) => {
     recommendedExternalMenuId: current.organizationId === id && externalMenus.some((item) => item.id === current.externalMenuId) ? current.externalMenuId : externalMenus.length === 1 ? externalMenus[0].id : '',
     orderTypeId: orderTypes[0].id,
   };
+};
+const managedIikoWebhookFilter = {
+  tableOrderFilter: {
+    orderStatuses: ['New', 'Bill', 'Closed', 'Deleted'],
+    itemStatuses: ['Added', 'PrintedNotCooking', 'CookingStarted', 'CookingCompleted', 'Served'],
+    errors: true,
+  },
+  stopListUpdateFilter: { updates: true },
+};
+const authorizeIikoConfig = async (config) => {
+  const result = await fetch(`${config.apiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId: config.appId, apiLogin: config.apiLogin, clientSecret: config.clientSecret }) });
+  const payload = await result.json().catch(() => ({}));
+  if (!result.ok || !payload.token) throw Object.assign(new Error(payload.errorDescription ?? 'iiko не принял данные авторизации для настройки webhook'), { status: 409 });
+  return payload.token;
+};
+const iikoConfigCall = async (config, token, path, body) => {
+  const result = await fetch(`${config.apiBase}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+  const payload = await result.json().catch(() => ({}));
+  if (!result.ok) throw Object.assign(new Error(payload.errorDescription ?? `iiko не принял настройку webhook: ${path}`), { status: 409, correlationId: payload.correlationId ?? null });
+  return payload;
+};
+const normalizedWebhookSettings = (settings) => ({
+  webHooksUri: String(settings?.webHooksUri ?? ''),
+  authToken: String(settings?.authToken ?? ''),
+  webHooksFilter: settings?.webHooksFilter ?? {},
+});
+const sameStringList = (left, right) => Array.isArray(left) && left.length === right.length && right.every((value) => left.includes(value));
+const webhookRegistrationMatches = (settings, config) => {
+  const current = normalizedWebhookSettings(settings);
+  const table = current.webHooksFilter?.tableOrderFilter;
+  return current.webHooksUri === publicIikoWebhookUrl
+    && current.authToken === config.webhookToken
+    && sameStringList(table?.orderStatuses, managedIikoWebhookFilter.tableOrderFilter.orderStatuses)
+    && sameStringList(table?.itemStatuses, managedIikoWebhookFilter.tableOrderFilter.itemStatuses)
+    && table?.errors === true
+    && current.webHooksFilter?.stopListUpdateFilter?.updates === true;
+};
+const updateIikoWebhookSettings = (config, token, settings) => iikoConfigCall(config, token, '/api/1/webhooks/update_settings', { organizationId: config.organizationId, ...normalizedWebhookSettings(settings) });
+const ensureIikoWebhookRegistration = async (config) => {
+  const token = await authorizeIikoConfig(config);
+  const previous = normalizedWebhookSettings(await iikoConfigCall(config, token, '/api/1/webhooks/settings', { organizationId: config.organizationId }));
+  if (webhookRegistrationMatches(previous, config)) return { updated: false, verified: true, previous: null };
+  const desired = { webHooksUri: publicIikoWebhookUrl, authToken: config.webhookToken, webHooksFilter: { ...previous.webHooksFilter, ...managedIikoWebhookFilter } };
+  let changed = false;
+  try {
+    await updateIikoWebhookSettings(config, token, desired); changed = true;
+    let verified = null;
+    for (const delayMs of [0, 400, 1_000, 2_000]) {
+      if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      verified = await iikoConfigCall(config, token, '/api/1/webhooks/settings', { organizationId: config.organizationId });
+      if (webhookRegistrationMatches(verified, config)) break;
+    }
+    if (!webhookRegistrationMatches(verified, config)) throw Object.assign(new Error('iiko сохранила webhook не полностью'), { status: 409 });
+    return { updated: true, verified: true, previous, token };
+  } catch (error) {
+    if (changed) await updateIikoWebhookSettings(config, token, previous).catch((restoreError) => console.error('Unable to restore previous iiko webhook settings:', restoreError));
+    throw error;
+  }
+};
+const restoreIikoWebhookRegistration = async (config, registration) => {
+  if (!registration?.updated || !registration.previous || !registration.token) return;
+  await updateIikoWebhookSettings(config, registration.token, registration.previous);
 };
 const iikoRequest = async (path, body) => {
   if (Date.now() < iikoRetryAfter) throw Object.assign(new Error('iiko временно ограничил запросы, используем сохранённые данные'), { status: 503 });
@@ -1141,7 +1205,7 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'GET' && path === '/api/v1/admin/iiko-config') {
       requireIikoConfigAccess(request);
-      return json(response, 200, { ...safeIikoConfig(), allowedApiBases: [...allowedIikoApiBases], webhookUrl: 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1/iiko/webhook' });
+      return json(response, 200, { ...safeIikoConfig(), allowedApiBases: [...allowedIikoApiBases], webhookUrl: publicIikoWebhookUrl });
     }
     if (request.method === 'POST' && path === '/api/v1/admin/iiko-config/discover') {
       const configAdmin = requireIikoConfigAccess(request); const body = await readBody(request);
@@ -1176,7 +1240,7 @@ const server = http.createServer(async (request, response) => {
       if (!tested?.configTest || tested.configHash !== iikoConfigHash(candidate) || String(tested.userId ?? '') !== String(configAdmin.userId ?? '')) return json(response, 409, { error: 'Сначала проверьте именно эту конфигурацию ещё раз' });
       const previousRow = iikoConnectionMetadata; const previousConfig = previousRow ? configFromRow(previousRow) : runtimeIikoConfig(); const before = safeIikoConfig(previousRow);
       const encrypted = encryptIikoCredentials({ appId: candidate.appId, apiLogin: candidate.apiLogin, clientSecret: candidate.clientSecret, webhookToken: candidate.webhookToken });
-      iikoConfigSwitching = true; let restoreOk = true;
+      iikoConfigSwitching = true; let restoreOk = true; let webhookRegistration = null;
       try {
         const saved = await pool.query(`insert into iiko_connection_settings(id,api_base,organization_id,terminal_group_id,external_menu_id,order_type_id,order_source_key,credentials_ciphertext,credentials_iv,credentials_tag,configured_by,last_test_at,last_test_details)
           values('active',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),$11)
@@ -1184,13 +1248,16 @@ const server = http.createServer(async (request, response) => {
           credentials_ciphertext=excluded.credentials_ciphertext,credentials_iv=excluded.credentials_iv,credentials_tag=excluded.credentials_tag,configured_by=excluded.configured_by,last_test_at=excluded.last_test_at,last_test_details=excluded.last_test_details,updated_at=now() returning *`,
         [candidate.apiBase,candidate.organizationId,candidate.terminalGroupId,candidate.externalMenuId,candidate.orderTypeId,candidate.orderSourceKey,encrypted.ciphertext,encrypted.iv,encrypted.tag,actor,JSON.stringify(tested.result ?? {})]);
         iikoConnectionMetadata = saved.rows[0]; applyRuntimeIikoConfig(candidate);
+        webhookRegistration = await ensureIikoWebhookRegistration(candidate);
         const [menuCount, tableCount] = await Promise.all([syncIikoMenu(), syncIikoTables()]);
         await fetchIikoStopLists([candidate.terminalGroupId]);
         const after = safeIikoConfig(saved.rows[0]); await audit(actor, 'activate', 'iiko_connection', 'active', before, after);
-        await publishEvent('iiko_connection_changed', 'iiko_connection', 'active', { actor, organizationId: candidate.organizationId, menuCount, tableCount }, candidate.organizationId);
+        await publishEvent('iiko_connection_changed', 'iiko_connection', 'active', { actor, organizationId: candidate.organizationId, menuCount, tableCount, webhookRegistered: true, webhookUpdated: webhookRegistration.updated }, candidate.organizationId);
         if (body.discoveryToken) iikoDiscoverySessions.delete(String(body.discoveryToken));
-        return json(response, 200, { config: after, sync: { menuItems: menuCount, tables: tableCount }, webhookToken: !previousConfig.webhookToken ? candidate.webhookToken : null });
+        return json(response, 200, { config: after, sync: { menuItems: menuCount, tables: tableCount }, webhook: { registered: true, updated: webhookRegistration.updated } });
       } catch (error) {
+        try { await restoreIikoWebhookRegistration(candidate, webhookRegistration); }
+        catch (restoreError) { restoreOk = false; console.error('Unable to restore previous iiko webhook registration:', restoreError); }
         try {
           if (previousRow) await pool.query(`update iiko_connection_settings set api_base=$1,organization_id=$2,terminal_group_id=$3,external_menu_id=$4,order_type_id=$5,order_source_key=$6,credentials_ciphertext=$7,credentials_iv=$8,credentials_tag=$9,configured_by=$10,last_test_at=$11,last_test_details=$12,updated_at=$13 where id='active'`,
             [previousRow.api_base,previousRow.organization_id,previousRow.terminal_group_id,previousRow.external_menu_id,previousRow.order_type_id,previousRow.order_source_key,previousRow.credentials_ciphertext,previousRow.credentials_iv,previousRow.credentials_tag,previousRow.configured_by,previousRow.last_test_at,previousRow.last_test_details,previousRow.updated_at]);
@@ -1395,6 +1462,13 @@ await loadStoredIikoConfig();
 server.listen(port, '127.0.0.1', () => {
   console.log(`Zakaz API listening on ${port}`);
   setTimeout(() => { void backgroundSync(); }, 3_000);
+  setTimeout(() => {
+    const config = runtimeIikoConfig();
+    if (!config.appId || !config.organizationId || !config.webhookToken) return;
+    void ensureIikoWebhookRegistration(config)
+      .then((result) => { if (result.updated) console.log('iiko webhook registration updated and verified'); })
+      .catch(async (error) => { console.warn('iiko webhook registration:', error.message); await recordMonitoringEvent('webhook', `Автоматическая регистрация webhook: ${error.message}`, { correlationId: error.correlationId ?? null }, 'warning'); });
+  }, 6_000);
   // No tablet makes these calls. Menu/tables/stop-list are refreshed in one
   // controlled server task; active orders use webhooks first and this fallback.
   setInterval(() => { void backgroundSync(); }, 10 * 60 * 1_000).unref();
