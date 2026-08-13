@@ -852,6 +852,14 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .menu-toolbar .search-box input { width: 0; min-width: 0; padding: 0 20px 0 0; color: #111; opacity: 0; transform: translateX(8px); transition: opacity .2s ease .08s,transform .32s cubic-bezier(.22,1,.36,1); }
 .menu-toolbar .search-box input::placeholder { color: #777; }
 .menu-toolbar .search-box:focus-within input,.menu-toolbar .search-box.is-open input,.menu-toolbar .search-box:has(input:not(:placeholder-shown)) input { width: auto; opacity: 1; transform: translateX(0); }
+.menu-toolbar .search-box { border-color: rgba(255,255,255,.12); background: #292929; color: #fff; }
+.menu-toolbar .search-box:focus-within,.menu-toolbar .search-box.is-open,.menu-toolbar .search-box:has(input:not(:placeholder-shown)) { border-color: rgba(255,255,255,.23); }
+.menu-toolbar .search-box > .icon { color: #fff; }
+.menu-toolbar .search-box input { color: #fff; }
+.menu-toolbar .search-box input::placeholder { color: #929292; }
+.search-box__close { width: 38px; height: 38px; margin-right: 7px; flex: 0 0 38px; display: grid; place-items: center; color: #fff; border-radius: 50%; background: rgba(255,255,255,.08); opacity: 0; transform: scale(.72); pointer-events: none; transition: opacity .2s ease .12s,transform .25s ease; }
+.search-box__close .icon { width: 17px; height: 17px; }
+.menu-toolbar .search-box:focus-within .search-box__close,.menu-toolbar .search-box.is-open .search-box__close,.menu-toolbar .search-box:has(input:not(:placeholder-shown)) .search-box__close { opacity: 1; transform: scale(1); pointer-events: auto; }
 @media (max-width: 680px) {
   .menu-toolbar { min-height: 66px; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: 1fr; gap: 10px; padding-top: 0; }
   .menu-toolbar .category-nav { grid-row: 1; gap: 6px; }
@@ -860,3 +868,10 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   .menu-toolbar .search-box:focus-within,.menu-toolbar .search-box.is-open,.menu-toolbar .search-box:has(input:not(:placeholder-shown)) { width: min(280px,58vw); }
   .menu-toolbar .search-box > .icon { margin-inline: 13px; }
 }
+
+/* Product title metadata and the image-level return action. */
+.product-overlay .product-modal h2 .product-modal__weight { color: rgba(255,255,255,.52); font: 700 .43em/1 "Roboto Condensed",sans-serif; letter-spacing: 0; text-transform: none; white-space: nowrap; }
+.product-overlay .product-modal__price { border-bottom: 0; }
+.product-overlay .product-modal__visual .product-modal__back { min-height: 46px; margin: 0; padding: 0 19px; position: absolute; z-index: 2; top: clamp(18px,2.5vw,34px); left: clamp(18px,2.5vw,34px); color: #111; border: 0; border-radius: 999px; background: #fff; box-shadow: 0 10px 28px rgba(0,0,0,.32); transition: transform .2s ease,box-shadow .2s ease; }
+.product-overlay .product-modal__visual .product-modal__back:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(0,0,0,.4); }
+.product-overlay .product-modal__visual .product-modal__back:active { transform: scale(.97); }

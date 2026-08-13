@@ -51,7 +51,11 @@ let iikoSelectedOrganizationId = '';
 let adminOrderFilter: 'active' | 'all' = 'active';
 let adminOrderRefreshTimer = 0;
 const updateSearch = debounce((value: string) => {
-  appStore.set({ search: value }, false);
+  const searching = Boolean(value.trim());
+  appStore.set({ search: value, ...(searching ? { category: 'Все блюда' } : {}) }, false);
+  if (searching) {
+    root.querySelectorAll<HTMLElement>('.category-nav button').forEach((button) => button.classList.toggle('is-active', button.dataset.category === 'Все блюда'));
+  }
   refreshMenuResults();
 }, 180);
 const updateComment = debounce((value: string) => appStore.set({ comment: value, pendingOrderRequestId: null }, false), 180);
@@ -375,6 +379,11 @@ async function action(element: HTMLElement) {
   }
   if (type === 'close-product') { appStore.set({ productId: null }); return; }
   if (type === 'select-category') { appStore.set({ category: element.dataset.category ?? 'Все блюда', search: '' }); return; }
+  if (type === 'close-search') {
+    updateSearch('');
+    appStore.set({ search: '' });
+    return;
+  }
   if (type === 'set-option') {
     const group = element.closest('.option-group');
     if (group?.getAttribute('data-multiple') === 'true') element.classList.toggle('is-selected');
