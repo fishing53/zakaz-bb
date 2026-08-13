@@ -7,7 +7,9 @@ const terminalKey = 'zakaz-terminal-id';
 const rawTerminalId = localStorage.getItem(terminalKey);
 export const terminalId = rawTerminalId ?? crypto.randomUUID().replace(/-/g, '');
 if (!rawTerminalId) localStorage.setItem(terminalKey, terminalId);
-const apiBase = Capacitor.isNativePlatform() ? 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1' : '/api/v1';
+const productionOrigin = 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai';
+const isNative = Capacitor.isNativePlatform();
+const apiBase = isNative ? `${productionOrigin}/api/v1` : '/api/v1';
 
 type ServerProduct = Product & { is_available: boolean; badge: string; image_position: string; allergens: string; spicy: 'none' | 'mild' | 'hot'; sort_order: number };
 type ServerBanner = { id: number | string; name: string; image_url: string; kind: 'restaurant' | 'advertising'; active: boolean; starts_at: string | null; ends_at: string | null; impression_limit: number | null; impressions: number; sort_order: number };
@@ -39,7 +41,7 @@ const product = (item: ServerProduct): Product => ({
   modifier_groups: item.modifier_groups ?? [],
 });
 const display = (item: ServerProduct): ProductDisplaySettings => ({ badge: item.badge ?? '', unavailable: !item.is_available, imagePosition: item.image_position ?? 'center', allergens: item.allergens ?? '', spicy: item.spicy ?? 'none' });
-const banner = (item: ServerBanner): Banner => ({ id: String(item.id), name: item.name, image: item.image_url, kind: item.kind, active: item.active, startsAt: item.starts_at, endsAt: item.ends_at, impressionLimit: item.impression_limit === null ? null : Number(item.impression_limit), impressions: Number(item.impressions), sortOrder: Number(item.sort_order) });
+const banner = (item: ServerBanner): Banner => ({ id: String(item.id), name: item.name, image: isNative && item.image_url.startsWith('/') ? `${productionOrigin}${item.image_url}` : item.image_url, kind: item.kind, active: item.active, startsAt: item.starts_at, endsAt: item.ends_at, impressionLimit: item.impression_limit === null ? null : Number(item.impression_limit), impressions: Number(item.impressions), sortOrder: Number(item.sort_order) });
 const terminal = (item: ServerTerminal): TerminalSettings => ({ id: item.id, label: item.label, tableNumber: item.table_number, isActive: item.is_active, idleSeconds: item.idle_seconds, tableSource: item.table_source ?? null, tableId: item.table_id ?? null });
 const order = (item: ServerOrder): SubmittedOrder => ({ id: item.order_number, items: item.items, total: Number(item.total), statusStep: item.status_step, createdAt: item.created_at, orderType: null, tableNumber: item.table_number });
 
