@@ -565,11 +565,14 @@ const testIikoConnection = async (config) => {
 const defaultItemSize = (item) => arrayValue(item?.itemSizes).find((size) => size?.isDefault) ?? arrayValue(item?.itemSizes)[0] ?? {};
 const iikoPrice = (size) => Number(arrayValue(size?.prices).find((price) => String(price?.organizationId) === iikoOrganizationId)?.price ?? arrayValue(size?.prices)[0]?.price ?? 0);
 const nutritionHasValues = (nutrition) => ['energy', 'calories', 'proteins', 'protein', 'fats', 'fat', 'carbs', 'carbohydrates'].some((key) => Number(nutrition?.[key] ?? 0) > 0);
+const modifierRestrictions = (value) => Array.isArray(value) ? (value[0] ?? {}) : value && typeof value === 'object' ? value : {};
 const publicModifierGroups = (groups) => arrayValue(groups).map((group) => ({
   name: String(group?.name ?? 'Дополнения'), minQuantity: Number(group?.restrictions?.minQuantity ?? 0), maxQuantity: Number(group?.restrictions?.maxQuantity ?? 99), freeQuantity: Number(group?.restrictions?.freeQuantity ?? 0),
   items: arrayValue(group?.items).filter((item) => item?.itemId && !item?.isHidden).map((item) => {
-    const restrictions = arrayValue(item?.restrictions)[0] ?? {};
-    return { productId: String(item.itemId), name: String(item.name ?? ''), price: iikoPrice(item), image: String(item.buttonImageUrl ?? ''), defaultQuantity: Number(restrictions.byDefault ?? 0), minQuantity: Number(restrictions.minQuantity ?? 0), maxQuantity: Number(restrictions.maxQuantity ?? 1) };
+    const restrictions = modifierRestrictions(item?.restrictions);
+    const groupMaximum = Number(group?.restrictions?.maxQuantity ?? 20) || 20;
+    const itemMaximum = Number(restrictions.maxQuantity ?? 0) || groupMaximum;
+    return { productId: String(item.itemId), name: String(item.name ?? ''), price: iikoPrice(item), image: String(item.buttonImageUrl ?? ''), defaultQuantity: Number(restrictions.byDefault ?? 0), minQuantity: Number(restrictions.minQuantity ?? 0), maxQuantity: Math.min(20, itemMaximum) };
   }),
 })).filter((group) => group.items.length);
 const syncIikoMenu = async () => {
@@ -784,6 +787,7 @@ const normalizeIikoOrder = async (input) => {
         allowedModifiers.set(String(modifier.itemId), {
           item: modifier,
           productGroupId: group?.itemGroupId ? String(group.itemGroupId) : '',
+          maxQuantity: Math.min(20, Number(modifierRestrictions(modifier.restrictions).maxQuantity ?? 0) || Number(group?.restrictions?.maxQuantity ?? 20) || 20),
         });
       }
     }
@@ -792,13 +796,14 @@ const normalizeIikoOrder = async (input) => {
       const binding = allowedModifiers.get(productId);
       const modifierItem = binding?.item;
       const modifierAmount = Number(modifier?.amount ?? 1);
-      if (!modifierItem || !Number.isInteger(modifierAmount) || modifierAmount < 1 || modifierAmount > 20) throw Object.assign(new Error('Некорректная добавка'), { status: 400 });
+      if (!modifierItem || !Number.isInteger(modifierAmount) || modifierAmount < 1 || modifierAmount > binding.maxQuantity) throw Object.assign(new Error('Некорректное количество добавки'), { status: 400 });
       return {
         productId,
         amount: modifierAmount,
         name: String(modifierItem.name ?? ''),
         price: iikoPrice(modifierItem),
         image: String(modifierItem.buttonImageUrl || '/images/sauce-fallback.webp'),
+        maxQuantity: binding.maxQuantity,
         ...(binding.productGroupId ? { productGroupId: binding.productGroupId } : {}),
       };
     });

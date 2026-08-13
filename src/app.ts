@@ -401,7 +401,7 @@ async function action(element: HTMLElement) {
     const relatedIds = [...root.querySelectorAll<HTMLElement>('.related-choice.is-selected')].map((item) => item.dataset.productId ?? '');
     const quantity = Number(root.querySelector<HTMLElement>('[data-modal-quantity]')?.textContent ?? 1);
     const related = relatedIds.map((id) => menuService.find(id)).filter((item): item is Product => Boolean(item));
-    const modifiers = [...root.querySelectorAll<HTMLElement>('[data-iiko-modifier="true"].is-selected')].map((item) => ({ productId: item.dataset.productId ?? '', name: item.dataset.value ?? '', amount: 1, price: Number(item.dataset.price ?? 0), image: item.dataset.image || '/images/sauce-fallback.webp' })).filter((item) => item.productId);
+    const modifiers = [...root.querySelectorAll<HTMLElement>('[data-iiko-modifier="true"].is-selected')].map((item) => ({ productId: item.dataset.productId ?? '', name: item.dataset.value ?? '', amount: 1, price: Number(item.dataset.price ?? 0), image: item.dataset.image || '/images/sauce-fallback.webp', maxQuantity: Number(item.dataset.maxQuantity ?? 20) || 20 })).filter((item) => item.productId);
     orderStore.addBundle(product, { addon: valueAt('Добавки'), flavor: valueAt('Вкус'), ...(modifiers.length ? { modifiers } : {}) }, sauces, related, quantity);
     transientToast('Выбранные позиции добавлены в заказ');
     return;
@@ -615,6 +615,11 @@ async function action(element: HTMLElement) {
     return;
   }
   if (type === 'remove-line') { orderStore.remove(element.dataset.key!); return; }
+  if (type === 'change-modifier-quantity') {
+    const changed = orderStore.changeModifier(element.dataset.key!, element.dataset.modifierId!, Number(element.dataset.delta));
+    if (!changed && Number(element.dataset.delta) > 0) flash('Максимальное количество задано в iiko');
+    return;
+  }
   if (type === 'remove-modifier') { orderStore.removeModifier(element.dataset.key!, element.dataset.modifierId!); return; }
   if (type === 'open-service') { appStore.set({ serviceOpen: true }); return; }
   if (type === 'close-service') { appStore.set({ serviceOpen: false }); return; }

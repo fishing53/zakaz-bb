@@ -4,6 +4,16 @@ import type { CartLine, Product } from '../types/menu';
 
 const lineKey = (line: Pick<CartLine, 'productId' | 'kind' | 'customName' | 'sauce' | 'addon' | 'flavor' | 'modifiers'>) => [line.kind, line.productId, line.customName, line.sauce, line.addon, line.flavor, line.modifiers?.map((item) => `${item.productId}:${item.amount}`).join(',')].filter(Boolean).join('|');
 const linePrice = (line: CartLine) => (line.customPrice ?? menuService.find(line.productId)?.price_rub ?? 0) + (line.modifiers ?? []).reduce((sum, item) => sum + item.price * item.amount, 0);
+const modifierLimit = (line: CartLine, modifierId: string) => {
+  const stored = line.modifiers?.find((modifier) => modifier.productId === modifierId)?.maxQuantity;
+  if (stored && stored > 0) return stored;
+  const product = menuService.find(line.productId);
+  for (const group of product?.modifier_groups ?? []) {
+    const modifier = group.items.find((item) => item.productId === modifierId);
+    if (modifier) return modifier.maxQuantity || group.maxQuantity || 20;
+  }
+  return 20;
+};
 const append = (cart: CartLine[], next: Omit<CartLine, 'key' | 'quantity'>) => {
   const key = lineKey(next);
   const found = cart.find((line) => line.key === key);
@@ -49,6 +59,28 @@ export const orderStore = {
   change(key: string, delta: number, notify = true) {
     const cart = appStore.get().cart.map((line) => line.key === key ? { ...line, quantity: line.quantity + delta } : line).filter((line) => line.quantity > 0);
     appStore.set({ cart, pendingOrderRequestId: null }, notify);
+  },
+  changeModifier(key: string, modifierId: string, delta: number) {
+    const cart: CartLine[] = appStore.get().cart.map((line) => ({ ...line, ...(line.modifiers ? { modifiers: line.modifiers.map((modifier) => ({ ...modifier })) } : {}) }));
+    const index = cart.findIndex((line) => line.key === key);
+    const modifier = cart[index]?.modifiers?.find((item) => item.productId === modifierId);
+    if (index < 0 || !modifier) return false;
+    const nextAmount = modifier.amount + delta;
+    if (nextAmount > modifierLimit(cart[index], modifierId)) return false;
+    if (nextAmount <= 0) {
+      const modifiers = (cart[index].modifiers ?? []).filter((item) => item.productId !== modifierId);
+      cart[index] = { ...cart[index], modifiers: modifiers.length ? modifiers : undefined };
+    } else {
+      modifier.amount = nextAmount;
+    }
+    cart[index].key = lineKey(cart[index]);
+    const duplicateIndex = cart.findIndex((line, lineIndex) => lineIndex !== index && line.key === cart[index].key);
+    if (duplicateIndex >= 0) {
+      cart[duplicateIndex].quantity += cart[index].quantity;
+      cart.splice(index, 1);
+    }
+    appStore.set({ cart, pendingOrderRequestId: null });
+    return true;
   },
   removeModifier(key: string, modifierId: string) {
     const cart: CartLine[] = appStore.get().cart.map((line) => ({ ...line, ...(line.modifiers ? { modifiers: line.modifiers.map((modifier) => ({ ...modifier })) } : {}) }));

@@ -37,7 +37,7 @@ export interface CartLine {
   sauce?: string;
   addon?: string;
   flavor?: string;
-  modifiers?: Array<{ productId: string; name: string; amount: number; price: number; image?: string }>;
+  modifiers?: Array<{ productId: string; name: string; amount: number; price: number; image?: string; maxQuantity?: number }>;
 }
 
 export interface Banner {

@@ -9,12 +9,15 @@ export function orderPage(lines: CartLine[], productFor: (line: CartLine) => Pro
     const modifiers = (line.modifiers ?? []).map((modifier) => `<article class="order-line order-line--modifier" data-parent-key="${escapeHtml(line.key)}" data-modifier-id="${escapeHtml(modifier.productId)}">
       <img src="${escapeHtml(modifier.image || '/images/sauce-fallback.webp')}" alt="${escapeHtml(modifier.name)}">
       <div>
-        <span class="order-line__kind">ДОПОЛНЕНИЕ</span>
         <h3>${escapeHtml(modifier.name)}</h3>
         <p>К блюду «${escapeHtml(product.name)}»</p>
         <b data-modifier-total>${formatPrice(modifier.price * modifier.amount * line.quantity)}</b>
       </div>
-      <div class="quantity quantity--static"><span data-modifier-quantity>×${modifier.amount * line.quantity}</span></div>
+      <div class="quantity">
+        <button data-action="change-modifier-quantity" data-key="${escapeHtml(line.key)}" data-modifier-id="${escapeHtml(modifier.productId)}" data-delta="-1">${icon('minus')}</button>
+        <span data-modifier-quantity>${modifier.amount * line.quantity}</span>
+        <button data-action="change-modifier-quantity" data-key="${escapeHtml(line.key)}" data-modifier-id="${escapeHtml(modifier.productId)}" data-delta="1">${icon('plus')}</button>
+      </div>
       <button class="line-remove" data-action="remove-modifier" data-key="${escapeHtml(line.key)}" data-modifier-id="${escapeHtml(modifier.productId)}" aria-label="Удалить дополнение">${icon('close')}</button>
     </article>`).join('');
     return `<article class="order-line" data-key="${escapeHtml(line.key)}">
