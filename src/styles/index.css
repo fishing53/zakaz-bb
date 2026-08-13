@@ -744,6 +744,10 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .banner-admin-card__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 @media (max-width: 900px) { .banner-create, .banner-admin-card { grid-template-columns: 1fr; }.banner-upload-preview, .banner-admin-card__image { min-height: 260px; } }
 @media (max-width: 560px) { .banner-form-grid { grid-template-columns: 1fr; }.banner-form-grid__wide { grid-column: auto; }.banner-admin-card__actions .button { width: 100%; }.banner-upload-preview, .banner-admin-card__image { min-height: 190px; } }
+.banner-upload-status { display: block; min-height: 1.2em; margin-top: 7px; color: #777; font-size: .64rem; line-height: 1.35; }
+.banner-upload-status[data-state="loading"] { color: #fff; }
+.banner-upload-status[data-state="success"] { color: #6ed994; }
+.banner-upload-status[data-state="error"] { color: var(--accent); }
 
 /* The browser administration is an isolated workspace, without guest navigation. */
 .app-shell.app-shell--admin { padding: 26px 32px; overflow: hidden; }

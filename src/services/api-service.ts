@@ -25,8 +25,18 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
     });
     if (response.status === 204) return undefined as T;
     const text = await response.text();
-    const body = text ? JSON.parse(text) as T & { error?: string } : {} as T & { error?: string };
-    if (!response.ok) throw new Error(body.error ?? 'Ошибка сервера');
+    let body = {} as T & { error?: string };
+    try { body = text ? JSON.parse(text) as T & { error?: string } : body; }
+    catch {
+      if (!response.ok) {
+        const fallback = response.status === 413
+          ? 'Файл слишком большой для загрузки'
+          : `Ошибка сервера (${response.status})`;
+        throw new Error(fallback);
+      }
+      throw new SyntaxError('Invalid JSON response');
+    }
+    if (!response.ok) throw new Error(body.error ?? (response.status === 413 ? 'Файл слишком большой для загрузки' : 'Ошибка сервера'));
     return body;
   } catch (error) {
     if (error instanceof TypeError || error instanceof SyntaxError) throw new Error('Нет соединения с сервером');

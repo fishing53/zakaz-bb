@@ -346,17 +346,38 @@ async function action(element: HTMLElement) {
     const input = element as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    if (file.size > 8 * 1024 * 1024) { flash('Изображение должно быть не больше 8 МБ'); return; }
+    const target = input.dataset.bannerTarget ?? 'create';
+    const status = root.querySelector<HTMLElement>(`[data-banner-upload-status="${CSS.escape(target)}"]`);
+    const setStatus = (message: string, state = '') => {
+      if (!status) return;
+      status.textContent = message;
+      status.dataset.state = state;
+    };
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    const inferredMime = file.type === 'image/png' || file.type === 'image/webp'
+      ? file.type
+      : file.type === 'image/jpeg' || file.type === 'image/jpg' || extension === 'jpg' || extension === 'jpeg'
+        ? 'image/jpeg'
+        : extension === 'png'
+          ? 'image/png'
+          : extension === 'webp'
+            ? 'image/webp'
+            : '';
+    if (file.size > 8 * 1024 * 1024) { setStatus('Файл больше 8 МБ', 'error'); flash('Изображение должно быть не больше 8 МБ'); input.value = ''; return; }
+    if (!inferredMime) { setStatus('Нужен PNG, JPEG или WebP', 'error'); flash('Поддерживаются PNG, JPEG и WebP'); input.value = ''; return; }
     input.disabled = true;
+    setStatus(`Загружаем ${file.name}…`, 'loading');
     try {
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result ?? ''));
+        reader.onload = () => {
+          const raw = String(reader.result ?? '');
+          resolve(`data:${inferredMime};base64,${raw.slice(raw.indexOf(',') + 1)}`);
+        };
         reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
         reader.readAsDataURL(file);
       });
       const uploaded = await apiService.uploadBannerImage(dataUrl);
-      const target = input.dataset.bannerTarget ?? 'create';
       if (target === 'create') {
         const image = root.querySelector<HTMLInputElement>('[data-banner-create="image"]');
         const preview = root.querySelector<HTMLElement>('[data-banner-preview="create"]');
@@ -369,8 +390,13 @@ async function action(element: HTMLElement) {
         if (image) image.value = uploaded.url;
         if (preview) preview.src = uploaded.url;
       }
+      setStatus(`${file.name} загружен`, 'success');
       transientToast('Изображение загружено');
-    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось загрузить изображение'); }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось загрузить изображение';
+      setStatus(message, 'error');
+      flash(message);
+    }
     finally { input.disabled = false; }
     return;
   }
