@@ -29,7 +29,6 @@ export function productModal(product: Product | undefined, display: ProductDispl
       <div class="product-modal__body">
         <div class="product-modal__scroll">
           <h2><span>${escapeHtml(product.name)}</span>${product.portion || product.unit ? `<small class="product-modal__weight">, ${escapeHtml(product.portion)} ${escapeHtml(product.unit)}</small>` : ''}</h2>
-          <div class="product-modal__price"><strong>${formatPrice(product.price_rub)}</strong></div>
           <section class="product-modal__composition"><h3>Состав</h3><p class="product-modal__description">${escapeHtml(product.description || 'Состав блюда уточнит официант.')}</p></section>
           <div class="product-facts">${spicyLabel(display.spicy)}<span class="product-fact product-fact--allergens" data-product-allergens data-base-allergens="${escapeHtml(baseAllergens)}">${allergens ? `Аллергены: ${escapeHtml(allergens)}` : 'Аллергены уточняйте у официанта'}</span></div>
           ${product.kbju ? `<section class="nutrition-details"><header class="nutrition-details__heading"><h3>КБЖУ</h3><small>НА 100 Г</small></header><div class="nutrition"><div><span><b>${escapeHtml(product.kbju.calories)}</b><small>ККАЛ</small></span><span><b>${escapeHtml(product.kbju.protein)}</b><small>БЕЛКИ</small></span><span><b>${escapeHtml(product.kbju.fat)}</b><small>ЖИРЫ</small></span><span><b>${escapeHtml(product.kbju.carbs)}</b><small>УГЛЕВОДЫ</small></span></div></div></section>` : ''}
@@ -40,7 +39,10 @@ export function productModal(product: Product | undefined, display: ProductDispl
           ${related.length ? `<section class="modal-related"><h3>Идеально с этим блюдом</h3><div class="related-grid" data-related-for="${escapeHtml(product.id)}"></div></section>` : ''}
           ${/* Блок «Ваш выбор» временно убран. Состав по-прежнему формируется из выбранных опций, а итог показывается на кнопке. */ ''}
         </div>
-        <button class="button button--primary button--wide product-modal__submit" data-action="add-product" data-product-id="${escapeHtml(product.id)}"><span>Добавить в заказ</span><strong data-modal-total>${formatPrice(product.price_rub)}</strong></button>
+        <footer class="product-modal__actions">
+          <div class="product-modal__quantity" aria-label="Количество блюд"><button data-action="change-modal-quantity" data-delta="-1" aria-label="Уменьшить количество">${icon('minus')}</button><strong data-modal-quantity>1</strong><button data-action="change-modal-quantity" data-delta="1" aria-label="Увеличить количество">${icon('plus')}</button></div>
+          <button class="button button--primary button--wide product-modal__submit" data-action="add-product" data-product-id="${escapeHtml(product.id)}"><span>Добавить в заказ</span><strong data-modal-total>${formatPrice(product.price_rub)}</strong></button>
+        </footer>
       </div>
     </section>
   </div>`;

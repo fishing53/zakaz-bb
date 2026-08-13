@@ -888,3 +888,23 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .product-overlay .nutrition-details .nutrition span { min-height: 52px; padding: 0; display: grid; align-content: center; gap: 4px; border: 0; border-radius: 0; background: transparent; }
 .product-overlay .nutrition-details .nutrition b { color: var(--accent); font: 700 1.22rem/1 "Roboto Condensed",sans-serif; }
 .product-overlay .nutrition-details .nutrition small { color: #fff; font: 700 .59rem/1 "Roboto Condensed",sans-serif; letter-spacing: .07em; }
+.product-overlay .product-modal__actions { width: calc(100% - clamp(56px,6.8vw,108px)); margin: 0 clamp(28px,3.4vw,54px) clamp(20px,2.5vh,30px); display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }
+.product-overlay .product-modal__quantity,.product-overlay .product-modal__submit { width: 100%; min-width: 0; min-height: 65px; margin: 0 !important; border-radius: 15px; }
+.product-overlay .product-modal__quantity { padding: 7px; display: grid; grid-template-columns: 48px minmax(0,1fr) 48px; align-items: center; color: #111; background: #fff; box-shadow: 0 15px 34px rgba(0,0,0,.22); }
+.product-overlay .product-modal__quantity button { width: 48px; height: 48px; display: grid; place-items: center; color: #111; border-radius: 11px; background: rgba(0,0,0,.07); transition: color .18s ease,background .18s ease,transform .15s ease; }
+.product-overlay .product-modal__quantity button:hover { color: #fff; background: #171717; }
+.product-overlay .product-modal__quantity button:active { transform: scale(.94); }
+.product-overlay .product-modal__quantity button .icon { width: 19px; height: 19px; }
+.product-overlay .product-modal__quantity strong { color: #111; font: 700 1.4rem/1 "Roboto Condensed",sans-serif; text-align: center; }
+.product-overlay .product-modal__submit { box-shadow: 0 15px 34px rgba(221,34,28,.29); }
+@media (max-width: 900px) and (min-width: 700px) {
+  .product-overlay .product-modal__actions { width: calc(100% - 48px); margin: 0 24px 20px; }
+}
+@media (max-width: 699px) {
+  .product-overlay .product-modal__actions { width: calc(100% - 40px); margin: 0 20px 18px; gap: 8px; }
+  .product-overlay .product-modal__quantity,.product-overlay .product-modal__submit { min-height: 58px; }
+  .product-overlay .product-modal__quantity { grid-template-columns: 42px minmax(0,1fr) 42px; padding: 6px; }
+  .product-overlay .product-modal__quantity button { width: 42px; height: 42px; }
+  .product-overlay .product-modal__submit { padding-inline: 13px; font-size: .82rem; }
+  .product-overlay .product-modal__submit strong { font-size: .94rem; }
+}
