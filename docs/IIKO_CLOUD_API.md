@@ -63,17 +63,13 @@ TOKEN_SECRET=<длинный случайный секрет>
 ADMIN_PASSWORD_HASH=<sha256 хеш пароля админки>
 IIKO_CONFIG_ENCRYPTION_KEY=<32 байта в hex, не менять после создания>
 
-IIKO_ORGANIZATION_ID=<UUID организации iiko>
 ```
 
-Данные подключения iiko вводятся в веб-админке → «Проверка iiko» → «Настройки подключения iiko». App ID, API Login, Client Secret и Webhook Token сохраняются в PostgreSQL только в зашифрованном виде. Переменные `IIKO_APP_ID`, `IIKO_API_LOGIN`, `IIKO_CLIENT_SECRET` и `IIKO_WEBHOOK_TOKEN` нужны лишь для первичного переноса старой установки и автоматически удаляются из env после успешного импорта.
+Данные подключения iiko вводятся в веб-админке → «Проверка iiko» → «Настройки подключения iiko». Вручную нужны только `App ID`, `API Login` и `Client Secret`. Сервер через Cloud API получает доступные организации, терминальные группы, внешние меню и типы заказов; администратор выбирает варианты по названию, не работая с UUID. Российский адрес Cloud API, источник заказа и webhook-токен устанавливаются автоматически.
 
-После изменения конфигурации:
+App ID, API Login, Client Secret и Webhook Token сохраняются в PostgreSQL только в зашифрованном виде. Переменные `IIKO_APP_ID`, `IIKO_API_LOGIN`, `IIKO_CLIENT_SECRET` и `IIKO_WEBHOOK_TOKEN` нужны лишь для первичного переноса старой установки и автоматически удаляются из env после успешного импорта.
 
-```bash
-sudo systemctl restart zakaz-api.service
-sudo systemctl status zakaz-api.service
-```
+После нажатия «Сохранить и применить» сервер без перезапуска проверяет подключение, обновляет меню, столы и стоп-лист. При ошибке он автоматически возвращает предыдущую рабочую конфигурацию.
 
 Сервис запущен от пользователя `www-data`, рабочий каталог production — `/opt/zakaz-api`.
 

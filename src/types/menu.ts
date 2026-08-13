@@ -113,18 +113,12 @@ export interface IikoConnectionConfig {
   apiLoginConfigured: boolean;
   clientSecretConfigured: boolean;
   webhookTokenConfigured: boolean;
-  updatedAt: string;
+  updatedAt: string | null;
   configuredBy: string;
   lastTestAt: string | null;
   lastTestDetails: Record<string, unknown> | null;
   allowedApiBases: string[];
   webhookUrl: string;
-}
-
-export interface IikoConnectionDraft {
-  apiBase: string; appId: string; apiLogin: string; clientSecret: string;
-  organizationId: string; terminalGroupId: string; externalMenuId: string;
-  orderTypeId: string; orderSourceKey: string; webhookToken: string;
 }
 
 export interface IikoConnectionTest {
@@ -133,6 +127,28 @@ export interface IikoConnectionTest {
   tables: number;
   orderTypes: number;
   responseMs: number;
+}
+
+export interface IikoConnectionDiscovery {
+  discoveryToken: string;
+  organizations: Array<{ id: string; name: string; code: string }>;
+  recommendedOrganizationId: string;
+}
+
+export interface IikoRestaurantOptions {
+  terminalGroups: Array<{ id: string; name: string; address: string }>;
+  externalMenus: Array<{ id: string; name: string }>;
+  orderTypes: Array<{ id: string; name: string }>;
+  recommendedTerminalGroupId: string;
+  recommendedExternalMenuId: string;
+  orderTypeId: string;
+}
+
+export interface IikoConnectionSelection {
+  discoveryToken: string;
+  organizationId: string;
+  terminalGroupId: string;
+  externalMenuId: string;
 }
 
 export interface TerminalSettings {

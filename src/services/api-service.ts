@@ -1,4 +1,4 @@
-import type { AdminDiagnostics, AdminOrder, Banner, CartLine, IikoConnectionConfig, IikoConnectionDraft, IikoConnectionTest, Product, ProductDisplaySettings, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
+import type { AdminDiagnostics, AdminOrder, Banner, CartLine, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoConnectionTest, IikoRestaurantOptions, Product, ProductDisplaySettings, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
 import { Capacitor } from '@capacitor/core';
 
 let token = sessionStorage.getItem('zakaz-admin-token') ?? '';
@@ -115,8 +115,10 @@ export const apiService = {
   },
   unlockIikoConfig: (password: string) => request<{ token: string; expiresIn: number }>('/admin/iiko-config/unlock', { method: 'POST', body: JSON.stringify({ password }) }),
   iikoConfig: (stepToken: string) => request<IikoConnectionConfig>('/admin/iiko-config', { headers: { Authorization: `Bearer ${stepToken}` } }),
-  testIikoConfig: (stepToken: string, value: IikoConnectionDraft) => request<{ result: IikoConnectionTest; testToken: string }>('/admin/iiko-config/test', { method: 'POST', headers: { Authorization: `Bearer ${stepToken}` }, body: JSON.stringify(value) }),
-  applyIikoConfig: (stepToken: string, value: IikoConnectionDraft, testToken: string) => request<{ config: IikoConnectionConfig; sync: { menuItems: number; tables: number } }>('/admin/iiko-config/apply', { method: 'POST', headers: { Authorization: `Bearer ${stepToken}` }, body: JSON.stringify({ ...value, testToken }) }),
+  discoverIiko: (stepToken: string, value: { appId: string; apiLogin: string; clientSecret: string }) => request<IikoConnectionDiscovery>('/admin/iiko-config/discover', { method: 'POST', headers: { Authorization: `Bearer ${stepToken}` }, body: JSON.stringify(value) }),
+  iikoRestaurantOptions: (stepToken: string, discoveryToken: string, organizationId: string) => request<IikoRestaurantOptions>('/admin/iiko-config/restaurant-options', { method: 'POST', headers: { Authorization: `Bearer ${stepToken}` }, body: JSON.stringify({ discoveryToken, organizationId }) }),
+  testIikoConfig: (stepToken: string, value: IikoConnectionSelection) => request<{ result: IikoConnectionTest; testToken: string }>('/admin/iiko-config/test', { method: 'POST', headers: { Authorization: `Bearer ${stepToken}` }, body: JSON.stringify(value) }),
+  applyIikoConfig: (stepToken: string, value: IikoConnectionSelection, testToken: string) => request<{ config: IikoConnectionConfig; sync: { menuItems: number; tables: number }; webhookToken: string | null }>('/admin/iiko-config/apply', { method: 'POST', headers: { Authorization: `Bearer ${stepToken}` }, body: JSON.stringify({ ...value, testToken }) }),
   async banners() {
     const data = await request<ServerBanner[]>('/admin/banners');
     return data.map(banner);
