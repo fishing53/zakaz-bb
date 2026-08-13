@@ -9,6 +9,8 @@ const paths: Record<string, string> = {
   plate: '<path d="M4 15h16M5 18h14M7 12a5 5 0 0 1 10 0M12 7V3M8 5 6 3M16 5l2-2"/>',
   flame: '<path d="M12 22c4 0 7-2.5 7-7 0-3-1.8-5.6-4.4-7.9.1 2.6-1 4-2.3 4.8.2-3.7-1.8-6.5-4.9-8.9.3 4.9-5.4 7.1-5.4 12C2 19.5 6 22 12 22Z"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
+  edit: '<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17l-1 3Z"/><path d="m14.5 7.5 3 3"/>',
+  ticket: '<path d="M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4V7Z"/><path d="M12 9.5v5"/>',
   language: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   utensils: '<path d="M7 3v8M4 3v5a3 3 0 0 0 6 0V3M7 11v10M17 3v18M17 3c3 1 3 7 0 8h-2"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
