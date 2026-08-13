@@ -980,3 +980,27 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 @media (min-width: 681px) and (max-height: 700px) {
   .order-page > .page-heading h1,.orders-page .page-heading h1 { font-size: clamp(2.65rem,5vw,4.4rem); }
 }
+
+/* Landscape tablets leave much less vertical room once the bottom navigation
+   is reserved. Keep the receipt intrinsic and tighten only this breakpoint so
+   the action never touches or escapes the card edge. */
+.order-layout .order-summary { height: auto; align-self: start; }
+@media (min-width: 681px) and (max-height: 820px) {
+  .order-page { height: calc(100dvh - 154px); }
+  .order-page > .page-heading { margin: 0 0 14px; }
+  .order-page > .page-heading h1,.orders-page .page-heading h1 { margin: 0 0 5px; font-size: clamp(2.8rem,4.5vw,4.25rem); }
+  .order-page > .page-heading p { font-size: .7rem; }
+  .order-layout { gap: 18px; }
+  .order-layout .order-summary { padding: 13px 14px 14px; }
+  .order-summary__header { min-height: 29px; padding-bottom: 9px; }
+  .order-summary .order-summary__comment { margin-top: 10px; gap: 5px; }
+  .order-summary textarea { min-height: 43px; max-height: 43px; padding: 9px 11px; }
+  .order-summary__promo { margin-top: 10px; padding: 10px; }
+  .order-summary__promo-title { margin-bottom: 7px; }
+  .order-summary .promo-code input,.order-summary .promo-code .button,.order-summary .promo-code__remove { min-height: 36px; height: 36px; }
+  .order-summary__receipt { padding-top: 9px; }
+  .order-summary__receipt .summary-row { padding: 7px 0; }
+  .order-summary__receipt .summary-total { margin-top: 0; padding: 10px 0 5px; }
+  .order-summary__receipt .summary-total strong { font-size: 1.55rem; }
+  .order-summary .order-summary__checkout { min-height: 48px; margin-top: 10px; }
+}
