@@ -817,7 +817,7 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
    choice and the persistent order action live in the right column. */
 .product-overlay { padding: 0; place-items: stretch; background: #080808; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .product-overlay .product-modal { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; display: grid; grid-template-columns: minmax(0,46%) minmax(420px,54%); grid-template-rows: minmax(0,1fr); overflow: hidden; border: 0; border-radius: 0; background: #101010; box-shadow: none; }
-.product-overlay .product-modal__visual { width: 100%; height: 100dvh; min-height: 0; position: relative; top: auto; border-right: 1px solid rgba(255,255,255,.09); background: linear-gradient(90deg,rgba(0,0,0,.04) 60%,rgba(16,16,16,.24)),var(--image) var(--image-position,center)/cover; }
+.product-overlay .product-modal__visual { width: 100%; height: 100dvh; min-height: 0; position: relative; top: auto; border-right: 1px solid rgba(255,255,255,.09); background: linear-gradient(90deg,transparent 58%,rgba(16,16,16,.3) 76%,#101010 100%),var(--image) var(--image-position,center)/cover; }
 .product-overlay .product-modal__body { width: 100%; height: 100dvh; min-height: 0; margin: 0; padding: 0; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; background: #101010; }
 .product-overlay .product-modal__scroll { min-height: 0; padding: clamp(25px,3vw,46px) clamp(28px,3.4vw,54px) 24px; overflow-y: auto; overscroll-behavior: contain; }
 .product-overlay .product-modal__back { margin-bottom: clamp(13px,2vh,23px); }
