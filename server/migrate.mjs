@@ -3,6 +3,7 @@ import pg from 'pg';
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const restaurantId = process.env.IIKO_ORGANIZATION_ID ?? '';
 const localCatalog = new URL('./menu.json', import.meta.url);
 const catalogSource = fs.existsSync(localCatalog) ? localCatalog : new URL('../menu.json', import.meta.url);
 const catalog = JSON.parse(fs.readFileSync(catalogSource)).menu;
@@ -31,6 +32,7 @@ await pool.query(`
     check (ends_at is null or starts_at is null or ends_at > starts_at)
   );
   alter table banners add column if not exists product_id text;
+  alter table banners add column if not exists product_sku text;
   create index if not exists banners_public_idx on banners(active, sort_order, id);
   create table if not exists banner_impressions (
     id bigserial primary key,
@@ -103,12 +105,26 @@ await pool.query(`
     is_hidden boolean not null default false, sort_order integer not null default 0,
     revision bigint, raw_payload jsonb not null, updated_at timestamptz not null default now()
   );
+  alter table iiko_menu_items add column if not exists sku text;
+  update iiko_menu_items set sku=nullif(raw_payload->'item'->>'sku','') where sku is null;
+  create index if not exists iiko_menu_items_sku_idx on iiko_menu_items(sku) where sku is not null;
   create index if not exists iiko_menu_items_category_idx on iiko_menu_items(category_name, sort_order);
   create table if not exists iiko_product_overrides (
     product_id text primary key references iiko_menu_items(product_id) on delete cascade,
     image text not null default '', image_position text not null default 'center', badge text not null default '',
     pairs_with jsonb not null default '[]'::jsonb, updated_at timestamptz not null default now()
   );
+  create table if not exists iiko_product_presentations (
+    restaurant_id text not null,
+    sku text not null,
+    image text not null default '',
+    image_position text not null default 'center',
+    badge text not null default '',
+    pairs_with_skus jsonb not null default '[]'::jsonb,
+    updated_at timestamptz not null default now(),
+    primary key (restaurant_id, sku)
+  );
+  update banners b set product_sku=m.sku from iiko_menu_items m where b.product_sku is null and b.product_id=m.product_id and m.sku is not null;
   create table if not exists iiko_tables (
     table_id text primary key, organization_id text not null, terminal_group_id text not null,
     section_id text not null default '', section_name text not null default '',
@@ -138,15 +154,37 @@ await pool.query(`
   alter table customer_orders add column if not exists source text not null default 'tablet';
   alter table customer_orders add column if not exists client_request_id text;
   create unique index if not exists customer_orders_client_request_idx on customer_orders(restaurant_id, client_request_id) where client_request_id is not null;
+  create table if not exists order_requests (
+    restaurant_id text not null, client_request_id text not null, terminal_id text not null,
+    request_hash text not null, status text not null default 'processing' check(status in ('processing','success','failed')),
+    order_number text, iiko_order_id text, error_message text,
+    created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+    primary key(restaurant_id,client_request_id)
+  );
+  create table if not exists order_status_history (
+    id bigserial primary key, restaurant_id text not null, order_number text,
+    iiko_order_id text, status_step integer not null check(status_step between 0 and 4),
+    order_status text, item_statuses jsonb not null default '[]'::jsonb, source text not null,
+    created_at timestamptz not null default now()
+  );
+  create index if not exists order_status_history_order_idx on order_status_history(restaurant_id,order_number,created_at);
   alter table service_requests add column if not exists restaurant_id text not null default '';
   alter table service_requests add column if not exists guest_session_id uuid references guest_sessions(id) on delete set null;
   alter table service_requests add column if not exists status text not null default 'new';
   alter table service_requests add column if not exists accepted_by text;
   alter table service_requests add column if not exists accepted_at timestamptz;
+  alter table service_requests add column if not exists completed_at timestamptz;
+  alter table service_requests add column if not exists completed_by text;
   create table if not exists waiter_profiles (
     id text primary key, restaurant_id text not null, display_name text not null, pin_hash text, is_active boolean not null default true,
     created_at timestamptz not null default now(), updated_at timestamptz not null default now()
   );
+  create table if not exists admin_users (
+    id uuid primary key, restaurant_id text not null, username text not null, display_name text not null,
+    role text not null check(role in ('administrator','hostess')), password_hash text not null,
+    is_active boolean not null default true, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+  );
+  create unique index if not exists admin_users_restaurant_username_idx on admin_users(restaurant_id,lower(username));
   create table if not exists waiter_table_assignments (
     restaurant_id text not null, table_id text not null, waiter_id text not null references waiter_profiles(id),
     assigned_at timestamptz not null default now(), released_at timestamptz, primary key(restaurant_id, table_id, waiter_id, assigned_at)
@@ -162,7 +200,17 @@ await pool.query(`
     created_at timestamptz not null default now()
   );
   create index if not exists app_events_restaurant_idx on app_events(restaurant_id, id desc);
+  create table if not exists auth_attempts (
+    attempt_key text primary key, failures integer not null default 0,
+    window_started_at timestamptz not null default now(), locked_until timestamptz,
+    updated_at timestamptz not null default now()
+  );
 `);
+await pool.query(`insert into iiko_product_presentations(restaurant_id,sku,image,image_position,badge,pairs_with_skus)
+  select $1,m.sku,o.image,o.image_position,o.badge,
+    coalesce((select jsonb_agg(pm.sku) from jsonb_array_elements_text(o.pairs_with) pair(product_id) join iiko_menu_items pm on pm.product_id=pair.product_id and pm.sku is not null),'[]'::jsonb)
+  from iiko_product_overrides o join iiko_menu_items m on m.product_id=o.product_id where m.sku is not null
+  on conflict(restaurant_id,sku) do nothing`, [restaurantId]);
 const existing = await pool.query('select count(*)::int as count from products');
 if (!existing.rows[0].count) {
   for (const [index, product] of catalog.entries()) {

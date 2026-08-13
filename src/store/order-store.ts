@@ -17,7 +17,7 @@ export const orderStore = {
     const product = menuService.find(line.productId);
     if (!line.customName) return product;
     return {
-      id: line.key, name: line.customName, category: 'Соусы', price_rub: line.customPrice ?? 0,
+      id: line.key, name: line.customName, category: line.kind === 'sauce' ? 'Соусы' : product?.category ?? 'Заказ', price_rub: line.customPrice ?? product?.price_rub ?? 0,
       portion: '1', unit: 'шт.', description: null, kbju: null, image: product?.image ?? '/icons/app-icon.svg', source_url: '',
     };
   },
@@ -29,14 +29,14 @@ export const orderStore = {
     const next = { productId: product.id, kind: 'product' as const, ...options };
     const cart = appStore.get().cart.map((line) => ({ ...line }));
     append(cart, next);
-    appStore.set({ cart, upsellId: null });
+    appStore.set({ cart, upsellId: null, pendingOrderRequestId: null });
   },
   addSauce(product: Product, name: string) {
     const price = Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0;
     const next = { productId: product.id, kind: 'sauce' as const, customName: `Соус «${name}»`, customPrice: price };
     const cart = appStore.get().cart.map((line) => ({ ...line }));
     append(cart, next);
-    appStore.set({ cart });
+    appStore.set({ cart, pendingOrderRequestId: null });
   },
   addBundle(product: Product, options: Omit<CartLine, 'key' | 'productId' | 'quantity'>, sauces: string[], related: Product[], quantity = 1) {
     const cart = appStore.get().cart.map((line) => ({ ...line }));
@@ -44,11 +44,11 @@ export const orderStore = {
     const saucePrice = Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0;
     sauces.forEach((name) => append(cart, { productId: product.id, kind: 'sauce', customName: `Соус «${name}»`, customPrice: saucePrice }));
     related.forEach((item) => append(cart, { productId: item.id, kind: 'product' }));
-    appStore.set({ cart, productId: null, upsellId: null });
+    appStore.set({ cart, productId: null, upsellId: null, pendingOrderRequestId: null });
   },
   change(key: string, delta: number, notify = true) {
     const cart = appStore.get().cart.map((line) => line.key === key ? { ...line, quantity: line.quantity + delta } : line).filter((line) => line.quantity > 0);
-    appStore.set({ cart }, notify);
+    appStore.set({ cart, pendingOrderRequestId: null }, notify);
   },
-  remove(key: string) { appStore.set({ cart: appStore.get().cart.filter((line) => line.key !== key) }); },
+  remove(key: string) { appStore.set({ cart: appStore.get().cart.filter((line) => line.key !== key), pendingOrderRequestId: null }); },
 };

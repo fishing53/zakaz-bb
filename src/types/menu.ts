@@ -2,6 +2,7 @@ export interface KBJU { calories: string; protein: string; fat: string; carbs: s
 
 export interface Product {
   id: string;
+  sku?: string;
   name: string;
   category: string;
   price_rub: number;
@@ -69,6 +70,24 @@ export interface SubmittedOrder {
   createdAt: string;
   orderType: OrderType;
   tableNumber?: string;
+}
+
+export interface AdminOrder {
+  id: string;
+  iikoOrderId: string | null;
+  iikoPosId: string | null;
+  tableNumber: string;
+  terminalLabel: string;
+  items: CartLine[];
+  total: number;
+  statusStep: number;
+  status: string;
+  creationStatus: string | null;
+  source: 'tablet' | 'qr' | 'waiter';
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  history: Array<{ eventType: string; payload: Record<string, unknown>; createdAt: string }>;
 }
 
 export interface TerminalSettings {

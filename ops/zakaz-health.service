@@ -1,0 +1,11 @@
+[Unit]
+Description=BrooklynBowl Kiosk health check
+After=zakaz-api.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/zakaz-api.env
+ExecStart=/opt/zakaz-api/ops/health-check.sh
+User=root
+PrivateTmp=true
+NoNewPrivileges=true

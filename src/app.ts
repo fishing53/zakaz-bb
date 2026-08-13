@@ -20,8 +20,8 @@ import { adminPage } from './pages/admin';
 import { debounce, formatPrice } from './utils/helpers';
 import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
-import type { Banner, Product } from './types/menu';
-import type { WaiterProfile } from './services/api-service';
+import type { AdminOrder, Banner, Product } from './types/menu';
+import type { AdminUserProfile, WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
@@ -37,12 +37,16 @@ let suppressBannerOpenUntil = 0;
 let statusRefreshTimer = 0;
 let auditLog: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [];
 let waiterProfiles: WaiterProfile[] = [];
+let adminUserProfiles: AdminUserProfile[] = [];
 let adminBanners: Banner[] = [];
+let adminOrders: AdminOrder[] = [];
+let adminOrderFilter: 'active' | 'all' = 'active';
+let adminOrderRefreshTimer = 0;
 const updateSearch = debounce((value: string) => {
   appStore.set({ search: value }, false);
   refreshMenuResults();
 }, 180);
-const updateComment = debounce((value: string) => appStore.set({ comment: value }, false), 180);
+const updateComment = debounce((value: string) => appStore.set({ comment: value, pendingOrderRequestId: null }, false), 180);
 
 function page() {
   const state = appStore.get();
@@ -58,11 +62,11 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, waiterProfiles) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter) : '';
   }
 }
 
-const adminLogin = (open: boolean, scope: 'terminal' | 'restaurant' = 'terminal') => open ? `<div class="overlay admin-login-overlay"><section class="admin-login"><button class="modal__close" data-action="close-admin-login">${iconMarkup('close')}</button><span class="eyebrow">${scope === 'terminal' ? 'СЕРВИСНЫЙ ВХОД' : 'АДМИНИСТРИРОВАНИЕ РЕСТОРАНА'}</span><h2>Введите пароль</h2><p>${scope === 'terminal' ? 'Настройки этого планшета.' : 'Меню, сотрудники и настройки ресторана.'}</p><input type="password" inputmode="numeric" data-admin-password placeholder="Пароль" autocomplete="off"><button class="button button--primary button--wide" data-action="login-admin" data-admin-scope="${scope}">Войти</button></section></div>` : '';
+const adminLogin = (open: boolean, scope: 'terminal' | 'restaurant' = 'terminal') => open ? `<div class="overlay admin-login-overlay"><section class="admin-login"><button class="modal__close" data-action="close-admin-login">${iconMarkup('close')}</button><span class="eyebrow">${scope === 'terminal' ? 'СЕРВИСНЫЙ ВХОД' : 'АДМИНИСТРИРОВАНИЕ РЕСТОРАНА'}</span><h2>Вход</h2><p>${scope === 'terminal' ? 'Настройки этого планшета.' : 'Введите персональный логин или используйте главный пароль.'}</p>${scope === 'restaurant' ? '<input data-admin-username placeholder="Логин сотрудника (необязательно)" autocomplete="username">' : ''}<input type="password" data-admin-password placeholder="Пароль" autocomplete="current-password"><button class="button button--primary button--wide" data-action="login-admin" data-admin-scope="${scope}">Войти</button></section></div>` : '';
 const inactivityPrompt = (open: boolean, seconds: number) => open ? `<div class="overlay inactivity-overlay"><section class="inactivity-dialog">
   <img class="inactivity-dialog__character" src="/images/inactivity-character.png" alt="" aria-hidden="true">
   <div class="inactivity-dialog__glow"></div><div class="inactivity-dialog__brand"><img src="${brand.logo}" alt="Brooklyn Bowl"></div>
@@ -91,6 +95,15 @@ export function render() {
   resetInactivity();
   if (route === 'status' && !statusRefreshTimer) statusRefreshTimer = window.setInterval(() => { void syncServer(); }, 15_000);
   if (route !== 'status' && statusRefreshTimer) { clearInterval(statusRefreshTimer); statusRefreshTimer = 0; }
+  if (route === 'admin' && state.adminTab === 'orders' && !adminOrderRefreshTimer) adminOrderRefreshTimer = window.setInterval(() => { void loadAdminOrders(); }, 15_000);
+  if ((route !== 'admin' || state.adminTab !== 'orders') && adminOrderRefreshTimer) { clearInterval(adminOrderRefreshTimer); adminOrderRefreshTimer = 0; }
+}
+
+async function loadAdminOrders(notify = true) {
+  try {
+    adminOrders = await apiService.adminOrders(adminOrderFilter);
+    if (notify) render();
+  } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось загрузить заказы'); }
 }
 
 function updateModalTotal() {
@@ -221,26 +234,33 @@ async function action(element: HTMLElement) {
   if (type === 'close-admin-login') { appStore.set({ adminLoginOpen: false }); return; }
   if (type === 'login-admin') {
     const password = root.querySelector<HTMLInputElement>('[data-admin-password]')?.value ?? '';
+    const username = root.querySelector<HTMLInputElement>('[data-admin-username]')?.value.trim() ?? '';
     try {
       const scope = (element.dataset.adminScope as 'terminal' | 'restaurant') ?? 'terminal';
-      const authenticatedScope = await apiService.login(password, scope);
-      await syncServer(true);
-      appStore.set({ adminAuthenticated: true, adminLoginOpen: false, adminScope: authenticatedScope, adminTab: authenticatedScope === 'terminal' ? 'terminal' : 'menu' });
+      const authenticated = await apiService.login(password, scope, username);
+      await syncServer(authenticated.role === 'administrator');
+      appStore.set({ adminAuthenticated: true, adminLoginOpen: false, adminScope: authenticated.scope, adminRole: authenticated.role, adminTab: authenticated.scope === 'terminal' ? 'terminal' : 'orders' });
       router.go('admin');
+      if (authenticated.scope === 'restaurant') void loadAdminOrders();
     } catch (error) { flash(error instanceof Error ? error.message : 'Неверный пароль'); }
     return;
   }
-  if (type === 'logout-admin') { apiService.logout(); appStore.set({ adminAuthenticated: false, adminScope: null, adminTab: 'terminal' }); router.go('welcome'); return; }
+  if (type === 'logout-admin') { apiService.logout(); appStore.set({ adminAuthenticated: false, adminScope: null, adminRole: null, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
-    const adminTab = element.dataset.adminTab as 'terminal' | 'menu' | 'banners' | 'staff' | 'quality' | 'audit';
+    const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'staff' | 'quality' | 'audit';
     appStore.set({ adminTab });
     if (adminTab === 'audit') apiService.audit().then((items) => { auditLog = items; render(); }).catch((error) => flash(error.message));
-    if (adminTab === 'staff') apiService.waiters().then((items) => { waiterProfiles = items; render(); }).catch((error) => flash(error.message));
+    if (adminTab === 'staff') Promise.all([apiService.waiters(), apiService.adminUsers()]).then(([waiters, users]) => { waiterProfiles = waiters; adminUserProfiles = users; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'banners') apiService.banners().then((items) => { adminBanners = items; render(); }).catch((error) => flash(error.message));
+    if (adminTab === 'orders') void loadAdminOrders();
     return;
   }
+  if (type === 'set-admin-order-filter') { adminOrderFilter = element.dataset.orderFilter === 'all' ? 'all' : 'active'; await loadAdminOrders(); return; }
+  if (type === 'refresh-admin-orders') { await loadAdminOrders(); flash('Заказы обновлены'); return; }
   if (type === 'create-waiter') { try { const name = root.querySelector<HTMLInputElement>('[data-admin-waiter="name"]')?.value.trim() ?? ''; const pin = root.querySelector<HTMLInputElement>('[data-admin-waiter="pin"]')?.value ?? ''; await apiService.createWaiter({ name, pin }); waiterProfiles = await apiService.waiters(); flash('Официант добавлен'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить официанта'); } return; }
   if (type === 'save-waiter' || type === 'toggle-waiter') { try { const id = element.dataset.waiterId ?? ''; const pin = root.querySelector<HTMLInputElement>(`[data-waiter-pin="${CSS.escape(id)}"]`)?.value ?? ''; const isActive = type === 'toggle-waiter' ? element.dataset.waiterActive === 'true' : undefined; await apiService.updateWaiter(id, { pin, isActive }); waiterProfiles = await apiService.waiters(); flash('Доступ обновлён'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось обновить доступ'); } return; }
+  if (type === 'create-admin-user') { try { const field = (name: string) => root.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-admin-user="${name}"]`); await apiService.createAdminUser({ name: field('name')?.value.trim() ?? '', username: field('username')?.value.trim() ?? '', password: field('password')?.value ?? '', role: field('role')?.value === 'administrator' ? 'administrator' : 'hostess' }); adminUserProfiles = await apiService.adminUsers(); flash('Сотрудник добавлен'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить сотрудника'); } return; }
+  if (type === 'save-admin-user' || type === 'toggle-admin-user') { try { const id = element.dataset.userId ?? ''; const card = root.querySelector<HTMLElement>(`[data-admin-user-card="${CSS.escape(id)}"]`); const role = card?.querySelector<HTMLSelectElement>('[data-admin-user-role]')?.value === 'administrator' ? 'administrator' : 'hostess'; const password = card?.querySelector<HTMLInputElement>('[data-admin-user-password]')?.value ?? ''; const isActive = type === 'toggle-admin-user' ? element.dataset.userActive === 'true' : element.dataset.userActive !== 'false'; await apiService.updateAdminUser(id, { password, role, isActive }); adminUserProfiles = await apiService.adminUsers(); flash('Доступ сотрудника обновлён'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось обновить сотрудника'); } return; }
   if (type === 'toggle-fullscreen') {
     if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => flash('Полноэкранный режим недоступен в этом браузере'));
     return;
@@ -340,6 +360,29 @@ async function action(element: HTMLElement) {
       await apiService.saveIikoPresentation(id, { image: input<HTMLInputElement>('image')?.value.trim() ?? '', imagePosition: input<HTMLSelectElement>('imagePosition')?.value ?? 'center', badge: input<HTMLSelectElement>('badge')?.value ?? '', pairsWith: pairs });
       await syncServer(); flash('Оформление блюда сохранено');
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить блюдо'); }
+    return;
+  }
+  if (type === 'upload-product-image') {
+    const input = element as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const status = root.querySelector<HTMLElement>('[data-product-upload-status]');
+    const setStatus = (message: string, state = '') => { if (status) { status.textContent = message; status.dataset.state = state; } };
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    const inferredMime = file.type === 'image/png' || file.type === 'image/webp' ? file.type : file.type === 'image/jpeg' || extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' : extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : '';
+    if (file.size > 8 * 1024 * 1024) { setStatus('Файл больше 8 МБ', 'error'); input.value = ''; return; }
+    if (!inferredMime) { setStatus('Нужен PNG, JPEG или WebP', 'error'); input.value = ''; return; }
+    input.disabled = true; setStatus(`Загружаем ${file.name}…`, 'loading');
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const raw = String(reader.result ?? ''); resolve(`data:${inferredMime};base64,${raw.slice(raw.indexOf(',') + 1)}`); }; reader.onerror = () => reject(new Error('Не удалось прочитать файл')); reader.readAsDataURL(file); });
+      const uploaded = await apiService.uploadProductImage(dataUrl);
+      const hidden = root.querySelector<HTMLInputElement>('[data-admin-product="image"]');
+      const preview = root.querySelector<HTMLElement>('[data-product-image-preview]');
+      if (hidden) hidden.value = uploaded.url;
+      if (preview) preview.innerHTML = `<img src="${uploaded.url}" alt="">`;
+      setStatus(`${file.name} загружен. Сохраните блюдо.`, 'success');
+    } catch (error) { const message = error instanceof Error ? error.message : 'Не удалось загрузить фото'; setStatus(message, 'error'); flash(message); }
+    finally { input.disabled = false; }
     return;
   }
   if (type === 'upload-banner-image') {
@@ -448,7 +491,7 @@ async function action(element: HTMLElement) {
   }
   if (type === 'apply-promo') {
     const code = root.querySelector<HTMLInputElement>('[data-action="set-promo"]')?.value.trim().toUpperCase() ?? '';
-    appStore.set({ promoCode: code });
+    appStore.set({ promoCode: code, pendingOrderRequestId: null });
     flash(code === 'BOWL10' ? 'Промокод применён: скидка 10%' : 'Промокод не найден. Попробуйте BOWL10');
     return;
   }

@@ -5,7 +5,9 @@ import { apiService } from './api-service';
 export const orderService = {
   async submit() {
     const state = appStore.get();
-    const order = await apiService.submitOrder({ items: orderStore.lines().map((line) => ({ ...line })), total: orderStore.total(), comment: state.comment, promoCode: state.promoCode });
+    const requestId = state.pendingOrderRequestId ?? crypto.randomUUID();
+    if (!state.pendingOrderRequestId) appStore.set({ pendingOrderRequestId: requestId }, false);
+    const order = await apiService.submitOrder({ items: orderStore.lines().map((line) => ({ ...line })), total: orderStore.total(), comment: state.comment, promoCode: state.promoCode, requestId });
     // The checkout screen needs the complete submitted-order state before it
     // changes route.  Its caller performs the final cart cleanup below.
     appStore.set({
@@ -14,6 +16,7 @@ export const orderService = {
       orderNumber: order.id,
       statusStep: 0,
       upsellId: null,
+      pendingOrderRequestId: null,
     }, false);
     return order.id;
   },

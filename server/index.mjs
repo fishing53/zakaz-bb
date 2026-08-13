@@ -22,6 +22,8 @@ const iikoOrderSourceKey = process.env.IIKO_ORDER_SOURCE_KEY ?? 'BrooklynBowl Ki
 const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/manifest.json';
 const bannerUploadDir = process.env.BANNER_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/uploads/banners';
 const bannerPublicPath = process.env.BANNER_PUBLIC_PATH ?? '/uploads/banners';
+const productUploadDir = process.env.PRODUCT_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/uploads/products';
+const productPublicPath = process.env.PRODUCT_PUBLIC_PATH ?? '/uploads/products';
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
 if (!process.env.DATABASE_URL || !tokenSecret || !adminPasswordHash) throw new Error('DATABASE_URL, TOKEN_SECRET and ADMIN_PASSWORD_HASH are required');
@@ -41,6 +43,26 @@ const readBody = async (request, maxBytes = 1_000_000) => {
   if (!chunks.length) return {};
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
   catch { throw Object.assign(new Error('Invalid JSON'), { status: 400 }); }
+};
+const parseImageUpload = (body) => {
+  const match = /^data:image\/(png|jpeg|webp);base64,([a-zA-Z0-9+/=]+)$/.exec(String(body.data_url ?? ''));
+  if (!match) throw Object.assign(new Error('Поддерживаются PNG, JPEG и WebP'), { status: 400 });
+  const data = Buffer.from(match[2], 'base64');
+  if (!data.length || data.length > 8 * 1024 * 1024) throw Object.assign(new Error('Изображение должно быть не больше 8 МБ'), { status: 413 });
+  const valid = match[1] === 'png'
+    ? data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    : match[1] === 'jpeg'
+      ? data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff
+      : data.subarray(0, 4).toString() === 'RIFF' && data.subarray(8, 12).toString() === 'WEBP';
+  if (!valid) throw Object.assign(new Error('Файл изображения повреждён'), { status: 400 });
+  return { data, extension: match[1] === 'jpeg' ? 'jpg' : match[1] };
+};
+const saveImageUpload = async (body, directory, publicPath) => {
+  const { data, extension } = parseImageUpload(body);
+  const filename = `${crypto.randomUUID()}.${extension}`;
+  await fs.mkdir(directory, { recursive: true });
+  await fs.writeFile(pathModule.join(directory, filename), data, { flag: 'wx' });
+  return `${publicPath}/${filename}`;
 };
 const bannerKinds = new Set(['restaurant', 'advertising']);
 const bannerPayload = (body) => {
@@ -62,9 +84,10 @@ const bannerPayload = (body) => {
   return { name: String(body.name ?? '').trim().slice(0, 120) || 'Баннер', imageUrl, productId, kind, active: body.active !== false, startsAt, endsAt, impressionLimit, sortOrder };
 };
 const ensureBannerProduct = async (productId) => {
-  if (!productId) return;
-  const exists = await pool.query(`select 1 from iiko_menu_items where product_id=$1 union all select 1 from products where id=$1 limit 1`, [productId]);
+  if (!productId) return null;
+  const exists = await pool.query(`select sku from iiko_menu_items where product_id=$1 and not is_hidden union all select null::text as sku from products where id=$1 limit 1`, [productId]);
   if (!exists.rowCount) throw Object.assign(new Error('Выбранное блюдо не найдено в актуальном меню'), { status: 400 });
+  return exists.rows[0].sku ?? null;
 };
 const removeUploadedBanner = async (imageUrl) => {
   if (!String(imageUrl ?? '').startsWith(`${bannerPublicPath}/`)) return;
@@ -72,7 +95,53 @@ const removeUploadedBanner = async (imageUrl) => {
   if (!/^[a-f0-9-]+\.(png|jpe?g|webp)$/i.test(filename)) return;
   await fs.unlink(pathModule.join(bannerUploadDir, filename)).catch((error) => { if (error.code !== 'ENOENT') console.warn('Unable to remove banner image:', error.message); });
 };
+const removeUploadedProduct = async (imageUrl) => {
+  if (!String(imageUrl ?? '').startsWith(`${productPublicPath}/`)) return;
+  const filename = pathModule.basename(String(imageUrl));
+  if (!/^[a-f0-9-]+\.(png|jpe?g|webp)$/i.test(filename)) return;
+  await fs.unlink(pathModule.join(productUploadDir, filename)).catch((error) => { if (error.code !== 'ENOENT') console.warn('Unable to remove product image:', error.message); });
+};
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
+const passwordHash = (value) => { const salt=crypto.randomBytes(16); const key=crypto.scryptSync(value,salt,32); return `scrypt$${salt.toString('hex')}$${key.toString('hex')}`; };
+const passwordMatches = (value, encoded) => {
+  const [scheme,saltHex,keyHex] = String(encoded ?? '').split('$');
+  if (scheme !== 'scrypt' || !saltHex || !keyHex) return sha256(value) === encoded;
+  try { const expected=Buffer.from(keyHex,'hex'); const actual=crypto.scryptSync(value,Buffer.from(saltHex,'hex'),expected.length); return expected.length===actual.length && crypto.timingSafeEqual(expected,actual); } catch { return false; }
+};
+const deterministicUuid = (value) => {
+  const bytes = crypto.createHash('sha256').update(value).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+const requestIp = (request) => String(request.headers['x-forwarded-for'] ?? request.socket.remoteAddress ?? '').split(',')[0].trim();
+const authAttemptKey = (request, realm) => sha256(`${realm}:${requestIp(request)}`);
+const assertAuthAllowed = async (key) => {
+  const result = await pool.query('select failures,locked_until from auth_attempts where attempt_key=$1', [key]);
+  const lockedUntil = result.rows[0]?.locked_until ? new Date(result.rows[0].locked_until) : null;
+  if (lockedUntil && lockedUntil > new Date()) {
+    const retryAfter = Math.max(1, Math.ceil((lockedUntil.getTime() - Date.now()) / 1000));
+    throw Object.assign(new Error(`Слишком много попыток. Повторите через ${Math.ceil(retryAfter / 60)} мин.`), { status: 429, retryAfter });
+  }
+};
+const recordAuthFailure = async (key) => {
+  await pool.query(`insert into auth_attempts(attempt_key,failures) values($1,1)
+    on conflict(attempt_key) do update set
+      failures=case when auth_attempts.window_started_at < now()-interval '15 minutes' then 1 else auth_attempts.failures+1 end,
+      window_started_at=case when auth_attempts.window_started_at < now()-interval '15 minutes' then now() else auth_attempts.window_started_at end,
+      locked_until=case when (case when auth_attempts.window_started_at < now()-interval '15 minutes' then 1 else auth_attempts.failures+1 end)>=5 then now()+interval '15 minutes' else null end,
+      updated_at=now()`, [key]);
+};
+const clearAuthFailures = (key) => pool.query('delete from auth_attempts where attempt_key=$1', [key]);
+const requestWindows = new Map();
+const enforceRequestRate = (key, limit, windowMs) => {
+  const now = Date.now(); const current = requestWindows.get(key);
+  if (requestWindows.size > 5_000) for (const [entryKey, value] of requestWindows) if (value.resetAt <= now) requestWindows.delete(entryKey);
+  if (!current || current.resetAt <= now) { requestWindows.set(key, { count: 1, resetAt: now + windowMs }); return; }
+  current.count += 1;
+  if (current.count > limit) throw Object.assign(new Error('Слишком много запросов. Повторите немного позже.'), { status: 429, retryAfter: Math.ceil((current.resetAt - now) / 1000) });
+};
 const sign = (payload) => {
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const signature = crypto.createHmac('sha256', tokenSecret).update(encoded).digest('base64url');
@@ -132,11 +201,25 @@ const notifyWaiters = async (title, body, data = {}) => {
     result.responses.forEach((response, index) => { if (!response.success && /registration-token-not-registered|invalid-registration-token/.test(response.error?.code ?? '')) void pool.query('update waiter_devices set is_active=false where token=$1', [tokens.rows[index].token]); });
   } catch (error) { console.warn('Firebase waiter notification:', error.message); }
 };
-const createGuestSession = async ({ terminalId = null, source = 'tablet', table = null, metadata = {} }) => {
+const getOrCreateGuestSession = async ({ terminalId = null, source = 'tablet', table = null, metadata = {} }) => {
+  const existing = terminalId ? await pool.query(`select id from guest_sessions where restaurant_id=$1 and terminal_id=$2 and source=$3 and table_number=$4 and status='active' order by last_seen_at desc limit 1`, [iikoOrganizationId, terminalId, source, table?.table_number ?? '']) : { rows: [] };
+  if (existing.rows[0]?.id) {
+    await pool.query(`update guest_sessions set last_seen_at=now(),metadata=metadata || $1::jsonb where id=$2`, [JSON.stringify(metadata), existing.rows[0].id]);
+    return existing.rows[0].id;
+  }
   const id = crypto.randomUUID();
   await pool.query('insert into guest_sessions(id,restaurant_id,terminal_id,source,table_id,table_number,metadata) values($1,$2,$3,$4,$5,$6,$7)', [id, iikoOrganizationId, terminalId, source, table?.table_id ?? null, table?.table_number ?? '', JSON.stringify(metadata)]);
   await publishEvent('guest_session_started', 'guest_session', id, { source, tableNumber: table?.table_number ?? '' });
   return id;
+};
+const closeGuestSessionIfIdle = async (sessionId, reason = 'completed') => {
+  if (!sessionId) return;
+  const active = await pool.query(`select
+    exists(select 1 from customer_orders where guest_session_id=$1 and completed_at is null) as has_orders,
+    exists(select 1 from service_requests where guest_session_id=$1 and status in ('new','accepted','in_progress')) as has_requests`, [sessionId]);
+  if (active.rows[0]?.has_orders || active.rows[0]?.has_requests) return;
+  const closed = await pool.query(`update guest_sessions set status='closed',ended_at=now(),last_seen_at=now(),metadata=metadata || $1::jsonb where id=$2 and status='active' returning id`, [JSON.stringify({ closeReason: reason }), sessionId]);
+  if (closed.rowCount) await publishEvent('guest_session_closed', 'guest_session', sessionId, { reason });
 };
 
 const iikoItemStatuses = new Set(['Added', 'PrintedNotCooking', 'CookingStarted', 'CookingCompleted', 'Served']);
@@ -170,6 +253,7 @@ const iikoOrderSnapshot = (eventInfo) => {
 const saveIikoOrder = async (eventInfo, { organizationId = iikoOrganizationId, eventType = 'Poll', webhook = false } = {}) => {
   const snapshot = iikoOrderSnapshot(eventInfo);
   if (!snapshot.orderId) throw Object.assign(new Error('iiko event has no order id'), { status: 400 });
+  const before = await pool.query('select status_step,order_status,item_statuses,creation_status from iiko_orders where order_id=$1', [snapshot.orderId]);
   const result = await pool.query(`
     insert into iiko_orders(order_id,organization_id,pos_id,external_number,order_status,item_statuses,status_step,creation_status,error_info,last_event_type,raw_payload,last_webhook_at,last_polled_at)
     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -182,7 +266,14 @@ const saveIikoOrder = async (eventInfo, { organizationId = iikoOrganizationId, e
     snapshot.orderId, organizationId, snapshot.posId, snapshot.externalNumber, snapshot.orderStatus, JSON.stringify(snapshot.itemStatuses), snapshot.statusStep,
     snapshot.creationStatus, snapshot.errorInfo ? JSON.stringify(snapshot.errorInfo) : null, eventType, JSON.stringify(eventInfo), webhook ? new Date() : null, webhook ? null : new Date(),
   ]);
-  await pool.query('update customer_orders set status_step=$1,iiko_pos_id=coalesce($2,iiko_pos_id),updated_at=now() where iiko_order_id=$3', [snapshot.statusStep, snapshot.posId, snapshot.orderId]);
+  const customerOrder = await pool.query('update customer_orders set status_step=$1,iiko_pos_id=coalesce($2,iiko_pos_id),updated_at=now() where iiko_order_id=$3 returning order_number,guest_session_id', [snapshot.statusStep, snapshot.posId, snapshot.orderId]);
+  const previous = before.rows[0];
+  const changed = !previous || Number(previous.status_step) !== snapshot.statusStep || previous.order_status !== snapshot.orderStatus || previous.creation_status !== snapshot.creationStatus || JSON.stringify(previous.item_statuses ?? []) !== JSON.stringify(snapshot.itemStatuses);
+  if (changed) {
+    const orderNumber = customerOrder.rows[0]?.order_number ?? snapshot.externalNumber ?? null;
+    await pool.query(`insert into order_status_history(restaurant_id,order_number,iiko_order_id,status_step,order_status,item_statuses,source) values($1,$2,$3,$4,$5,$6,$7)`, [organizationId, orderNumber, snapshot.orderId, snapshot.statusStep, snapshot.orderStatus, JSON.stringify(snapshot.itemStatuses), webhook ? 'webhook' : 'poll']);
+    if (orderNumber) await publishEvent('order_status_changed', 'order', orderNumber, { statusStep: snapshot.statusStep, orderStatus: snapshot.orderStatus, itemStatuses: snapshot.itemStatuses, source: webhook ? 'webhook' : 'poll' }, organizationId);
+  }
   return result.rows[0];
 };
 let iikoAccessToken = '';
@@ -241,14 +332,24 @@ const syncIikoMenu = async () => {
   for (const category of arrayValue(menu?.itemCategories)) for (const item of arrayValue(category?.items)) {
     const size = defaultItemSize(item);
     if (!item?.itemId) continue;
-    rows.push([String(item.itemId), String(category?.id ?? ''), String(category?.name ?? 'Без категории'), String(item?.name ?? ''), item?.description ?? null, iikoPrice(size), Number(size?.portionWeightGrams ?? 0), String(size?.measureUnitType ?? ''), JSON.stringify(size?.nutritionPerHundredGrams ?? size?.nutritions?.[0] ?? null), size?.buttonImageUrl ?? null, JSON.stringify(size?.itemModifierGroups ?? []), Boolean(item?.isHidden || size?.isHidden), sortOrder++, Number(menu?.revision ?? 0), JSON.stringify({ item, size })]);
+    const sku = String(item?.sku ?? size?.sku ?? '').trim() || null;
+    rows.push([String(item.itemId), sku, String(category?.id ?? ''), String(category?.name ?? 'Без категории'), String(item?.name ?? ''), item?.description ?? null, iikoPrice(size), Number(size?.portionWeightGrams ?? 0), String(size?.measureUnitType ?? ''), JSON.stringify(size?.nutritionPerHundredGrams ?? size?.nutritions?.[0] ?? null), size?.buttonImageUrl ?? null, JSON.stringify(size?.itemModifierGroups ?? []), Boolean(item?.isHidden || size?.isHidden), sortOrder++, Number(menu?.revision ?? 0), JSON.stringify({ item, size })]);
+  }
+  if (!rows.length) throw Object.assign(new Error('iiko вернул пустое внешнее меню; сохранён предыдущий снимок'), { status: 502 });
+  const activeRows = rows.filter((row) => !row[12]);
+  const withoutSku = activeRows.filter((row) => !row[1]);
+  const skuCounts = new Map();
+  activeRows.forEach((row) => { if (row[1]) skuCounts.set(row[1], (skuCounts.get(row[1]) ?? 0) + 1); });
+  const duplicateSkus = [...skuCounts].filter(([, count]) => count > 1).map(([sku]) => sku);
+  if (withoutSku.length || duplicateSkus.length) {
+    throw Object.assign(new Error(`Сезонное меню не опубликовано: ${withoutSku.length} блюд без SKU, ${duplicateSkus.length} повторяющихся SKU`), { status: 409 });
   }
   const client = await pool.connect();
   try {
     await client.query('begin');
-    for (const row of rows) await client.query(`insert into iiko_menu_items(product_id,category_id,category_name,name,description,price_rub,portion_weight_grams,measure_unit,nutrition,image_url,modifier_groups,is_hidden,sort_order,revision,raw_payload)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-      on conflict(product_id) do update set category_id=excluded.category_id,category_name=excluded.category_name,name=excluded.name,description=excluded.description,price_rub=excluded.price_rub,portion_weight_grams=excluded.portion_weight_grams,measure_unit=excluded.measure_unit,nutrition=excluded.nutrition,image_url=excluded.image_url,modifier_groups=excluded.modifier_groups,is_hidden=excluded.is_hidden,sort_order=excluded.sort_order,revision=excluded.revision,raw_payload=excluded.raw_payload,updated_at=now()`, row);
+    for (const row of rows) await client.query(`insert into iiko_menu_items(product_id,sku,category_id,category_name,name,description,price_rub,portion_weight_grams,measure_unit,nutrition,image_url,modifier_groups,is_hidden,sort_order,revision,raw_payload)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+      on conflict(product_id) do update set sku=excluded.sku,category_id=excluded.category_id,category_name=excluded.category_name,name=excluded.name,description=excluded.description,price_rub=excluded.price_rub,portion_weight_grams=excluded.portion_weight_grams,measure_unit=excluded.measure_unit,nutrition=excluded.nutrition,image_url=excluded.image_url,modifier_groups=excluded.modifier_groups,is_hidden=excluded.is_hidden,sort_order=excluded.sort_order,revision=excluded.revision,raw_payload=excluded.raw_payload,updated_at=now()`, row);
     // An external menu is a complete snapshot. Hide items that disappeared from
     // the current snapshot so switching menu versions cannot leave stale dishes
     // visible in the kiosk. Never mass-hide on an unexpectedly empty response.
@@ -345,10 +446,12 @@ const publicIikoStatus = (row) => ({
 const publicState = async (terminalId) => {
   const [localProducts, iikoProducts, banners, terminal, selection, settings] = await Promise.all([
     pool.query('select * from products order by category, sort_order, name'),
-    pool.query(`select m.*, o.image as override_image, o.pairs_with as override_pairs_with, o.badge as override_badge, o.image_position as override_image_position,
+    pool.query(`select m.*, p.image as override_image,
+      coalesce((select jsonb_agg((select pm.product_id from iiko_menu_items pm where pm.sku=pair.sku and not pm.is_hidden order by pm.updated_at desc limit 1) order by pair.ordinality) from jsonb_array_elements_text(p.pairs_with_skus) with ordinality pair(sku,ordinality)),'[]'::jsonb) as override_pairs_with,
+      p.badge as override_badge, p.image_position as override_image_position,
       exists(select 1 from iiko_stop_list_items s where s.organization_id=$1 and s.terminal_group_id=$2 and s.product_id=m.product_id and s.balance <= 0) as stopped
-      from iiko_menu_items m left join iiko_product_overrides o on o.product_id=m.product_id where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId, iikoTerminalGroupId]),
-    pool.query(`select * from banners where active=true
+      from iiko_menu_items m left join iiko_product_presentations p on p.restaurant_id=$1 and p.sku=m.sku where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId, iikoTerminalGroupId]),
+    pool.query(`select b.*,coalesce((select m.product_id from iiko_menu_items m where m.sku=b.product_sku and not m.is_hidden order by m.updated_at desc limit 1),b.product_id) as product_id from banners b where active=true
       and (starts_at is null or starts_at <= now())
       and (ends_at is null or ends_at > now())
       and (impression_limit is null or impressions < impression_limit)
@@ -361,7 +464,7 @@ const publicState = async (terminalId) => {
   const chosen = selection.rows[0];
   const effectiveTable = fixedTable || chosen?.table_number || '';
   const products = iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
-    id: item.product_id, name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
+    id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, kbju: item.nutrition ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
     pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: '', spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
@@ -384,7 +487,7 @@ const normalizeOrder = async (input) => {
   if (!Array.isArray(input.items) || !input.items.length || input.items.length > 50) throw Object.assign(new Error('Некорректный состав заказа'), { status: 400 });
   const ids = [...new Set(input.items.map((line) => String(line?.productId ?? '')).filter(Boolean))];
   if (!ids.length || ids.length > 50) throw Object.assign(new Error('Некорректный состав заказа'), { status: 400 });
-  const result = await pool.query('select id, price_rub, is_available, sauce_options, sauce_addon_price_rub, addon_options, flavor_options from products where id = any($1::text[])', [ids]);
+  const result = await pool.query('select id, name, price_rub, is_available, sauce_options, sauce_addon_price_rub, addon_options, flavor_options from products where id = any($1::text[])', [ids]);
   const products = new Map(result.rows.map((product) => [product.id, product]));
   if (products.size !== ids.length) throw Object.assign(new Error('Одно из блюд больше недоступно'), { status: 409 });
   let subtotal = 0;
@@ -406,7 +509,7 @@ const normalizeOrder = async (input) => {
     if (addon && !arrayValue(product.addon_options).includes(addon)) throw Object.assign(new Error('Некорректная добавка'), { status: 400 });
     if (flavor && !arrayValue(product.flavor_options).includes(flavor)) throw Object.assign(new Error('Некорректный вариант блюда'), { status: 400 });
     subtotal += Number(product.price_rub) * quantity;
-    return { key: ['product', product.id, addon, flavor].filter(Boolean).join('|'), productId: product.id, kind: 'product', ...(addon ? { addon } : {}), ...(flavor ? { flavor } : {}), quantity };
+    return { key: ['product', product.id, addon, flavor].filter(Boolean).join('|'), productId: product.id, kind: 'product', customName: product.name, customPrice: Number(product.price_rub), ...(addon ? { addon } : {}), ...(flavor ? { flavor } : {}), quantity };
   });
   const promoCode = String(input.promo_code ?? '').trim().toUpperCase();
   const discount = promoCode === 'BOWL10' ? Math.round(subtotal * 0.1) : 0;
@@ -451,7 +554,7 @@ const normalizeIikoOrder = async (input) => {
       };
     });
     total += (Number(product.price_rub) + modifiers.reduce((sum, modifier) => sum + modifier.price * modifier.amount, 0)) * amount;
-    items.push({ key: `product|${product.product_id}|${modifiers.map((modifier) => modifier.productId).join(',')}`, productId: product.product_id, kind: 'product', quantity: amount, ...(modifiers.length ? { modifiers } : {}) });
+    items.push({ key: `product|${product.product_id}|${modifiers.map((modifier) => modifier.productId).join(',')}`, productId: product.product_id, kind: 'product', customName: product.name, customPrice: Number(product.price_rub), quantity: amount, ...(modifiers.length ? { modifiers } : {}) });
   }
   if (!items.length) throw Object.assign(new Error('В заказе нет блюд'), { status: 400 });
   return {
@@ -484,9 +587,8 @@ const effectiveTableForTerminal = async (terminal) => {
   if (!selection.rowCount) throw Object.assign(new Error('Перед заказом выберите стол'), { status: 409 });
   return selection.rows[0];
 };
-const createIikoOrder = async ({ number, table, items, comment }) => {
+const createIikoOrder = async ({ id = crypto.randomUUID(), number, table, items, comment }) => {
   if (!iikoTerminalGroupId || !iikoOrderTypeId) throw Object.assign(new Error('Интеграция iiko ещё не настроена на сервере'), { status: 503 });
-  const id = crypto.randomUUID();
   const payload = await iikoRequest('/api/1/order/create', {
     organizationId: iikoOrganizationId,
     terminalGroupId: iikoTerminalGroupId,
@@ -569,7 +671,13 @@ const server = http.createServer(async (request, response) => {
       response.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Max-Age': '86400' });
       return response.end();
     }
-    if (request.method === 'GET' && path === '/api/v1/health') return json(response, 200, { ok: true });
+    if (request.method === 'GET' && path === '/api/v1/health') return json(response, 200, { ok: true, service: 'brooklynbowl-kiosk-api', time: new Date().toISOString() });
+    if (request.method === 'GET' && path === '/api/v1/health/ready') {
+      const database = await pool.query('select now() as now');
+      const cache = await pool.query(`select max(updated_at) as menu_updated_at,count(*) filter(where not is_hidden) as active_products from iiko_menu_items`);
+      const ready = Number(cache.rows[0].active_products) > 0;
+      return json(response, ready ? 200 : 503, { ok: ready, database: database.rows[0].now, menu: cache.rows[0], syncRunning: backgroundSyncRunning, iikoBackoffUntil: iikoRetryAfter ? new Date(iikoRetryAfter).toISOString() : null });
+    }
     if (request.method === 'POST' && path === '/api/v1/iiko/webhook') {
       if (!iikoWebhookToken) return json(response, 503, { error: 'Webhook is not configured' });
       const provided = String(request.headers.authorization ?? '');
@@ -590,6 +698,7 @@ const server = http.createServer(async (request, response) => {
       return json(response, 200, { ok: true });
     }
     if (request.method === 'GET' && path === '/api/v1/iiko/stop-list') {
+      requireAdmin(request);
       const terminalGroupId = url.searchParams.get('terminalGroupId');
       const groups = await fetchIikoStopLists(terminalGroupId ? [terminalGroupId] : []);
       return json(response, 200, { terminalGroupStopLists: groups });
@@ -665,22 +774,36 @@ const server = http.createServer(async (request, response) => {
       return json(response, 200, { table_number: selected.table_number, table_id: selected.table_id, source: 'guest' });
     }
     if (request.method === 'POST' && path === '/api/v1/admin/login') {
-      const { password, scope } = await readBody(request); const requestedScope = scope === 'terminal' ? 'terminal' : 'restaurant';
-      const expectedHash = requestedScope === 'terminal' ? terminalAdminPasswordHash : adminPasswordHash;
-      if (!password || sha256(password) !== expectedHash) return json(response, 401, { error: 'Неверный пароль' });
-      return json(response, 200, { token: sign({ admin: true, scope: requestedScope, exp: Date.now() + 8 * 60 * 60 * 1000 }), scope: requestedScope });
+      const { password, scope, username } = await readBody(request); const requestedScope = scope === 'terminal' ? 'terminal' : 'restaurant';
+      const attemptKey = authAttemptKey(request, `admin:${requestedScope}`);
+      await assertAuthAllowed(attemptKey);
+      let role = requestedScope === 'terminal' ? 'terminal_manager' : 'administrator'; let userId = null; let valid = false;
+      if (requestedScope === 'restaurant' && String(username ?? '').trim()) {
+        const account = await pool.query('select id,role,password_hash from admin_users where restaurant_id=$1 and lower(username)=lower($2) and is_active=true', [iikoOrganizationId, String(username).trim()]);
+        valid = Boolean(account.rowCount && password && passwordMatches(String(password), account.rows[0].password_hash));
+        if (valid) { role = account.rows[0].role; userId = account.rows[0].id; }
+      } else {
+        const expectedHash = requestedScope === 'terminal' ? terminalAdminPasswordHash : adminPasswordHash;
+        valid = Boolean(password && sha256(password) === expectedHash);
+      }
+      if (!valid) { await recordAuthFailure(attemptKey); return json(response, 401, { error: 'Неверный логин или пароль' }); }
+      await clearAuthFailures(attemptKey);
+      return json(response, 200, { token: sign({ admin: true, scope: requestedScope, role, userId, exp: Date.now() + 8 * 60 * 60 * 1000 }), scope: requestedScope, role });
     }
     if (request.method === 'POST' && path === '/api/v1/waiter/login') {
       const body = await readBody(request); const pin = String(body.pin ?? '');
-      const waiter = await pool.query('select id,display_name from waiter_profiles where restaurant_id=$1 and is_active=true and pin_hash=$2', [iikoOrganizationId, sha256(pin)]);
-      if (!waiter.rowCount) return json(response, 401, { error: 'Неверный PIN-код' });
-      const profile = waiter.rows[0];
-      return json(response, 200, { token: sign({ waiterId: profile.id, exp: Date.now() + 12 * 60 * 60 * 1000 }), waiter: { id: profile.id, name: profile.display_name } });
+      const attemptKey = authAttemptKey(request, 'waiter');
+      await assertAuthAllowed(attemptKey);
+      const waiterCandidates = await pool.query('select id,display_name,pin_hash from waiter_profiles where restaurant_id=$1 and is_active=true', [iikoOrganizationId]);
+      const waiter = waiterCandidates.rows.find((profile) => passwordMatches(pin, profile.pin_hash));
+      if (!waiter) { await recordAuthFailure(attemptKey); return json(response, 401, { error: 'Неверный PIN-код' }); }
+      await clearAuthFailures(attemptKey);
+      return json(response, 200, { token: sign({ waiterId: waiter.id, role: 'waiter', exp: Date.now() + 12 * 60 * 60 * 1000 }), waiter: { id: waiter.id, name: waiter.display_name } });
     }
     if (request.method === 'GET' && path === '/api/v1/waiter/queue') {
       const waiter = requireWaiter(request);
       const [requests, orders] = await Promise.all([
-        pool.query(`select id,table_number,request_type,status,created_at,accepted_by,accepted_at from service_requests where restaurant_id=$1 and status in ('new','accepted') and (accepted_by is null or accepted_by=$2) and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
+        pool.query(`select id,table_number,request_type,status,created_at,accepted_by,accepted_at from service_requests where restaurant_id=$1 and status in ('new','accepted','in_progress') and (accepted_by is null or accepted_by=$2) and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
         pool.query(`select order_number,table_number,items,total,status_step,created_at,source from customer_orders where restaurant_id=$1 and completed_at is null and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId]),
       ]);
       return json(response, 200, { requests: requests.rows, orders: orders.rows, serverTime: new Date().toISOString() });
@@ -699,43 +822,87 @@ const server = http.createServer(async (request, response) => {
       await publishEvent('waiter_request_accepted', 'service_request', String(id), { waiterId: waiter.waiterId, tableNumber: result.rows[0].table_number });
       return json(response, 200, result.rows[0]);
     }
+    if (request.method === 'POST' && path.startsWith('/api/v1/waiter/requests/') && path.endsWith('/complete')) {
+      const waiter = requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/complete'.length));
+      if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный вызов' });
+      const result = await pool.query(`update service_requests set status='completed',handled_at=now(),completed_at=now(),completed_by=$1 where id=$2 and restaurant_id=$3 and status in ('accepted','in_progress') and accepted_by=$1 returning *`, [waiter.waiterId, id, iikoOrganizationId]);
+      if (!result.rowCount) return json(response, 409, { error: 'Вызов не найден или назначен другому официанту' });
+      await publishEvent('waiter_request_completed', 'service_request', String(id), { waiterId: waiter.waiterId, tableNumber: result.rows[0].table_number });
+      await closeGuestSessionIfIdle(result.rows[0].guest_session_id, 'service_completed');
+      return json(response, 200, result.rows[0]);
+    }
+    if (request.method === 'POST' && path.startsWith('/api/v1/waiter/requests/') && path.endsWith('/start')) {
+      const waiter = requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/start'.length));
+      if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный вызов' });
+      const result = await pool.query(`update service_requests set status='in_progress' where id=$1 and restaurant_id=$2 and status='accepted' and accepted_by=$3 returning *`, [id, iikoOrganizationId, waiter.waiterId]);
+      if (!result.rowCount) return json(response, 409, { error: 'Вызов не найден или назначен другому официанту' });
+      await publishEvent('waiter_request_in_progress', 'service_request', String(id), { waiterId: waiter.waiterId, tableNumber: result.rows[0].table_number });
+      return json(response, 200, result.rows[0]);
+    }
     if (request.method === 'POST' && path === '/api/v1/orders') {
       const body = await readBody(request);
       if (!body.terminal_id) return json(response, 400, { error: 'Некорректный заказ' });
+      enforceRequestRate(`order:${requestIp(request)}:${String(body.terminal_id)}`, 10, 5 * 60_000);
       const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно не принимает заказы' });
       const useIiko = (await pool.query('select count(*)::int as count from iiko_menu_items')).rows[0].count > 0;
       const order = useIiko ? await normalizeIikoOrder(body) : await normalizeOrder(body);
       const table = useIiko ? await effectiveTableForTerminal(terminal.rows[0]) : { table_number: terminal.rows[0].table_number };
       const clientRequestId = String(body.client_request_id ?? '').trim();
+      if (clientRequestId && !/^[a-zA-Z0-9_-]{8,100}$/.test(clientRequestId)) return json(response, 400, { error: 'Некорректный идентификатор отправки' });
+      const requestHash = sha256(JSON.stringify({ terminalId: body.terminal_id, table: table.table_number, items: order.items, comment: String(body.comment ?? ''), source: body.source === 'qr' ? 'qr' : 'tablet' }));
+      let number = clientRequestId ? `B-${sha256(`${iikoOrganizationId}:${clientRequestId}`).slice(0, 8).toUpperCase()}` : '';
       if (clientRequestId) {
         const existing = await pool.query('select order_number,items,total,status_step,table_number,created_at from customer_orders where restaurant_id=$1 and client_request_id=$2', [iikoOrganizationId, clientRequestId]);
         if (existing.rowCount) return json(response, 200, existing.rows[0]);
+        const claimed = await pool.query(`insert into order_requests(restaurant_id,client_request_id,terminal_id,request_hash,order_number) values($1,$2,$3,$4,$5) on conflict do nothing returning *`, [iikoOrganizationId, clientRequestId, String(body.terminal_id), requestHash, number]);
+        if (!claimed.rowCount) {
+          const prior = await pool.query('select * from order_requests where restaurant_id=$1 and client_request_id=$2', [iikoOrganizationId, clientRequestId]);
+          const row = prior.rows[0];
+          if (!row || row.request_hash !== requestHash) return json(response, 409, { error: 'Этот идентификатор уже использован для другого состава заказа' });
+          if (row.status === 'success') {
+            const completed = await pool.query('select order_number,items,total,status_step,table_number,created_at from customer_orders where restaurant_id=$1 and client_request_id=$2', [iikoOrganizationId, clientRequestId]);
+            if (completed.rowCount) return json(response, 200, completed.rows[0]);
+          }
+          const stillProcessing = row.status === 'processing' && new Date(row.updated_at).getTime() > Date.now() - 90_000;
+          if (stillProcessing) return json(response, 409, { error: 'Заказ уже отправляется. Подождите несколько секунд и повторите проверку.' });
+          await pool.query(`update order_requests set status='processing',error_message=null,updated_at=now() where restaurant_id=$1 and client_request_id=$2`, [iikoOrganizationId, clientRequestId]);
+          number = row.order_number || number;
+        }
       }
-      const sessionId = await createGuestSession({ terminalId: String(body.terminal_id), source: body.source === 'qr' ? 'qr' : 'tablet', table, metadata: { clientRequestId: clientRequestId || null } });
+      const sessionId = await getOrCreateGuestSession({ terminalId: String(body.terminal_id), source: body.source === 'qr' ? 'qr' : 'tablet', table, metadata: { clientRequestId: clientRequestId || null } });
       let saved;
       let submittedIikoOrderId = null;
       let initialIikoCreationStatus = '';
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        const number = `B-${crypto.randomInt(1000, 10000)}`;
-        try {
+      try {
+        for (let attempt = 0; attempt < (clientRequestId ? 1 : 5); attempt += 1) {
+          if (!number) number = `B-${crypto.randomInt(1000, 10000)}`;
           if (useIiko) {
-            const created = await createIikoOrder({ number, table, items: order.iikoItems, comment: body.comment });
+            const created = await createIikoOrder({ id: clientRequestId ? deterministicUuid(`${iikoOrganizationId}:${clientRequestId}`) : undefined, number, table, items: order.iikoItems, comment: body.comment });
             submittedIikoOrderId = created.id;
             initialIikoCreationStatus = String(created.response?.creationStatus ?? '');
           }
-          saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, submittedIikoOrderId, iikoOrganizationId, sessionId, body.source === 'qr' ? 'qr' : 'tablet', clientRequestId || null]);
-          break;
-        } catch (error) { if (error.code !== '23505') throw error; }
-      }
-      if (!saved) throw new Error('Unable to allocate order number');
-      if (useIiko && submittedIikoOrderId && initialIikoCreationStatus !== 'Success') {
-        const creation = await waitForIikoCreation(submittedIikoOrderId);
-        if (creation?.creation_status === 'Error') {
-          await pool.query('delete from customer_orders where order_number=$1', [saved.rows[0].order_number]);
-          await pool.query('delete from guest_sessions where id=$1', [sessionId]);
-          throw Object.assign(new Error(`iiko не создал заказ: ${readableIikoOrderError(creation.error_info)}`), { status: 409 });
+          try {
+            saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, submittedIikoOrderId, iikoOrganizationId, sessionId, body.source === 'qr' ? 'qr' : 'tablet', clientRequestId || null]);
+            break;
+          } catch (error) {
+            if (error.code !== '23505' || clientRequestId || useIiko) throw error;
+            number = '';
+          }
         }
+        if (!saved) throw new Error('Unable to allocate order number');
+        if (useIiko && submittedIikoOrderId && initialIikoCreationStatus !== 'Success') {
+          const creation = await waitForIikoCreation(submittedIikoOrderId);
+          if (creation?.creation_status === 'Error') {
+            await pool.query('delete from customer_orders where order_number=$1', [saved.rows[0].order_number]);
+            throw Object.assign(new Error(`iiko не создал заказ: ${readableIikoOrderError(creation.error_info)}`), { status: 409 });
+          }
+        }
+        if (clientRequestId) await pool.query(`update order_requests set status='success',order_number=$1,iiko_order_id=$2,updated_at=now() where restaurant_id=$3 and client_request_id=$4`, [saved.rows[0].order_number, submittedIikoOrderId, iikoOrganizationId, clientRequestId]);
+      } catch (error) {
+        if (clientRequestId) await pool.query(`update order_requests set status='failed',iiko_order_id=coalesce($1,iiko_order_id),error_message=$2,updated_at=now() where restaurant_id=$3 and client_request_id=$4`, [submittedIikoOrderId, String(error.message ?? 'Ошибка отправки').slice(0, 500), iikoOrganizationId, clientRequestId]);
+        await closeGuestSessionIfIdle(sessionId, 'order_failed');
+        throw error;
       }
       await publishEvent('order_created', 'order', saved.rows[0].order_number, { tableNumber: saved.rows[0].table_number, source: body.source === 'qr' ? 'qr' : 'tablet', total: Number(saved.rows[0].total) });
       void notifyWaiters(`Новый заказ · стол №${saved.rows[0].table_number}`, `Заказ ${saved.rows[0].order_number} на ${saved.rows[0].total} ₽`, { type: 'order', orderNumber: saved.rows[0].order_number, tableNumber: saved.rows[0].table_number });
@@ -745,10 +912,11 @@ const server = http.createServer(async (request, response) => {
       const body = await readBody(request);
       const type = String(body.type ?? '');
       if (!body.terminal_id || !serviceTypes.has(type)) return json(response, 400, { error: 'Некорректный запрос' });
+      enforceRequestRate(`service:${requestIp(request)}:${String(body.terminal_id)}`, 8, 5 * 60_000);
       const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно недоступен' });
       const table = await effectiveTableForTerminal(terminal.rows[0]);
-      const sessionId = await createGuestSession({ terminalId: String(body.terminal_id), table });
+      const sessionId = await getOrCreateGuestSession({ terminalId: String(body.terminal_id), table });
       const created = await pool.query('insert into service_requests(terminal_id, table_number, request_type, restaurant_id, guest_session_id) values ($1,$2,$3,$4,$5) returning id', [String(body.terminal_id), table.table_number, type, iikoOrganizationId, sessionId]);
       await publishEvent('waiter_called', 'service_request', String(created.rows[0].id), { tableNumber: table.table_number, type });
       void notifyWaiters(`СТОЛ №${table.table_number}`, servicePushText[type] ?? 'Новый вызов за столом', { type: 'service_request', requestId: created.rows[0].id, tableNumber: table.table_number, requestType: type });
@@ -758,40 +926,80 @@ const server = http.createServer(async (request, response) => {
       const orderNumber = decodeURIComponent(path.slice('/api/v1/orders/'.length, -'/complete'.length));
       const body = await readBody(request);
       if (!body.terminal_id || !orderNumber) return json(response, 400, { error: 'Некорректный заказ' });
-      const result = await pool.query('update customer_orders set completed_at = now(), updated_at = now() where order_number = $1 and terminal_id = $2 and completed_at is null', [orderNumber, String(body.terminal_id)]);
+      const result = await pool.query('update customer_orders set completed_at = now(), updated_at = now() where order_number = $1 and terminal_id = $2 and completed_at is null returning guest_session_id,table_number', [orderNumber, String(body.terminal_id)]);
       if (!result.rowCount) return json(response, 404, { error: 'Заказ не найден или уже завершён' });
       const terminal = await pool.query('select table_number from terminals where id=$1', [String(body.terminal_id)]);
-      if (!String(terminal.rows[0]?.table_number ?? '').trim()) await pool.query('delete from terminal_table_selections where terminal_id=$1', [String(body.terminal_id)]);
+      const remaining = await pool.query('select count(*)::int as count from customer_orders where terminal_id=$1 and completed_at is null', [String(body.terminal_id)]);
+      if (!String(terminal.rows[0]?.table_number ?? '').trim() && !remaining.rows[0].count) await pool.query('delete from terminal_table_selections where terminal_id=$1', [String(body.terminal_id)]);
+      await publishEvent('order_completed', 'order', orderNumber, { tableNumber: result.rows[0].table_number, source: 'kiosk' });
+      await closeGuestSessionIfIdle(result.rows[0].guest_session_id, 'order_completed');
       return json(response, 204, {});
     }
     if (!path.startsWith('/api/v1/admin/')) return json(response, 404, { error: 'Not found' });
     const admin = requireAdmin(request);
     const terminalOnly = request.method === 'PUT' && path.startsWith('/api/v1/admin/terminals/');
     if (admin.scope === 'terminal' && !terminalOnly) throw Object.assign(new Error('Недостаточно прав'), { status: 403 });
-    const actor = admin.scope === 'terminal' ? 'terminal-admin' : 'restaurant-admin';
+    const hostessAllowed = request.method === 'GET' && path === '/api/v1/admin/orders' || terminalOnly;
+    if (admin.role === 'hostess' && !hostessAllowed) throw Object.assign(new Error('Недостаточно прав'), { status: 403 });
+    const actor = admin.userId ? `admin-user:${admin.userId}` : admin.scope === 'terminal' ? 'terminal-admin' : 'restaurant-admin';
     if (request.method === 'GET' && path === '/api/v1/admin/state') return json(response, 200, await publicState(url.searchParams.get('terminalId') ?? 'admin-preview'));
+    if (request.method === 'GET' && path === '/api/v1/admin/orders') {
+      const filter = url.searchParams.get('filter') === 'all' ? 'all' : 'active';
+      const result = await pool.query(`select o.order_number,o.iiko_order_id,o.iiko_pos_id,o.table_number,coalesce(t.label,'') as terminal_label,o.items,o.total,o.status_step,
+        case when o.completed_at is not null then 'completed' when io.creation_status='Error' then 'error' when o.status_step>=4 then 'served' else 'active' end as status,
+        io.creation_status,o.source,o.created_at,o.updated_at,o.completed_at,
+        coalesce((select jsonb_agg(jsonb_build_object('event_type',e.event_type,'payload',e.payload,'created_at',e.created_at) order by e.created_at) from app_events e where e.restaurant_id=o.restaurant_id and e.aggregate_type='order' and e.aggregate_id=o.order_number),'[]'::jsonb) as history
+        from customer_orders o left join terminals t on t.id=o.terminal_id left join iiko_orders io on io.order_id=o.iiko_order_id
+        where o.restaurant_id=$1 and ($2='all' or o.completed_at is null) and o.created_at>now()-interval '30 days' order by o.created_at desc limit 250`, [iikoOrganizationId, filter]);
+      return json(response, 200, result.rows);
+    }
     if (request.method === 'GET' && path === '/api/v1/admin/waiters') {
       const result = await pool.query('select id,display_name,is_active,created_at from waiter_profiles where restaurant_id=$1 order by display_name', [iikoOrganizationId]); return json(response, 200, result.rows);
+    }
+    if (request.method === 'GET' && path === '/api/v1/admin/users') {
+      const result = await pool.query('select id,username,display_name,role,is_active,created_at from admin_users where restaurant_id=$1 order by display_name', [iikoOrganizationId]);
+      return json(response, 200, result.rows);
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/users') {
+      const body = await readBody(request); const username=String(body.username??'').trim(); const name=String(body.name??'').trim(); const password=String(body.password??''); const role=body.role==='hostess'?'hostess':'administrator';
+      if (!/^[a-zA-Z0-9._-]{3,40}$/.test(username) || !name || password.length<8) return json(response,400,{error:'Логин: 3–40 символов; пароль: минимум 8 символов'});
+      try { const id=crypto.randomUUID(); const result=await pool.query('insert into admin_users(id,restaurant_id,username,display_name,role,password_hash) values($1,$2,$3,$4,$5,$6) returning id,username,display_name,role,is_active,created_at',[id,iikoOrganizationId,username,name,role,passwordHash(password)]); await audit(actor,'create','admin_user',id,null,result.rows[0]); return json(response,201,result.rows[0]); }
+      catch(error){ if(error.code==='23505') return json(response,409,{error:'Такой логин уже существует'}); throw error; }
+    }
+    if (request.method === 'PUT' && path.startsWith('/api/v1/admin/users/')) {
+      const id=decodeURIComponent(path.slice('/api/v1/admin/users/'.length)); const body=await readBody(request); const password=String(body.password??''); const role=body.role==='hostess'?'hostess':'administrator';
+      if (password && password.length<8) return json(response,400,{error:'Пароль должен содержать минимум 8 символов'});
+      const result=await pool.query(`update admin_users set role=$1,is_active=$2,password_hash=case when $3='' then password_hash else $4 end,updated_at=now() where id=$5 and restaurant_id=$6 returning id,username,display_name,role,is_active,created_at`,[role,body.is_active!==false,password,password?passwordHash(password):'',id,iikoOrganizationId]);
+      if(!result.rowCount)return json(response,404,{error:'Пользователь не найден'}); await audit(actor,'update','admin_user',id,null,result.rows[0]); return json(response,200,result.rows[0]);
     }
     if (request.method === 'POST' && path === '/api/v1/admin/waiters') {
       const body = await readBody(request); const name=String(body.name??'').trim(); const pin=String(body.pin??'');
       if (!name || !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'Укажите имя и PIN из 4–8 цифр'});
-      const id=crypto.randomUUID(); const result=await pool.query('insert into waiter_profiles(id,restaurant_id,display_name,pin_hash) values($1,$2,$3,$4) returning id,display_name,is_active,created_at',[id,iikoOrganizationId,name,sha256(pin)]);
+      const id=crypto.randomUUID(); const result=await pool.query('insert into waiter_profiles(id,restaurant_id,display_name,pin_hash) values($1,$2,$3,$4) returning id,display_name,is_active,created_at',[id,iikoOrganizationId,name,passwordHash(pin)]);
       await audit(actor,'create','waiter',id,null,result.rows[0]); return json(response,201,result.rows[0]);
     }
     if (request.method === 'PUT' && path.startsWith('/api/v1/admin/waiters/')) {
       const id=decodeURIComponent(path.slice('/api/v1/admin/waiters/'.length)); const body=await readBody(request); const pin=String(body.pin ?? '');
       if (pin && !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'PIN должен содержать 4–8 цифр'});
-      const result=await pool.query(`update waiter_profiles set is_active=$1,pin_hash=case when $2='' then pin_hash else $3 end,updated_at=now() where id=$4 and restaurant_id=$5 returning id,display_name,is_active,created_at`,[body.is_active !== false,pin,pin ? sha256(pin) : '',id,iikoOrganizationId]);
+      const result=await pool.query(`update waiter_profiles set is_active=$1,pin_hash=case when $2='' then pin_hash else $3 end,updated_at=now() where id=$4 and restaurant_id=$5 returning id,display_name,is_active,created_at`,[body.is_active !== false,pin,pin ? passwordHash(pin) : '',id,iikoOrganizationId]);
       if (!result.rowCount) return json(response,404,{error:'Официант не найден'}); return json(response,200,result.rows[0]);
     }
     if (request.method === 'PUT' && path.startsWith('/api/v1/admin/iiko-products/')) {
       const id = decodeURIComponent(path.slice('/api/v1/admin/iiko-products/'.length)); const body = await readBody(request);
-      const exists = await pool.query('select product_id from iiko_menu_items where product_id=$1', [id]);
+      const exists = await pool.query('select product_id,sku from iiko_menu_items where product_id=$1 and not is_hidden', [id]);
       if (!exists.rowCount) return json(response, 404, { error: 'Блюдо iiko не найдено' });
-      const result = await pool.query(`insert into iiko_product_overrides(product_id,image,image_position,badge,pairs_with) values($1,$2,$3,$4,$5)
-        on conflict(product_id) do update set image=excluded.image,image_position=excluded.image_position,badge=excluded.badge,pairs_with=excluded.pairs_with,updated_at=now() returning *`, [id, String(body.image ?? ''), String(body.image_position ?? 'center'), String(body.badge ?? ''), JSON.stringify(arrayValue(body.pairs_with))]);
-      await audit(actor, 'update', 'iiko_product_override', id, null, result.rows[0]); return json(response, 200, result.rows[0]);
+      const sku = String(exists.rows[0].sku ?? '');
+      if (!sku) return json(response, 409, { error: 'У блюда не заполнен SKU в iiko' });
+      const pairIds = arrayValue(body.pairs_with).map(String);
+      const pairRows = pairIds.length ? await pool.query('select product_id,sku from iiko_menu_items where product_id=any($1::text[]) and not is_hidden and sku is not null', [pairIds]) : { rows: [] };
+      if (pairRows.rows.length !== new Set(pairIds).size) return json(response, 409, { error: 'У одного из рекомендованных блюд отсутствует SKU' });
+      const skuById = new Map(pairRows.rows.map((row) => [row.product_id, row.sku]));
+      const pairSkus = pairIds.map((pairId) => skuById.get(pairId)).filter(Boolean);
+      const before = await pool.query('select * from iiko_product_presentations where restaurant_id=$1 and sku=$2', [iikoOrganizationId, sku]);
+      const result = await pool.query(`insert into iiko_product_presentations(restaurant_id,sku,image,image_position,badge,pairs_with_skus) values($1,$2,$3,$4,$5,$6)
+        on conflict(restaurant_id,sku) do update set image=excluded.image,image_position=excluded.image_position,badge=excluded.badge,pairs_with_skus=excluded.pairs_with_skus,updated_at=now() returning *`, [iikoOrganizationId, sku, String(body.image ?? ''), String(body.image_position ?? 'center'), String(body.badge ?? ''), JSON.stringify(pairSkus)]);
+      if (before.rows[0]?.image && before.rows[0].image !== result.rows[0].image) await removeUploadedProduct(before.rows[0].image);
+      await audit(actor, 'update', 'iiko_product_presentation', sku, null, result.rows[0]); return json(response, 200, { ...result.rows[0], pairs_with: pairIds });
     }
     if (request.method === 'PUT' && path.startsWith('/api/v1/admin/products/')) {
       const product = await updateProduct(decodeURIComponent(path.slice('/api/v1/admin/products/'.length)), await readBody(request), actor);
@@ -806,31 +1014,21 @@ const server = http.createServer(async (request, response) => {
       return json(response, 200, result.rows[0]);
     }
     if (request.method === 'GET' && path === '/api/v1/admin/banners') {
-      const result = await pool.query('select * from banners order by sort_order,id');
+      const result = await pool.query(`select b.*,coalesce((select m.product_id from iiko_menu_items m where m.sku=b.product_sku and not m.is_hidden order by m.updated_at desc limit 1),b.product_id) as product_id from banners b order by b.sort_order,b.id`);
       return json(response, 200, result.rows);
     }
+    if (request.method === 'POST' && path === '/api/v1/admin/products/upload') {
+      const url = await saveImageUpload(await readBody(request, 12_000_000), productUploadDir, productPublicPath);
+      return json(response, 201, { url });
+    }
     if (request.method === 'POST' && path === '/api/v1/admin/banners/upload') {
-      const body = await readBody(request, 12_000_000);
-      const match = /^data:image\/(png|jpeg|webp);base64,([a-zA-Z0-9+/=]+)$/.exec(String(body.data_url ?? ''));
-      if (!match) return json(response, 400, { error: 'Поддерживаются PNG, JPEG и WebP' });
-      const data = Buffer.from(match[2], 'base64');
-      if (!data.length || data.length > 8 * 1024 * 1024) return json(response, 413, { error: 'Изображение должно быть не больше 8 МБ' });
-      const valid = match[1] === 'png'
-        ? data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-        : match[1] === 'jpeg'
-          ? data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff
-          : data.subarray(0, 4).toString() === 'RIFF' && data.subarray(8, 12).toString() === 'WEBP';
-      if (!valid) return json(response, 400, { error: 'Файл изображения повреждён' });
-      const extension = match[1] === 'jpeg' ? 'jpg' : match[1];
-      const filename = `${crypto.randomUUID()}.${extension}`;
-      await fs.mkdir(bannerUploadDir, { recursive: true });
-      await fs.writeFile(pathModule.join(bannerUploadDir, filename), data, { flag: 'wx' });
-      return json(response, 201, { url: `${bannerPublicPath}/${filename}` });
+      const url = await saveImageUpload(await readBody(request, 12_000_000), bannerUploadDir, bannerPublicPath);
+      return json(response, 201, { url });
     }
     if (request.method === 'POST' && path === '/api/v1/admin/banners') {
       const value = bannerPayload(await readBody(request));
-      await ensureBannerProduct(value.productId);
-      const result = await pool.query('insert into banners(name,image_url,product_id,kind,active,starts_at,ends_at,impression_limit,sort_order) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *', [value.name, value.imageUrl, value.productId, value.kind, value.active, value.startsAt, value.endsAt, value.impressionLimit, value.sortOrder]);
+      const productSku = await ensureBannerProduct(value.productId);
+      const result = await pool.query('insert into banners(name,image_url,product_id,product_sku,kind,active,starts_at,ends_at,impression_limit,sort_order) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *', [value.name, value.imageUrl, value.productId, productSku, value.kind, value.active, value.startsAt, value.endsAt, value.impressionLimit, value.sortOrder]);
       await audit(actor, 'create', 'banner', result.rows[0].id, null, result.rows[0]);
       return json(response, 201, result.rows[0]);
     }
@@ -848,10 +1046,10 @@ const server = http.createServer(async (request, response) => {
       const id = Number(path.slice('/api/v1/admin/banners/'.length));
       if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный баннер' });
       const value = bannerPayload(await readBody(request));
-      await ensureBannerProduct(value.productId);
+      const productSku = await ensureBannerProduct(value.productId);
       const before = await pool.query('select * from banners where id=$1', [id]);
       if (!before.rowCount) return json(response, 404, { error: 'Баннер не найден' });
-      const result = await pool.query('update banners set name=$1,image_url=$2,product_id=$3,kind=$4,active=$5,starts_at=$6,ends_at=$7,impression_limit=$8,sort_order=$9,updated_at=now() where id=$10 returning *', [value.name, value.imageUrl, value.productId, value.kind, value.active, value.startsAt, value.endsAt, value.impressionLimit, value.sortOrder, id]);
+      const result = await pool.query('update banners set name=$1,image_url=$2,product_id=$3,product_sku=$4,kind=$5,active=$6,starts_at=$7,ends_at=$8,impression_limit=$9,sort_order=$10,updated_at=now() where id=$11 returning *', [value.name, value.imageUrl, value.productId, productSku, value.kind, value.active, value.startsAt, value.endsAt, value.impressionLimit, value.sortOrder, id]);
       if (before.rows[0].image_url !== value.imageUrl) await removeUploadedBanner(before.rows[0].image_url);
       await audit(actor, 'update', 'banner', id, before.rows[0], result.rows[0]);
       return json(response, 200, result.rows[0]);
@@ -872,6 +1070,7 @@ const server = http.createServer(async (request, response) => {
     return json(response, 404, { error: 'Not found' });
   } catch (error) {
     const status = error.status ?? 500;
+    if (error.retryAfter) response.setHeader('Retry-After', String(error.retryAfter));
     if (status >= 500) console.error(error);
     return json(response, status, { error: status === 500 ? 'Internal server error' : error.message });
   }

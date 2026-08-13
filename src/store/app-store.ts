@@ -11,8 +11,9 @@ export interface AppState {
   adminAuthenticated: boolean;
   adminLoginOpen: boolean;
   adminScope: 'terminal' | 'restaurant' | null;
+  adminRole: 'administrator' | 'hostess' | 'terminal_manager' | null;
   adminProductId: string | null;
-  adminTab: 'terminal' | 'menu' | 'banners' | 'staff' | 'quality' | 'audit';
+  adminTab: 'terminal' | 'orders' | 'menu' | 'banners' | 'staff' | 'quality' | 'audit';
   inactivityWarning: boolean;
   inactivitySeconds: number;
   orderNumber: string | null;
@@ -20,6 +21,7 @@ export interface AppState {
   selectedOrderId: string | null;
   orderType: OrderType;
   promoCode: string;
+  pendingOrderRequestId: string | null;
   productId: string | null;
   pwaUpdateReady: boolean;
   banners: Banner[];
@@ -33,8 +35,8 @@ export interface AppState {
   upsellId: string | null;
 }
 
-const persisted = storage.get<Pick<AppState, 'cart' | 'language' | 'orderNumber' | 'orders' | 'selectedOrderId' | 'statusStep' | 'orderType' | 'recentProductIds' | 'banners' | 'productDisplay'>>('bb-kiosk', {
-  cart: [], language: 'ru', orderNumber: null, orders: [], selectedOrderId: null, statusStep: 0, orderType: null, recentProductIds: [], banners: [], productDisplay: {},
+const persisted = storage.get<Pick<AppState, 'cart' | 'language' | 'orderNumber' | 'orders' | 'selectedOrderId' | 'statusStep' | 'orderType' | 'recentProductIds' | 'banners' | 'productDisplay' | 'pendingOrderRequestId'>>('bb-kiosk', {
+  cart: [], language: 'ru', orderNumber: null, orders: [], selectedOrderId: null, statusStep: 0, orderType: null, recentProductIds: [], banners: [], productDisplay: {}, pendingOrderRequestId: null,
 });
 const restoredOrders: SubmittedOrder[] = persisted.orders ?? (persisted.orderNumber ? [{
   id: persisted.orderNumber,
@@ -52,6 +54,7 @@ let state: AppState = {
   adminAuthenticated: false,
   adminLoginOpen: false,
   adminScope: null,
+  adminRole: null,
   adminProductId: null,
   adminTab: 'terminal',
   inactivityWarning: false,
@@ -66,6 +69,7 @@ let state: AppState = {
   tables: [],
   upsellId: null,
   ...persisted,
+  pendingOrderRequestId: persisted.pendingOrderRequestId ?? null,
   cart: persisted.cart ?? [],
   language: persisted.language ?? 'ru',
   orderNumber: persisted.orderNumber ?? restoredOrders[0]?.id ?? null,
@@ -80,7 +84,7 @@ let state: AppState = {
 const subscribers = new Set<(value: AppState) => void>();
 
 function persist() {
-  storage.set('bb-kiosk', { cart: state.cart, language: state.language, orderNumber: state.orderNumber, orders: state.orders, selectedOrderId: state.selectedOrderId, statusStep: state.statusStep, orderType: state.orderType, recentProductIds: state.recentProductIds, banners: state.banners, productDisplay: state.productDisplay });
+  storage.set('bb-kiosk', { cart: state.cart, language: state.language, orderNumber: state.orderNumber, orders: state.orders, selectedOrderId: state.selectedOrderId, statusStep: state.statusStep, orderType: state.orderType, recentProductIds: state.recentProductIds, banners: state.banners, productDisplay: state.productDisplay, pendingOrderRequestId: state.pendingOrderRequestId });
 }
 
 export const appStore = {
@@ -91,5 +95,5 @@ export const appStore = {
     if (notify) subscribers.forEach((subscriber) => subscriber(state));
   },
   subscribe(subscriber: (value: AppState) => void) { subscribers.add(subscriber); return () => subscribers.delete(subscriber); },
-  resetOrder() { this.set({ cart: [], comment: '', orderNumber: null, orderType: null, promoCode: '', productId: null, serviceOpen: false, statusStep: 0, upsellId: null, inactivityWarning: false, inactivitySeconds: 15 }); },
+  resetOrder() { this.set({ cart: [], comment: '', orderNumber: null, orderType: null, promoCode: '', pendingOrderRequestId: null, productId: null, serviceOpen: false, statusStep: 0, upsellId: null, inactivityWarning: false, inactivitySeconds: 15 }); },
 };

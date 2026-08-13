@@ -1,0 +1,13 @@
+[Unit]
+Description=BrooklynBowl Kiosk PostgreSQL backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/zakaz-api.env
+ExecStartPre=+/usr/bin/install -d -o postgres -g postgres -m 700 /var/backups/zakaz-postgres
+ExecStart=/opt/zakaz-api/ops/backup-postgres.sh
+User=postgres
+Group=postgres
+PrivateTmp=true
+NoNewPrivileges=true

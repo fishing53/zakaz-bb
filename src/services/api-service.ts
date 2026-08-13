@@ -1,8 +1,9 @@
-import type { Banner, CartLine, Product, ProductDisplaySettings, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
+import type { AdminOrder, Banner, CartLine, Product, ProductDisplaySettings, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
 import { Capacitor } from '@capacitor/core';
 
 let token = sessionStorage.getItem('zakaz-admin-token') ?? '';
 let adminScope = sessionStorage.getItem('zakaz-admin-scope') as 'terminal' | 'restaurant' | null;
+let adminRole = sessionStorage.getItem('zakaz-admin-role') as 'administrator' | 'hostess' | 'terminal_manager' | null;
 const terminalKey = 'zakaz-terminal-id';
 const rawTerminalId = localStorage.getItem(terminalKey);
 export const terminalId = rawTerminalId ?? crypto.randomUUID().replace(/-/g, '');
@@ -10,12 +11,14 @@ if (!rawTerminalId) localStorage.setItem(terminalKey, terminalId);
 const productionOrigin = 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai';
 const isNative = Capacitor.isNativePlatform();
 const apiBase = isNative ? `${productionOrigin}/api/v1` : '/api/v1';
+const assetUrl = (value: string) => isNative && value.startsWith('/uploads/') ? `${productionOrigin}${value}` : value;
 
-type ServerProduct = Product & { is_available: boolean; badge: string; image_position: string; allergens: string; spicy: 'none' | 'mild' | 'hot'; sort_order: number };
+type ServerProduct = Product & { sku?: string; is_available: boolean; badge: string; image_position: string; allergens: string; spicy: 'none' | 'mild' | 'hot'; sort_order: number };
 type ServerBanner = { id: number | string; name: string; image_url: string; product_id: string | null; kind: 'restaurant' | 'advertising'; active: boolean; starts_at: string | null; ends_at: string | null; impression_limit: number | null; impressions: number; sort_order: number };
 type ServerTerminal = { id: string; label: string; table_number: string; is_active: boolean; idle_seconds: number; table_source?: 'admin' | 'guest' | null; table_id?: string | null };
 type ServerOrder = { order_number: string; items: CartLine[]; total: number; status_step: number; table_number: string; created_at: string };
 export type WaiterProfile = { id: string; display_name: string; is_active: boolean; created_at: string };
+export type AdminUserProfile = { id: string; username: string; display_name: string; role: 'administrator' | 'hostess'; is_active: boolean; created_at: string };
 
 const request = async <T>(path: string, init: RequestInit = {}) => {
   try {
@@ -45,13 +48,13 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
 };
 
 const product = (item: ServerProduct): Product => ({
-  id: item.id, name: item.name, category: item.category, price_rub: Number(item.price_rub), portion: item.portion, unit: item.unit, description: item.description,
-  kbju: item.kbju, image: item.image, source_url: item.source_url, sauce_options: item.sauce_options ?? [], sauce_addon_price_rub: item.sauce_addon_price_rub ?? undefined,
+  id: item.id, sku: item.sku, name: item.name, category: item.category, price_rub: Number(item.price_rub), portion: item.portion, unit: item.unit, description: item.description,
+  kbju: item.kbju, image: assetUrl(item.image), source_url: item.source_url, sauce_options: item.sauce_options ?? [], sauce_addon_price_rub: item.sauce_addon_price_rub ?? undefined,
   addon_options: item.addon_options ?? [], flavor_options: item.flavor_options ?? [], size_option: item.size_option ?? undefined, pairs_with: item.pairs_with ?? [], recommendations_note: item.recommendations_note ?? undefined,
   modifier_groups: item.modifier_groups ?? [],
 });
 const display = (item: ServerProduct): ProductDisplaySettings => ({ badge: item.badge ?? '', unavailable: !item.is_available, imagePosition: item.image_position ?? 'center', allergens: item.allergens ?? '', spicy: item.spicy ?? 'none' });
-const banner = (item: ServerBanner): Banner => ({ id: String(item.id), name: item.name, image: isNative && item.image_url.startsWith('/') ? `${productionOrigin}${item.image_url}` : item.image_url, productId: item.product_id ?? null, kind: item.kind, active: item.active, startsAt: item.starts_at, endsAt: item.ends_at, impressionLimit: item.impression_limit === null ? null : Number(item.impression_limit), impressions: Number(item.impressions), sortOrder: Number(item.sort_order) });
+const banner = (item: ServerBanner): Banner => ({ id: String(item.id), name: item.name, image: assetUrl(item.image_url), productId: item.product_id ?? null, kind: item.kind, active: item.active, startsAt: item.starts_at, endsAt: item.ends_at, impressionLimit: item.impression_limit === null ? null : Number(item.impression_limit), impressions: Number(item.impressions), sortOrder: Number(item.sort_order) });
 const terminal = (item: ServerTerminal): TerminalSettings => ({ id: item.id, label: item.label, tableNumber: item.table_number, isActive: item.is_active, idleSeconds: item.idle_seconds, tableSource: item.table_source ?? null, tableId: item.table_id ?? null });
 const order = (item: ServerOrder): SubmittedOrder => ({ id: item.order_number, items: item.items, total: Number(item.total), statusStep: item.status_step, createdAt: item.created_at, orderType: null, tableNumber: item.table_number });
 
@@ -61,21 +64,23 @@ export const apiService = {
     const data = await request<{ products: ServerProduct[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown> }>(`/bootstrap?terminalId=${terminalId}`);
     return { products: data.products.map(product), display: Object.fromEntries(data.products.map((item) => [item.id, display(item)])), banners: data.banners.map(banner), terminal: terminal(data.terminal), orders: data.orders.map(order), settings: data.settings };
   },
-  async login(password: string, scope: 'terminal' | 'restaurant') {
-    const data = await request<{ token: string; scope: 'terminal' | 'restaurant' }>('/admin/login', { method: 'POST', body: JSON.stringify({ password, scope }) });
+  async login(password: string, scope: 'terminal' | 'restaurant', username = '') {
+    const data = await request<{ token: string; scope: 'terminal' | 'restaurant'; role: 'administrator' | 'hostess' | 'terminal_manager' }>('/admin/login', { method: 'POST', body: JSON.stringify({ password, scope, username }) });
     token = data.token;
     sessionStorage.setItem('zakaz-admin-token', token);
     adminScope = data.scope; sessionStorage.setItem('zakaz-admin-scope', data.scope);
-    return data.scope;
+    adminRole = data.role; sessionStorage.setItem('zakaz-admin-role', data.role);
+    return { scope: data.scope, role: data.role };
   },
   scope: () => adminScope,
-  logout() { token = ''; adminScope = null; sessionStorage.removeItem('zakaz-admin-token'); sessionStorage.removeItem('zakaz-admin-scope'); },
+  role: () => adminRole,
+  logout() { token = ''; adminScope = null; adminRole = null; sessionStorage.removeItem('zakaz-admin-token'); sessionStorage.removeItem('zakaz-admin-scope'); sessionStorage.removeItem('zakaz-admin-role'); },
   async saveTerminal(value: TerminalSettings) {
     const data = await request<ServerTerminal>(`/admin/terminals/${encodeURIComponent(value.id)}`, { method: 'PUT', body: JSON.stringify({ label: value.label, table_number: value.tableNumber, is_active: value.isActive, idle_seconds: value.idleSeconds }) });
     return terminal(data);
   },
-  async submitOrder(value: { items: CartLine[]; total: number; comment: string; promoCode: string }) {
-    const data = await request<ServerOrder>('/orders', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, items: value.items, total: value.total, comment: value.comment, promo_code: value.promoCode }) });
+  async submitOrder(value: { items: CartLine[]; total: number; comment: string; promoCode: string; requestId: string }) {
+    const data = await request<ServerOrder>('/orders', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, items: value.items, total: value.total, comment: value.comment, promo_code: value.promoCode, client_request_id: value.requestId }) });
     return order(data);
   },
   async tables() {
@@ -100,6 +105,10 @@ export const apiService = {
     const data = await request<{ image: string; image_position: string; badge: string; pairs_with: string[] }>(`/admin/iiko-products/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ image: value.image, image_position: value.imagePosition, badge: value.badge, pairs_with: value.pairsWith }) });
     return { image: data.image, imagePosition: data.image_position, badge: data.badge, pairsWith: data.pairs_with };
   },
+  async adminOrders(filter: 'active' | 'all' = 'active') {
+    const data = await request<Array<{ order_number: string; iiko_order_id: string | null; iiko_pos_id: string | null; table_number: string; terminal_label: string; items: CartLine[]; total: number; status_step: number; status: string; creation_status: string | null; source: 'tablet' | 'qr' | 'waiter'; created_at: string; updated_at: string; completed_at: string | null; history: Array<{ event_type: string; payload: Record<string, unknown>; created_at: string }> }>>(`/admin/orders?filter=${filter}`);
+    return data.map((item): AdminOrder => ({ id: item.order_number, iikoOrderId: item.iiko_order_id, iikoPosId: item.iiko_pos_id, tableNumber: item.table_number, terminalLabel: item.terminal_label, items: item.items, total: Number(item.total), statusStep: Number(item.status_step), status: item.status, creationStatus: item.creation_status, source: item.source, createdAt: item.created_at, updatedAt: item.updated_at, completedAt: item.completed_at, history: item.history.map((event) => ({ eventType: event.event_type, payload: event.payload, createdAt: event.created_at })) }));
+  },
   async banners() {
     const data = await request<ServerBanner[]>('/admin/banners');
     return data.map(banner);
@@ -115,9 +124,13 @@ export const apiService = {
   async deleteBanner(id: string) { await request<void>(`/admin/banners/${id}`, { method: 'DELETE' }); },
   async resetBannerImpressions(id: string) { return banner(await request<ServerBanner>(`/admin/banners/${id}/reset-impressions`, { method: 'POST' })); },
   async uploadBannerImage(dataUrl: string) { return request<{ url: string }>('/admin/banners/upload', { method: 'POST', body: JSON.stringify({ data_url: dataUrl }) }); },
+  async uploadProductImage(dataUrl: string) { return request<{ url: string }>('/admin/products/upload', { method: 'POST', body: JSON.stringify({ data_url: dataUrl }) }); },
   async recordBannerImpression(id: string) { return request<{ counted: boolean; exhausted: boolean; impressions: number }>(`/banners/${id}/impression`, { method: 'POST', body: JSON.stringify({ terminal_id: terminalId }) }); },
   waiters: () => request<WaiterProfile[]>('/admin/waiters'),
   createWaiter: (value: { name: string; pin: string }) => request<WaiterProfile>('/admin/waiters', { method: 'POST', body: JSON.stringify(value) }),
   updateWaiter: (id: string, value: { pin?: string; isActive?: boolean }) => request<WaiterProfile>(`/admin/waiters/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ pin: value.pin ?? '', is_active: value.isActive }) }),
+  adminUsers: () => request<AdminUserProfile[]>('/admin/users'),
+  createAdminUser: (value: { username: string; name: string; password: string; role: 'administrator' | 'hostess' }) => request<AdminUserProfile>('/admin/users', { method: 'POST', body: JSON.stringify(value) }),
+  updateAdminUser: (id: string, value: { password?: string; role: 'administrator' | 'hostess'; isActive: boolean }) => request<AdminUserProfile>(`/admin/users/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ password: value.password ?? '', role: value.role, is_active: value.isActive }) }),
   audit: () => request<Array<{ id: number; action: string; entity: string; entity_id: string; created_at: string }>>('/admin/audit'),
 };

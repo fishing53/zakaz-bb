@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+backup_dir="${ZAKAZ_BACKUP_DIR:-/var/backups/zakaz-postgres}"
+retention_days="${ZAKAZ_BACKUP_RETENTION_DAYS:-14}"
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+target="${backup_dir}/zakaz-${timestamp}.dump"
+temporary="${target}.partial"
+
+test -n "${DATABASE_URL:-}" || { echo "DATABASE_URL is not configured" >&2; exit 1; }
+install -d -m 700 "$backup_dir"
+umask 077
+pg_dump --format=custom --compress=9 --no-owner --no-acl "$DATABASE_URL" > "$temporary"
+pg_restore --list "$temporary" >/dev/null
+mv "$temporary" "$target"
+sha256sum "$target" > "${target}.sha256"
+find "$backup_dir" -type f \( -name 'zakaz-*.dump' -o -name 'zakaz-*.dump.sha256' \) -mtime "+${retention_days}" -delete
+echo "PostgreSQL backup verified: $target"
