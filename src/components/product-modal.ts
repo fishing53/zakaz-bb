@@ -6,7 +6,7 @@ const choice = (name: string, values?: string[], multiple = false, price = 0) =>
   ? `<section class="option-group" data-multiple="${multiple}" data-option-group="${name}"><div class="option-group__heading"><h3>${name}</h3>${multiple ? '<span><b data-sauce-count>0</b> выбрано</span>' : ''}</div><div class="option-chips">${values.map((value, index) => `<button data-action="set-option" data-option="${name}" data-value="${escapeHtml(value)}" class="option-chip${name === 'Соусы' ? ' option-chip--sauce' : ''}${!multiple && index === 0 ? ' is-selected' : ''}"><span class="option-chip__check">${icon('check')}</span><span class="option-chip__label">${escapeHtml(value)}</span>${name === 'Соусы' ? `<small>${price ? `+${formatPrice(price)}` : 'Бесплатно'}</small>` : ''}</button>`).join('')}</div></section>`
   : '';
 
-const iikoChoices = (product: Product) => (product.modifier_groups ?? []).map((group, groupIndex) => group.items.length ? `<section class="option-group" data-multiple="${(group.maxQuantity ?? 99) > 1}" data-min-quantity="${group.minQuantity ?? 0}" data-iiko-group="${groupIndex}"><div class="option-group__heading"><h3>${escapeHtml(group.name)}</h3><span>${group.minQuantity ? `Выберите от ${group.minQuantity}` : 'По желанию'}</span></div><div class="option-chips">${group.items.map((item) => `<button data-action="set-option" data-iiko-modifier="true" data-product-id="${escapeHtml(item.productId)}" data-value="${escapeHtml(item.name)}" data-price="${item.price}" data-image="${escapeHtml(item.image || '/images/sauce-fallback.webp')}" data-max-quantity="${item.maxQuantity ?? group.maxQuantity ?? 20}" class="option-chip${item.defaultQuantity ? ' is-selected' : ''}"><span class="option-chip__check">${icon('check')}</span><span class="option-chip__label">${escapeHtml(item.name)}</span><small>${item.price ? `+${formatPrice(item.price)}` : 'Включено'}</small></button>`).join('')}</div></section>` : '').join('');
+const iikoChoices = (product: Product) => (product.modifier_groups ?? []).map((group, groupIndex) => group.items.length ? `<section class="option-group" data-multiple="${(group.maxQuantity ?? 99) > 1}" data-min-quantity="${group.minQuantity ?? 0}" data-iiko-group="${groupIndex}"><div class="option-group__heading"><h3>${escapeHtml(group.name)}</h3><span>${group.minQuantity ? `Выберите от ${group.minQuantity}` : 'По желанию'}</span></div><div class="option-chips">${group.items.map((item) => `<button data-action="set-option" data-iiko-modifier="true" data-product-id="${escapeHtml(item.productId)}" data-value="${escapeHtml(item.name)}" data-price="${item.price}" data-image="${escapeHtml(item.image || '/images/sauce-fallback.webp')}" data-allergens="${escapeHtml(item.allergens ?? '')}" data-max-quantity="${item.maxQuantity ?? group.maxQuantity ?? 20}" class="option-chip${item.defaultQuantity ? ' is-selected' : ''}"><span class="option-chip__check">${icon('check')}</span><span class="option-chip__label">${escapeHtml(item.name)}</span><small>${item.price ? `+${formatPrice(item.price)}` : 'Включено'}</small></button>`).join('')}</div></section>` : '').join('');
 
 const spicyLabel = (level?: ProductDisplaySettings['spicy']) => level === 'hot'
   ? '<span class="product-fact product-fact--hot">Острое</span>'
@@ -16,7 +16,12 @@ export function productModal(product: Product | undefined, display: ProductDispl
   if (!product) return '';
   const related = product.pairs_with ?? [];
   const saucePrice = Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0;
-  const allergens = display.allergens?.trim();
+  const baseAllergens = display.allergens?.trim() ?? '';
+  const allergens = [...new Map([baseAllergens, ...(product.modifier_groups ?? []).flatMap((group) => group.items.filter((item) => item.defaultQuantity).map((item) => item.allergens ?? ''))]
+    .flatMap((value) => value.split(','))
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => [value.toLocaleLowerCase('ru-RU'), value])).values()].join(', ');
   return `<div class="overlay product-overlay" data-action="close-product">
     <section class="product-modal">
       <button class="modal__close" data-action="close-product" aria-label="Вернуться к меню">${icon('close')}</button>
@@ -27,7 +32,7 @@ export function productModal(product: Product | undefined, display: ProductDispl
           <h2>${escapeHtml(product.name)}</h2>
           <div class="product-modal__price"><strong>${formatPrice(product.price_rub)}</strong><span>${escapeHtml(product.portion)} ${escapeHtml(product.unit)}</span></div>
           <p class="product-modal__description">${escapeHtml(product.description || 'Подробное описание блюда уточнит официант.')}</p>
-          <div class="product-facts">${spicyLabel(display.spicy)}<span class="product-fact product-fact--allergens">${allergens ? `Аллергены: ${escapeHtml(allergens)}` : 'Аллергены уточняйте у официанта'}</span></div>
+          <div class="product-facts">${spicyLabel(display.spicy)}<span class="product-fact product-fact--allergens" data-product-allergens data-base-allergens="${escapeHtml(baseAllergens)}">${allergens ? `Аллергены: ${escapeHtml(allergens)}` : 'Аллергены уточняйте у официанта'}</span></div>
           ${product.kbju ? `<details class="nutrition-details"><summary><span>Состав и КБЖУ</span><small>Показать подробности</small>${icon('plus')}</summary><div class="nutrition"><div><span>${icon('flame')}<b>${escapeHtml(product.kbju.calories)}</b>ккал</span><span>${icon('plate')}<b>${escapeHtml(product.kbju.protein)}</b>белки</span><span>${icon('heart')}<b>${escapeHtml(product.kbju.fat)}</b>жиры</span><span>${icon('plus')}<b>${escapeHtml(product.kbju.carbs)}</b>углеводы</span></div></div></details>` : ''}
           ${choice('Соусы', product.sauce_options, true, saucePrice)}
           ${choice('Добавки', product.addon_options)}

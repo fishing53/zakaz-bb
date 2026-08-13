@@ -22,7 +22,7 @@ export interface Product {
   modifier_groups?: IikoModifierGroup[];
 }
 
-export interface IikoModifier { productId: string; name: string; price: number; image?: string; defaultQuantity?: number; minQuantity?: number; maxQuantity?: number }
+export interface IikoModifier { productId: string; name: string; price: number; image?: string; allergens?: string; defaultQuantity?: number; minQuantity?: number; maxQuantity?: number }
 export interface IikoModifierGroup { name: string; minQuantity?: number; maxQuantity?: number; freeQuantity?: number; items: IikoModifier[] }
 
 export interface Catalog { menu: Product[] }

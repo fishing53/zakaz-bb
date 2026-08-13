@@ -566,13 +566,21 @@ const defaultItemSize = (item) => arrayValue(item?.itemSizes).find((size) => siz
 const iikoPrice = (size) => Number(arrayValue(size?.prices).find((price) => String(price?.organizationId) === iikoOrganizationId)?.price ?? arrayValue(size?.prices)[0]?.price ?? 0);
 const nutritionHasValues = (nutrition) => ['energy', 'calories', 'proteins', 'protein', 'fats', 'fat', 'carbs', 'carbohydrates'].some((key) => Number(nutrition?.[key] ?? 0) > 0);
 const modifierRestrictions = (value) => Array.isArray(value) ? (value[0] ?? {}) : value && typeof value === 'object' ? value : {};
+const allergenNames = (value) => [...new Map(arrayValue(value)
+  .filter((item) => typeof item === 'string' || !item?.isDeleted)
+  .map((item) => {
+    const name = String(typeof item === 'string' ? item : (item?.name ?? item?.code ?? '')).trim();
+    return [name.toLocaleLowerCase('ru-RU'), name];
+  })
+  .filter(([, name]) => name)).values()];
+const allergenText = (value) => allergenNames(value).join(', ');
 const publicModifierGroups = (groups) => arrayValue(groups).map((group) => ({
   name: String(group?.name ?? 'Дополнения'), minQuantity: Number(group?.restrictions?.minQuantity ?? 0), maxQuantity: Number(group?.restrictions?.maxQuantity ?? 99), freeQuantity: Number(group?.restrictions?.freeQuantity ?? 0),
   items: arrayValue(group?.items).filter((item) => item?.itemId && !item?.isHidden).map((item) => {
     const restrictions = modifierRestrictions(item?.restrictions);
     const groupMaximum = Number(group?.restrictions?.maxQuantity ?? 20) || 20;
     const itemMaximum = Number(restrictions.maxQuantity ?? 0) || groupMaximum;
-    return { productId: String(item.itemId), name: String(item.name ?? ''), price: iikoPrice(item), image: String(item.buttonImageUrl ?? ''), defaultQuantity: Number(restrictions.byDefault ?? 0), minQuantity: Number(restrictions.minQuantity ?? 0), maxQuantity: Math.min(20, itemMaximum) };
+    return { productId: String(item.itemId), name: String(item.name ?? ''), price: iikoPrice(item), image: String(item.buttonImageUrl ?? ''), allergens: allergenText(item.allergenGroups), defaultQuantity: Number(restrictions.byDefault ?? 0), minQuantity: Number(restrictions.minQuantity ?? 0), maxQuantity: Math.min(20, itemMaximum) };
   }),
 })).filter((group) => group.items.length);
 const syncIikoMenu = async () => {
@@ -718,7 +726,7 @@ const publicState = async (terminalId) => {
     id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
-    pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: '', spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
+    pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
   })) : localProducts.rows;
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId]);
   return { products, banners: banners.rows, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? 'guest' : null), table_id: fixedTable ? null : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };

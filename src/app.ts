@@ -148,6 +148,15 @@ function updateModalTotal() {
   const quantity = Number(root.querySelector<HTMLElement>('[data-modal-quantity]')?.textContent ?? 1);
   const sauceTotal = sauceCount * saucePrice;
   const iikoTotal = iikoItems.reduce((sum, item) => sum + Number(item.dataset.price ?? 0), 0);
+  const allergenLabel = root.querySelector<HTMLElement>('[data-product-allergens]');
+  if (allergenLabel) {
+    const allergens = [allergenLabel.dataset.baseAllergens ?? '', ...iikoItems.map((item) => item.dataset.allergens ?? '')]
+      .flatMap((value) => value.split(','))
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const uniqueAllergens = [...new Map(allergens.map((value) => [value.toLocaleLowerCase('ru-RU'), value])).values()];
+    allergenLabel.textContent = uniqueAllergens.length ? `Аллергены: ${uniqueAllergens.join(', ')}` : 'Аллергены уточняйте у официанта';
+  }
   const total = root.querySelector<HTMLElement>('[data-modal-total]');
   if (total) total.textContent = formatPrice((product.price_rub + sauceTotal + iikoTotal) * quantity + relatedTotal);
   const setText = (selector: string, value: string | number) => {
