@@ -90,6 +90,18 @@ export interface AdminOrder {
   history: Array<{ eventType: string; payload: Record<string, unknown>; createdAt: string }>;
 }
 
+export interface AdminDiagnostics {
+  generatedAt: string;
+  api: { ok: boolean; uptimeSeconds: number; startedAt: string };
+  database: { ok: boolean; latencyMs: number };
+  disk: { ok: boolean; usedPercent: number | null };
+  menu: { activeProducts: number; updatedAt: string | null };
+  iikoOrders: { ok: boolean; errors24h: number; lastErrorAt: string | null };
+  webhook: { ok: boolean; errors24h: number; events24h: number; lastEventAt: string | null };
+  iikoSync: { ok: boolean; errors24h: number; backoffUntil: string | null };
+  incidents: Array<{ component: string; severity: 'warning' | 'error' | 'critical'; message: string; context: Record<string, unknown>; createdAt: string }>;
+}
+
 export interface TerminalSettings {
   id: string;
   label: string;

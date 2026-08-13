@@ -20,7 +20,7 @@ import { adminPage } from './pages/admin';
 import { debounce, formatPrice } from './utils/helpers';
 import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
-import type { AdminOrder, Banner, Product } from './types/menu';
+import type { AdminDiagnostics, AdminOrder, Banner, Product } from './types/menu';
 import type { AdminUserProfile, WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
 
@@ -40,6 +40,7 @@ let waiterProfiles: WaiterProfile[] = [];
 let adminUserProfiles: AdminUserProfile[] = [];
 let adminBanners: Banner[] = [];
 let adminOrders: AdminOrder[] = [];
+let adminDiagnostics: AdminDiagnostics | null = null;
 let adminOrderFilter: 'active' | 'all' = 'active';
 let adminOrderRefreshTimer = 0;
 const updateSearch = debounce((value: string) => {
@@ -62,7 +63,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics) : '';
   }
 }
 
@@ -104,6 +105,13 @@ async function loadAdminOrders(notify = true) {
     adminOrders = await apiService.adminOrders(adminOrderFilter);
     if (notify) render();
   } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось загрузить заказы'); }
+}
+
+async function loadAdminDiagnostics(notify = true) {
+  try {
+    adminDiagnostics = await apiService.diagnostics();
+    if (notify) render();
+  } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось проверить систему'); }
 }
 
 function updateModalTotal() {
@@ -253,10 +261,12 @@ async function action(element: HTMLElement) {
     if (adminTab === 'staff') Promise.all([apiService.waiters(), apiService.adminUsers()]).then(([waiters, users]) => { waiterProfiles = waiters; adminUserProfiles = users; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'banners') apiService.banners().then((items) => { adminBanners = items; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'orders') void loadAdminOrders();
+    if (adminTab === 'quality') void loadAdminDiagnostics();
     return;
   }
   if (type === 'set-admin-order-filter') { adminOrderFilter = element.dataset.orderFilter === 'all' ? 'all' : 'active'; await loadAdminOrders(); return; }
   if (type === 'refresh-admin-orders') { await loadAdminOrders(); flash('Заказы обновлены'); return; }
+  if (type === 'refresh-admin-diagnostics') { await loadAdminDiagnostics(); flash('Проверка обновлена'); return; }
   if (type === 'create-waiter') { try { const name = root.querySelector<HTMLInputElement>('[data-admin-waiter="name"]')?.value.trim() ?? ''; const pin = root.querySelector<HTMLInputElement>('[data-admin-waiter="pin"]')?.value ?? ''; await apiService.createWaiter({ name, pin }); waiterProfiles = await apiService.waiters(); flash('Официант добавлен'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить официанта'); } return; }
   if (type === 'save-waiter' || type === 'toggle-waiter') { try { const id = element.dataset.waiterId ?? ''; const pin = root.querySelector<HTMLInputElement>(`[data-waiter-pin="${CSS.escape(id)}"]`)?.value ?? ''; const isActive = type === 'toggle-waiter' ? element.dataset.waiterActive === 'true' : undefined; await apiService.updateWaiter(id, { pin, isActive }); waiterProfiles = await apiService.waiters(); flash('Доступ обновлён'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось обновить доступ'); } return; }
   if (type === 'create-admin-user') { try { const field = (name: string) => root.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-admin-user="${name}"]`); await apiService.createAdminUser({ name: field('name')?.value.trim() ?? '', username: field('username')?.value.trim() ?? '', password: field('password')?.value ?? '', role: field('role')?.value === 'administrator' ? 'administrator' : 'hostess' }); adminUserProfiles = await apiService.adminUsers(); flash('Сотрудник добавлен'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить сотрудника'); } return; }

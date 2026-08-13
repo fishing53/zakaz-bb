@@ -205,6 +205,17 @@ await pool.query(`
     window_started_at timestamptz not null default now(), locked_until timestamptz,
     updated_at timestamptz not null default now()
   );
+  create table if not exists monitoring_events (
+    id bigserial primary key,
+    component text not null check(component in ('api','database','disk','iiko_order','iiko_sync','webhook')),
+    severity text not null default 'error' check(severity in ('warning','error','critical')),
+    message text not null,
+    context jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+  );
+  alter table monitoring_events add column if not exists alerted_at timestamptz;
+  create index if not exists monitoring_events_recent_idx on monitoring_events(component,created_at desc);
+  delete from monitoring_events where created_at < now()-interval '90 days';
 `);
 await pool.query(`insert into iiko_product_presentations(restaurant_id,sku,image,image_position,badge,pairs_with_skus)
   select $1,m.sku,o.image,o.image_position,o.badge,

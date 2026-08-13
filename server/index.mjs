@@ -179,6 +179,11 @@ const publishEvent = (eventType, aggregateType, aggregateId, payload, restaurant
   'insert into app_events(restaurant_id,event_type,aggregate_type,aggregate_id,payload) values($1,$2,$3,$4,$5)',
   [restaurantId, eventType, aggregateType, aggregateId, JSON.stringify(payload)],
 );
+const recordMonitoringEvent = async (component, message, context = {}, severity = 'error') => {
+  try {
+    await pool.query('insert into monitoring_events(component,severity,message,context) values($1,$2,$3,$4)', [component, severity, String(message).slice(0, 1000), JSON.stringify(context)]);
+  } catch (error) { console.warn('Unable to persist monitoring event:', error.message); }
+};
 let firebaseMessagingPromise;
 const firebaseMessaging = async () => {
   if (!firebaseServiceAccountPath) return null;
@@ -317,6 +322,7 @@ const getIikoAccessToken = async () => {
 };
 const defaultItemSize = (item) => arrayValue(item?.itemSizes).find((size) => size?.isDefault) ?? arrayValue(item?.itemSizes)[0] ?? {};
 const iikoPrice = (size) => Number(arrayValue(size?.prices).find((price) => String(price?.organizationId) === iikoOrganizationId)?.price ?? arrayValue(size?.prices)[0]?.price ?? 0);
+const nutritionHasValues = (nutrition) => ['energy', 'calories', 'proteins', 'protein', 'fats', 'fat', 'carbs', 'carbohydrates'].some((key) => Number(nutrition?.[key] ?? 0) > 0);
 const publicModifierGroups = (groups) => arrayValue(groups).map((group) => ({
   name: String(group?.name ?? 'Дополнения'), minQuantity: Number(group?.restrictions?.minQuantity ?? 0), maxQuantity: Number(group?.restrictions?.maxQuantity ?? 99), freeQuantity: Number(group?.restrictions?.freeQuantity ?? 0),
   items: arrayValue(group?.items).filter((item) => item?.itemId && !item?.isHidden).map((item) => {
@@ -465,7 +471,7 @@ const publicState = async (terminalId) => {
   const effectiveTable = fixedTable || chosen?.table_number || '';
   const products = iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
     id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
-    description: item.description, kbju: item.nutrition ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
+    description: item.description, kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
     pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: '', spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
   })) : localProducts.rows;
@@ -659,9 +665,11 @@ const updateProduct = async (id, input, actor) => {
 };
 
 const server = http.createServer(async (request, response) => {
+  let requestPath = '';
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
     const path = url.pathname;
+    requestPath = path;
     const origin = request.headers.origin;
     if (origin && allowedOrigins.has(origin)) {
       response.setHeader('Access-Control-Allow-Origin', origin);
@@ -953,6 +961,38 @@ const server = http.createServer(async (request, response) => {
         where o.restaurant_id=$1 and ($2='all' or o.completed_at is null) and o.created_at>now()-interval '30 days' order by o.created_at desc limit 250`, [iikoOrganizationId, filter]);
       return json(response, 200, result.rows);
     }
+    if (request.method === 'GET' && path === '/api/v1/admin/diagnostics') {
+      const started = Date.now();
+      const [menu, orderErrors, failedRequests, webhook, incidents] = await Promise.all([
+        pool.query(`select max(updated_at) as updated_at,count(*) filter(where not is_hidden)::int as active_products from iiko_menu_items`),
+        pool.query(`select count(*)::int as errors_24h,max(updated_at) as last_error_at from iiko_orders where creation_status='Error' and updated_at>now()-interval '24 hours'`),
+        pool.query(`select count(*)::int as errors_24h,max(updated_at) as last_error_at from order_requests where status='failed' and updated_at>now()-interval '24 hours'`),
+        pool.query(`select max(received_at) as last_event_at,count(*) filter(where received_at>now()-interval '24 hours')::int as events_24h from iiko_webhook_events`),
+        pool.query(`select component,severity,message,context,created_at from monitoring_events where created_at>now()-interval '24 hours' order by created_at desc limit 30`),
+      ]);
+      let disk = { ok: false, usedPercent: null };
+      try {
+        const stat = await fs.statfs('/');
+        const blocks = Number(stat.blocks); const available = Number(stat.bavail);
+        const usedPercent = blocks > 0 ? Math.round((1 - available / blocks) * 1000) / 10 : 0;
+        disk = { ok: usedPercent < 85, usedPercent };
+      } catch (error) { await recordMonitoringEvent('disk', error.message, {}, 'warning'); }
+      const recent = incidents.rows;
+      const webhookErrors = recent.filter((item) => item.component === 'webhook').length;
+      const syncErrors = recent.filter((item) => item.component === 'iiko_sync').length;
+      const iikoOrderErrors = Number(orderErrors.rows[0].errors_24h) + Number(failedRequests.rows[0].errors_24h);
+      return json(response, 200, {
+        generated_at: new Date().toISOString(),
+        api: { ok: true, uptime_seconds: Math.round(process.uptime()), started_at: new Date(Date.now() - process.uptime() * 1000).toISOString() },
+        database: { ok: true, latency_ms: Date.now() - started },
+        disk,
+        menu: { active_products: Number(menu.rows[0].active_products), updated_at: menu.rows[0].updated_at },
+        iiko_orders: { ok: iikoOrderErrors === 0, errors_24h: iikoOrderErrors, last_error_at: orderErrors.rows[0].last_error_at ?? failedRequests.rows[0].last_error_at },
+        webhook: { ok: webhookErrors === 0, errors_24h: webhookErrors, events_24h: Number(webhook.rows[0].events_24h), last_event_at: webhook.rows[0].last_event_at },
+        iiko_sync: { ok: syncErrors === 0 && Date.now() >= iikoRetryAfter, errors_24h: syncErrors, backoff_until: iikoRetryAfter ? new Date(iikoRetryAfter).toISOString() : null },
+        incidents: recent,
+      });
+    }
     if (request.method === 'GET' && path === '/api/v1/admin/waiters') {
       const result = await pool.query('select id,display_name,is_active,created_at from waiter_profiles where restaurant_id=$1 order by display_name', [iikoOrganizationId]); return json(response, 200, result.rows);
     }
@@ -1070,6 +1110,10 @@ const server = http.createServer(async (request, response) => {
     return json(response, 404, { error: 'Not found' });
   } catch (error) {
     const status = error.status ?? 500;
+    const errorContext = { status, code: error.code ?? null, correlationId: error.correlationId ?? null };
+    if (requestPath === '/api/v1/iiko/webhook' && status >= 400) await recordMonitoringEvent('webhook', error.message, errorContext);
+    else if (request.method === 'POST' && requestPath === '/api/v1/orders' && (status >= 500 || error.correlationId || /iiko/i.test(error.message ?? ''))) await recordMonitoringEvent('iiko_order', error.message, errorContext);
+    else if (['ECONNREFUSED', 'ECONNRESET', '57P01', '57P02', '57P03'].includes(String(error.code ?? ''))) await recordMonitoringEvent('database', error.message, errorContext, 'critical');
     if (error.retryAfter) response.setHeader('Retry-After', String(error.retryAfter));
     if (status >= 500) console.error(error);
     return json(response, status, { error: status === 500 ? 'Internal server error' : error.message });
@@ -1086,9 +1130,13 @@ const backgroundSync = async () => {
   backgroundSyncRunning = true;
   try {
     const results = await Promise.allSettled([syncIikoMenu(), syncIikoTables(), fetchIikoStopLists(iikoTerminalGroupId ? [iikoTerminalGroupId] : [])]);
-    results.filter((result) => result.status === 'rejected').forEach((result) => console.warn('iiko cache sync:', result.reason?.message ?? result.reason));
+    for (const result of results.filter((item) => item.status === 'rejected')) {
+      const message = result.reason?.message ?? String(result.reason);
+      console.warn('iiko cache sync:', message);
+      await recordMonitoringEvent('iiko_sync', message, {}, 'warning');
+    }
     await syncActiveIikoOrders();
-  } catch (error) { console.warn('iiko background sync:', error.message); }
+  } catch (error) { console.warn('iiko background sync:', error.message); await recordMonitoringEvent('iiko_sync', error.message, {}, 'warning'); }
   finally { backgroundSyncRunning = false; }
 };
 

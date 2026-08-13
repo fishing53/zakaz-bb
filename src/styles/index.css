@@ -752,6 +752,20 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .admin-product-image { height: clamp(190px,32vh,360px); overflow: hidden; display: grid; place-items: center; color: #777; border: 1px solid #343434; border-radius: 16px; background: #111; }
 .admin-product-image img { width: 100%; height: 100%; object-fit: cover; }
 .quality-grid article.is-warning { border-color: rgba(244,49,49,.7); background: rgba(244,49,49,.08); }
+.admin-panel__intro--actions { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+.monitor-grid { margin-top: 22px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 11px; }
+.monitor-card { min-width: 0; min-height: 132px; padding: 15px; display: grid; align-content: space-between; gap: 8px; border: 1px solid #343434; border-radius: 15px; background: linear-gradient(145deg,#1b1b1b,#111); }
+.monitor-card header { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #929292; font: 700 .66rem "Roboto Condensed",sans-serif; letter-spacing: .08em; }
+.monitor-card header i { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #666; box-shadow: 0 0 0 4px rgba(255,255,255,.04); }
+.monitor-card strong { color: #fff; font: 700 1.25rem "Roboto Condensed",sans-serif; }
+.monitor-card small { color: #777; font-size: .61rem; line-height: 1.4; }
+.monitor-card.is-ok header i { background: #52ce7c; box-shadow: 0 0 0 4px rgba(82,206,124,.12); }
+.monitor-card.is-error { border-color: rgba(244,49,49,.68); background: linear-gradient(145deg,rgba(244,49,49,.13),#111); }.monitor-card.is-error header i { background: var(--accent); box-shadow: 0 0 0 4px rgba(244,49,49,.14); }.monitor-card.is-error strong { color: var(--accent); }
+.monitor-card.is-warning { border-color: rgba(233,164,55,.58); }.monitor-card.is-warning header i { background: #e9a437; box-shadow: 0 0 0 4px rgba(233,164,55,.13); }.monitor-card.is-warning strong { color: #f1bb65; }
+.monitor-incidents { margin-top: 16px; padding: 15px; border: 1px solid #303030; border-radius: 15px; background: #121212; }.monitor-incidents h3 { margin: 0 0 11px; font: 700 1rem "Roboto Condensed",sans-serif; text-transform: uppercase; }.monitor-incidents p { margin: 0; color: #777; font-size: .67rem; }
+.monitor-incidents ol { margin: 0; padding: 0; display: grid; gap: 6px; list-style: none; }.monitor-incidents li { min-width: 0; padding: 7px 0; display: grid; grid-template-columns: 105px 130px minmax(0,1fr); gap: 9px; border-top: 1px solid #292929; color: #aaa; font-size: .62rem; }.monitor-incidents li:first-child { border-top: 0; }.monitor-incidents time { color: #777; }.monitor-incidents b { color: #ddd; }.monitor-incidents li.is-error b,.monitor-incidents li.is-critical b { color: var(--accent); }.monitor-incidents li.is-warning b { color: #e9a437; }
+@media(max-width:900px){.monitor-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){.admin-panel__intro--actions{align-items:stretch;flex-direction:column}.monitor-grid{grid-template-columns:1fr}.monitor-incidents li{grid-template-columns:1fr}.monitor-incidents li span{overflow-wrap:anywhere}}
 .admin-orders__toolbar { margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .admin-order-filters { display: flex; gap: 7px; }
 .admin-order-filters button { min-height: 38px; padding: 0 14px; color: #888; border: 1px solid #343434; border-radius: 10px; background: #151515; font: 700 .7rem "Roboto Condensed",sans-serif; text-transform: uppercase; }
