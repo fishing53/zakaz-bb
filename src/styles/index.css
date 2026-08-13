@@ -212,8 +212,10 @@ h1, h2, h3, h4, h5, h6 { font-family: "Roboto Condensed", sans-serif; font-weigh
 .rail__item > span { font: 700 .88rem/1 "Roboto Condensed",sans-serif; text-transform: uppercase; letter-spacing: .025em; }
 .rail__item.is-active:after { display: none; }
 .rail__item > small { top: 3px; right: 7px; }
-.menu-page { height: calc(100dvh - 174px); min-height: 560px; display: grid; grid-template-rows: auto auto minmax(0,1fr); overflow: hidden; }
-.menu-header { margin-bottom: 20px; }.menu-header--search-only { justify-content: flex-end; }.menu-header h1 { font-size: clamp(3.2rem,5.5vw,5.8rem); }
+.menu-page { height: calc(100dvh - 174px); min-height: 560px; display: grid; grid-template-rows: auto minmax(0,1fr); overflow: hidden; }
+.menu-toolbar { min-width: 0; min-height: 78px; display: grid; grid-template-columns: minmax(0,1fr) minmax(260px,390px); align-items: center; gap: clamp(20px,3vw,42px); border-bottom: 1px solid #292929; }
+.menu-toolbar .category-nav { min-width: 0; padding: 14px 0 9px; border-bottom: 0; }
+.menu-toolbar .search-box { width: 100%; height: 54px; }
 .category-nav { flex: 0 0 auto; }
 .menu-content { min-height: 0; padding: 25px 5px 30px 0; overflow-y: auto; overscroll-behavior: contain; }
 .inactivity-dialog__timer, .inactivity-dialog__timer svg { overflow: visible; }
@@ -225,7 +227,7 @@ h1, h2, h3, h4, h5, h6 { font-family: "Roboto Condensed", sans-serif; font-weigh
 }
 @media (max-width: 680px) {
   .rail { height: 70px; }.rail__item, .rail__item:nth-of-type(4) { width: 25%; padding-inline: 4px; }.rail__item > span { font-size: .68rem; }
-  .menu-page { height: calc(100dvh - 146px); min-height: 440px; }.menu-header h1 { font-size: 3.6rem; }.menu-content { padding-top: 18px; }
+  .menu-page { height: calc(100dvh - 146px); min-height: 440px; }.menu-toolbar { min-height: 132px; grid-template-columns: 1fr; grid-template-rows: auto auto; gap: 8px; padding-top: 4px; }.menu-toolbar .search-box { grid-row: 1; }.menu-toolbar .category-nav { grid-row: 2; }.menu-content { padding-top: 18px; }
 }
 
 /* Final order review. */

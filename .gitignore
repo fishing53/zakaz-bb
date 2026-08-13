@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-waiter/
 .tools/
 .tools-node-*.json
 .tools-node-*.txt
