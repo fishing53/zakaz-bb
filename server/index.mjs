@@ -707,7 +707,7 @@ const publicState = async (terminalId) => {
     pool.query('select * from products order by category, sort_order, name'),
     pool.query(`select m.*, p.image as override_image,
       coalesce((select jsonb_agg((select pm.product_id from iiko_menu_items pm where pm.sku=pair.sku and not pm.is_hidden order by pm.updated_at desc limit 1) order by pair.ordinality) from jsonb_array_elements_text(p.pairs_with_skus) with ordinality pair(sku,ordinality)),'[]'::jsonb) as override_pairs_with,
-      p.badge as override_badge, p.image_position as override_image_position,
+      p.badge as override_badge, p.image_position as override_image_position, p.composition as override_composition,
       exists(select 1 from iiko_stop_list_items s where s.organization_id=$1 and s.terminal_group_id=$2 and s.product_id=m.product_id and s.balance <= 0) as stopped
       from iiko_menu_items m left join iiko_product_presentations p on p.restaurant_id=$1 and p.sku=m.sku where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId, iikoTerminalGroupId]),
     pool.query(`select b.*,coalesce((select m.product_id from iiko_menu_items m where m.sku=b.product_sku and not m.is_hidden order by m.updated_at desc limit 1),b.product_id) as product_id from banners b where active=true
@@ -724,7 +724,7 @@ const publicState = async (terminalId) => {
   const effectiveTable = fixedTable || chosen?.table_number || '';
   const products = iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
     id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
-    description: item.description, kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
+    description: item.description, composition: item.override_composition ?? '', kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
     pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
   })) : localProducts.rows;
@@ -1367,8 +1367,8 @@ const server = http.createServer(async (request, response) => {
       const skuById = new Map(pairRows.rows.map((row) => [row.product_id, row.sku]));
       const pairSkus = pairIds.map((pairId) => skuById.get(pairId)).filter(Boolean);
       const before = await pool.query('select * from iiko_product_presentations where restaurant_id=$1 and sku=$2', [iikoOrganizationId, sku]);
-      const result = await pool.query(`insert into iiko_product_presentations(restaurant_id,sku,image,image_position,badge,pairs_with_skus) values($1,$2,$3,$4,$5,$6)
-        on conflict(restaurant_id,sku) do update set image=excluded.image,image_position=excluded.image_position,badge=excluded.badge,pairs_with_skus=excluded.pairs_with_skus,updated_at=now() returning *`, [iikoOrganizationId, sku, String(body.image ?? ''), String(body.image_position ?? 'center'), String(body.badge ?? ''), JSON.stringify(pairSkus)]);
+      const result = await pool.query(`insert into iiko_product_presentations(restaurant_id,sku,image,image_position,badge,composition,pairs_with_skus) values($1,$2,$3,$4,$5,$6,$7)
+        on conflict(restaurant_id,sku) do update set image=excluded.image,image_position=excluded.image_position,badge=excluded.badge,composition=excluded.composition,pairs_with_skus=excluded.pairs_with_skus,updated_at=now() returning *`, [iikoOrganizationId, sku, String(body.image ?? ''), String(body.image_position ?? 'center'), String(body.badge ?? ''), String(body.composition ?? '').trim(), JSON.stringify(pairSkus)]);
       if (before.rows[0]?.image && before.rows[0].image !== result.rows[0].image) await removeUploadedProduct(before.rows[0].image);
       await audit(actor, 'update', 'iiko_product_presentation', sku, null, result.rows[0]); return json(response, 200, { ...result.rows[0], pairs_with: pairIds });
     }

@@ -16,7 +16,7 @@ const en: Record<string, string> = {
   'ВАШ ВЫБОР': 'YOUR SELECTION', 'Состав заказа': 'Order breakdown', 'Основное блюдо ×': 'Main dish ×',
   'Соусы ×': 'Sauces ×', 'Дополнительно ×': 'Extras ×',
   'Включено': 'Included',
-  'Бесплатно': 'Free', 'КБЖУ': 'NUTRITION', 'НА 100 Г': 'PER 100 G', 'ККАЛ': 'KCAL', 'БЕЛКИ': 'PROTEIN', 'ЖИРЫ': 'FAT', 'УГЛЕВОДЫ': 'CARBS', 'ккал': 'kcal', 'белки': 'protein', 'жиры': 'fat', 'углеводы': 'carbs',
+  'Бесплатно': 'Free', 'КБЖУ': 'NUTRITION', 'НА 100 Г': 'PER 100 G', 'НА ПОРЦИЮ': 'PER SERVING', 'ККАЛ': 'KCAL', 'БЕЛКИ': 'PROTEIN', 'ЖИРЫ': 'FAT', 'УГЛЕВОДЫ': 'CARBS', 'ккал': 'kcal', 'белки': 'protein', 'жиры': 'fat', 'углеводы': 'carbs',
   'Идеально с этим блюдом': 'Perfect with this dish', 'Можно выбрать несколько позиций': 'You can select several items',
   'Ваш': 'Your', 'заказ': 'order', 'Проверьте позиции перед оформлением.': 'Review the items before checkout.',
   'Ваш заказ пока пуст. В меню найдется много интересного.': 'Your order is empty. Explore our menu.',

@@ -877,17 +877,19 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .product-overlay .product-modal__visual .product-modal__back { min-height: 46px; margin: 0; padding: 0 19px; position: absolute; z-index: 2; top: clamp(18px,2.5vw,34px); left: clamp(18px,2.5vw,34px); color: #111; border: 0; border-radius: 999px; background: #fff; box-shadow: 0 10px 28px rgba(0,0,0,.32); transition: transform .2s ease,box-shadow .2s ease; }
 .product-overlay .product-modal__visual .product-modal__back:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(0,0,0,.4); }
 .product-overlay .product-modal__visual .product-modal__back:active { transform: scale(.97); }
-.product-overlay .product-modal__composition { margin-top: 17px; }
+.product-overlay .product-modal__composition { padding-bottom: 15px; }
 .product-overlay .product-modal__composition h3,.product-overlay .nutrition-details__heading h3 { margin: 0; color: #fff; font: 700 .92rem/1 "Roboto Condensed",sans-serif; letter-spacing: .07em; text-transform: uppercase; }
-.product-overlay .product-modal__composition .product-modal__description { margin: 9px 0 15px; }
-.product-overlay .nutrition-details { margin-top: 18px; padding: 17px 0 0; overflow: visible; border: 0; border-top: 1px solid rgba(255,255,255,.16); border-radius: 0; background: transparent; }
+.product-overlay .product-modal__composition p { margin: 9px 0 0; color: #bbb; font-size: .75rem; line-height: 1.5; }
+.product-overlay .nutrition-details { margin-top: 18px; padding: 0; overflow: hidden; border: 1px solid #303030; border-radius: 14px; background: rgba(24,24,24,.72); }
+.product-overlay .nutrition-details__content { padding: 0 15px 15px; }
+.product-overlay .nutrition-details .nutrition { padding: 16px 0 0; border-top: 1px solid rgba(255,255,255,.16); }
 .product-overlay .nutrition-details__heading { margin-bottom: 13px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .product-overlay .nutrition-details__heading small { color: rgba(255,255,255,.48); font: 700 .58rem/1 "Roboto Condensed",sans-serif; letter-spacing: .1em; }
-.product-overlay .nutrition-details .nutrition { padding: 0; }
 .product-overlay .nutrition-details .nutrition > div { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; }
 .product-overlay .nutrition-details .nutrition span { min-height: 52px; padding: 0; display: grid; align-content: center; gap: 4px; border: 0; border-radius: 0; background: transparent; }
 .product-overlay .nutrition-details .nutrition b { color: var(--accent); font: 700 1.22rem/1 "Roboto Condensed",sans-serif; }
 .product-overlay .nutrition-details .nutrition small { color: #fff; font: 700 .59rem/1 "Roboto Condensed",sans-serif; letter-spacing: .07em; }
+.product-overlay .nutrition-details__empty { margin: 0; padding: 14px 0 0; color: #777; border-top: 1px solid rgba(255,255,255,.16); font-size: .68rem; }
 .product-overlay .product-modal__actions { width: calc(100% - clamp(56px,6.8vw,108px)); margin: 0 clamp(28px,3.4vw,54px) clamp(20px,2.5vh,30px); display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }
 .product-overlay .product-modal__quantity,.product-overlay .product-modal__submit { width: 100%; min-width: 0; min-height: 65px; margin: 0 !important; border-radius: 15px; }
 .product-overlay .product-modal__quantity { padding: 7px; display: grid; grid-template-columns: 48px minmax(0,1fr) 48px; align-items: center; color: #111; background: #fff; box-shadow: 0 15px 34px rgba(0,0,0,.22); }

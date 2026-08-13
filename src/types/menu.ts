@@ -9,6 +9,7 @@ export interface Product {
   portion: string;
   unit: string;
   description: string | null;
+  composition?: string;
   kbju: KBJU | null;
   image: string;
   source_url: string;

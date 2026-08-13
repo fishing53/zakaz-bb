@@ -120,10 +120,12 @@ await pool.query(`
     image text not null default '',
     image_position text not null default 'center',
     badge text not null default '',
+    composition text not null default '',
     pairs_with_skus jsonb not null default '[]'::jsonb,
     updated_at timestamptz not null default now(),
     primary key (restaurant_id, sku)
   );
+  alter table iiko_product_presentations add column if not exists composition text not null default '';
   update banners b set product_sku=m.sku from iiko_menu_items m where b.product_sku is null and b.product_id=m.product_id and m.sku is not null;
   create table if not exists iiko_tables (
     table_id text primary key, organization_id text not null, terminal_group_id text not null,

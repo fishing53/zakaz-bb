@@ -461,7 +461,7 @@ async function action(element: HTMLElement) {
     const input = <T extends HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(name: string) => root.querySelector<T>(`[data-admin-product="${name}"]`);
     try {
       const pairs = [...(input<HTMLSelectElement>('pairs')?.selectedOptions ?? [])].map((option) => option.value);
-      await apiService.saveIikoPresentation(id, { image: input<HTMLInputElement>('image')?.value.trim() ?? '', imagePosition: input<HTMLSelectElement>('imagePosition')?.value ?? 'center', badge: input<HTMLSelectElement>('badge')?.value ?? '', pairsWith: pairs });
+      await apiService.saveIikoPresentation(id, { image: input<HTMLInputElement>('image')?.value.trim() ?? '', imagePosition: input<HTMLSelectElement>('imagePosition')?.value ?? 'center', badge: input<HTMLSelectElement>('badge')?.value ?? '', composition: input<HTMLTextAreaElement>('composition')?.value.trim() ?? '', pairsWith: pairs });
       await syncServer(); flash('Оформление блюда сохранено');
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить блюдо'); }
     return;

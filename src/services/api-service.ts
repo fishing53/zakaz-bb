@@ -50,7 +50,7 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
 
 const product = (item: ServerProduct): Product => ({
   id: item.id, sku: item.sku, name: item.name, category: item.category, price_rub: Number(item.price_rub), portion: item.portion, unit: item.unit, description: item.description,
-  kbju: item.kbju, image: assetUrl(item.image), source_url: item.source_url, sauce_options: item.sauce_options ?? [], sauce_addon_price_rub: item.sauce_addon_price_rub ?? undefined,
+  composition: item.composition ?? '', kbju: item.kbju, image: assetUrl(item.image), source_url: item.source_url, sauce_options: item.sauce_options ?? [], sauce_addon_price_rub: item.sauce_addon_price_rub ?? undefined,
   addon_options: item.addon_options ?? [], flavor_options: item.flavor_options ?? [], size_option: item.size_option ?? undefined, pairs_with: item.pairs_with ?? [], recommendations_note: item.recommendations_note ?? undefined,
   modifier_groups: (item.modifier_groups ?? []).map((group) => ({ ...group, items: group.items.map((modifier) => ({ ...modifier, image: assetUrl(modifier.image || '/images/sauce-fallback.webp') })) })),
 });
@@ -102,9 +102,9 @@ export const apiService = {
     const data = await request<ServerProduct>(`/admin/products/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) });
     return { product: product(data), display: display(data) };
   },
-  async saveIikoPresentation(id: string, value: { image: string; imagePosition: string; badge: string; pairsWith: string[] }) {
-    const data = await request<{ image: string; image_position: string; badge: string; pairs_with: string[] }>(`/admin/iiko-products/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ image: value.image, image_position: value.imagePosition, badge: value.badge, pairs_with: value.pairsWith }) });
-    return { image: data.image, imagePosition: data.image_position, badge: data.badge, pairsWith: data.pairs_with };
+  async saveIikoPresentation(id: string, value: { image: string; imagePosition: string; badge: string; composition: string; pairsWith: string[] }) {
+    const data = await request<{ image: string; image_position: string; badge: string; composition: string; pairs_with: string[] }>(`/admin/iiko-products/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ image: value.image, image_position: value.imagePosition, badge: value.badge, composition: value.composition, pairs_with: value.pairsWith }) });
+    return { image: data.image, imagePosition: data.image_position, badge: data.badge, composition: data.composition, pairsWith: data.pairs_with };
   },
   async adminOrders(filter: 'active' | 'all' = 'active') {
     const data = await request<Array<{ order_number: string; iiko_order_id: string | null; iiko_pos_id: string | null; table_number: string; terminal_label: string; items: CartLine[]; total: number; status_step: number; status: string; creation_status: string | null; source: 'tablet' | 'qr' | 'waiter'; created_at: string; updated_at: string; completed_at: string | null; history: Array<{ event_type: string; payload: Record<string, unknown>; created_at: string }> }>>(`/admin/orders?filter=${filter}`);
