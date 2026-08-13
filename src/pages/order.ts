@@ -51,7 +51,7 @@ export function orderPage(lines: CartLine[], productFor: (line: CartLine) => Pro
           ${discount ? `<div class="summary-row summary-row--discount"><span>Скидка по промокоду</span><b data-order-discount>−${formatPrice(discount)}</b></div>` : ''}
           <div class="summary-total"><span>К оплате</span><strong data-order-total>${formatPrice(total)}</strong></div>
         </div>
-        <button class="button button--primary button--wide order-summary__checkout" ${lines.length ? 'data-action="navigate" data-route="payment"' : 'disabled'}><i>${icon('arrow')}</i><span>Оформить заказ</span><strong>${formatPrice(total)}</strong></button>
+        <button class="button button--primary button--wide order-summary__checkout" ${lines.length ? 'data-action="navigate" data-route="payment"' : 'disabled'}><span>Оформить заказ</span><strong>${formatPrice(total)}</strong></button>
       </aside>
     </div>
   </section>`;
