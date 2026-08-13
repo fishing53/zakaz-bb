@@ -12,7 +12,6 @@ import { router } from './router/router';
 import { menuPage, menuResults } from './pages/menu';
 import { orderPage } from './pages/order';
 import { ordersPage } from './pages/orders';
-import { paymentPage } from './pages/payment';
 import { statusPage } from './pages/status';
 import { welcomePage } from './pages/welcome';
 import { tablePage } from './pages/table';
@@ -71,7 +70,6 @@ function page() {
     case 'menu': return menuPage(menuService.categories(), menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay, menuService.ready());
     case 'order': return orderPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment, state.promoCode, state.promoRule);
     case 'orders': return ordersPage(state.orders);
-    case 'payment': return paymentPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment);
     case 'status': {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
@@ -94,7 +92,6 @@ export function render() {
   const state = appStore.get();
   const route = router.current();
   if (route === 'admin' && !state.adminAuthenticated) { root.innerHTML = adminLogin(true, 'restaurant'); return; }
-  if (route === 'payment' && !orderStore.count()) { router.go('menu'); return; }
   if (route === 'status' && !state.selectedOrderId && !state.orderNumber) { router.go('orders'); return; }
   root.innerHTML = appShell(page(), route) + serviceSheet(state.serviceOpen) + productModal(state.productId ? menuService.find(state.productId) : undefined, state.productId ? state.productDisplay[state.productId] : undefined, state.productDisplay) + upsellSheet(state.upsellId ? menuService.find(state.upsellId) : undefined) + adminLogin(state.adminLoginOpen, 'terminal') + inactivityPrompt(state.inactivityWarning, state.inactivitySeconds) + (!state.isOnline ? '<div class="network-banner">Нет сети. Доступны ранее загруженные данные.</div>' : '') + (state.pwaUpdateReady ? '<button class="pwa-update" data-action="refresh-app">Доступно обновление. Обновить</button>' : '') + (state.toast ? `<div class="toast">${state.toast}</div>` : '');
   const product = state.productId ? menuService.find(state.productId) : undefined;
@@ -715,8 +712,8 @@ async function action(element: HTMLElement) {
     button.textContent = 'ОТПРАВЛЯЕМ ЗАКАЗ…';
     try {
       await orderService.submit();
-      // No intermediate render: clearing the cart while still on the review
-      // route used to trigger its empty-cart guard before status could open.
+      // Keep the submitted order state intact while clearing the cart before
+      // opening the live status screen.
       appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null }, false);
       router.go('status');
     } catch (error) {

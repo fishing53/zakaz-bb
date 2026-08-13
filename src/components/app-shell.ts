@@ -8,7 +8,7 @@ const nav: Array<[RouteName, string]> = [['menu', 'Меню'], ['order', 'Зак
 export function appShell(content: string, route: RouteName) {
   const count = orderStore.count();
   const isWelcome = route === 'welcome';
-  const isReview = route === 'payment' || route === 'table';
+  const isReview = route === 'table';
   const isAdmin = route === 'admin';
   const hideAppNavigation = isWelcome || isReview || isAdmin;
   const orderCount = appStore.get().orders.length;
