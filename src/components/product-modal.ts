@@ -39,13 +39,7 @@ export function productModal(product: Product | undefined, display: ProductDispl
           ${choice('Вкус', product.flavor_options)}
           ${iikoChoices(product)}
           ${related.length ? `<section class="modal-related"><h3>Идеально с этим блюдом</h3><p>Можно выбрать несколько позиций</p><div class="related-grid" data-related-for="${escapeHtml(product.id)}"></div></section>` : ''}
-          <section class="bundle-summary">
-            <div class="bundle-summary__heading"><div><span class="eyebrow">ВАШ ВЫБОР</span><h3>Состав заказа</h3></div><div class="modal-quantity"><button data-action="change-modal-quantity" data-delta="-1" aria-label="Уменьшить">${icon('minus')}</button><strong data-modal-quantity>1</strong><button data-action="change-modal-quantity" data-delta="1" aria-label="Увеличить">${icon('plus')}</button></div></div>
-            <div class="bundle-summary__line"><span><b data-summary-main-label>${escapeHtml(product.name)}</b> × <b data-modal-quantity-label>1</b></span><strong data-summary-main>${formatPrice(product.price_rub)}</strong></div>
-            <div class="bundle-summary__line bundle-summary__line--option" data-summary-options-row hidden><span data-summary-options-label></span><strong>Включено</strong></div>
-            <div class="bundle-summary__line" data-summary-sauces-row hidden><span><b data-summary-sauces-label></b> × <b data-summary-sauces-count>0</b></span><strong data-summary-sauces>${formatPrice(0)}</strong></div>
-            <div class="bundle-summary__line" data-summary-related-row hidden><span><b data-summary-related-label></b> × <b data-summary-related-count>0</b></span><strong data-summary-related>${formatPrice(0)}</strong></div>
-          </section>
+          ${/* Блок «Ваш выбор» временно убран. Состав по-прежнему формируется из выбранных опций, а итог показывается на кнопке. */ ''}
         </div>
         <button class="button button--primary button--wide product-modal__submit" data-action="add-product" data-product-id="${escapeHtml(product.id)}"><span>Добавить в заказ</span><strong data-modal-total>${formatPrice(product.price_rub)}</strong></button>
       </div>

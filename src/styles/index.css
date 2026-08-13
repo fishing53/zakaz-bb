@@ -837,3 +837,26 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   .product-overlay .product-modal__scroll { padding: 18px 20px 14px; }
   .product-overlay .product-modal__submit { width: calc(100% - 40px); margin: 0 20px 18px !important; }
 }
+
+/* Compact catalog controls: pill categories and an expanding search action. */
+.menu-toolbar { grid-template-columns: minmax(0,1fr) auto; gap: 18px; }
+.menu-toolbar .category-nav { gap: 8px; padding: 10px 0; }
+.menu-toolbar .category-nav button { min-height: 46px; padding: 0 19px; color: #fff; border: 1px solid transparent; border-radius: 999px; font-size: .96rem; transition: color .22s ease,background-color .22s ease,transform .22s ease; }
+.menu-toolbar .category-nav button::after { display: none; }
+.menu-toolbar .category-nav button:hover { background: rgba(255,255,255,.09); }
+.menu-toolbar .category-nav button.is-active { color: #111; background: #fff; }
+.menu-toolbar .category-nav button:active { transform: scale(.97); }
+.menu-toolbar .search-box { width: 54px; height: 54px; min-width: 54px; padding: 0; justify-content: flex-start; gap: 0; overflow: hidden; cursor: text; border-color: rgba(255,255,255,.2); border-radius: 999px; background: #fff; color: #111; box-shadow: 0 8px 24px rgba(0,0,0,.2); transition: width .42s cubic-bezier(.22,1,.36,1),box-shadow .25s ease,border-color .25s ease; }
+.menu-toolbar .search-box:focus-within,.menu-toolbar .search-box.is-open,.menu-toolbar .search-box:has(input:not(:placeholder-shown)) { width: min(340px,32vw); border-color: #fff; box-shadow: 0 12px 30px rgba(0,0,0,.3); }
+.menu-toolbar .search-box > .icon { width: 21px; height: 21px; margin: 0 16px; flex: 0 0 21px; color: #111; }
+.menu-toolbar .search-box input { width: 0; min-width: 0; padding: 0 20px 0 0; color: #111; opacity: 0; transform: translateX(8px); transition: opacity .2s ease .08s,transform .32s cubic-bezier(.22,1,.36,1); }
+.menu-toolbar .search-box input::placeholder { color: #777; }
+.menu-toolbar .search-box:focus-within input,.menu-toolbar .search-box.is-open input,.menu-toolbar .search-box:has(input:not(:placeholder-shown)) input { width: auto; opacity: 1; transform: translateX(0); }
+@media (max-width: 680px) {
+  .menu-toolbar { min-height: 66px; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: 1fr; gap: 10px; padding-top: 0; }
+  .menu-toolbar .category-nav { grid-row: 1; gap: 6px; }
+  .menu-toolbar .category-nav button { min-height: 42px; padding-inline: 15px; font-size: .82rem; }
+  .menu-toolbar .search-box { width: 48px; height: 48px; min-width: 48px; grid-row: 1; }
+  .menu-toolbar .search-box:focus-within,.menu-toolbar .search-box.is-open,.menu-toolbar .search-box:has(input:not(:placeholder-shown)) { width: min(280px,58vw); }
+  .menu-toolbar .search-box > .icon { margin-inline: 13px; }
+}
