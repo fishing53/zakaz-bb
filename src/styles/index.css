@@ -701,3 +701,46 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .service-actions button { position: relative; overflow: hidden; }
 .service-actions button::before { width: 42px; height: 42px; position: absolute; top: 14px; left: 14px; content: ''; border: 1px solid rgba(255,59,48,.25); border-radius: 13px; background: linear-gradient(145deg,rgba(255,59,48,.16),rgba(255,59,48,.03)); }
 .service-actions .icon { position: relative; z-index: 1; width: 27px; height: 27px; stroke-width: 1.65; }
+
+/* Main screen: one image-only banner stage and two edge-to-edge actions. */
+.app-shell--welcome { width: 100%; height: 100dvh; min-height: 0; padding: 0; overflow: hidden; background: #050505; }
+.app-shell--welcome::before, .app-shell--welcome::after { display: none; }
+.app-shell--welcome .page { width: 100%; max-width: none; height: 100dvh; margin: 0; animation: none; }
+.welcome-home { width: 100%; height: 100dvh; display: grid; grid-template-rows: 80dvh 20dvh; overflow: hidden; background: #050505; }
+.welcome-banners { min-width: 0; min-height: 0; position: relative; overflow: hidden; touch-action: pan-y; background: #0b0b0b; cursor: default; }
+.welcome-banner { position: absolute; inset: 0; margin: 0; opacity: 0; transform: scale(1.015); transition: opacity .65s ease, transform 1.2s ease; pointer-events: none; }
+.welcome-banner.is-active { opacity: 1; transform: scale(1); pointer-events: auto; }
+.welcome-banner img { width: 100%; height: 100%; object-fit: cover; object-position: center; user-select: none; }
+.welcome-banner--empty { background: url('/images/menu/0.webp') center/cover no-repeat; }
+.welcome-banner-dots { position: absolute; z-index: 3; left: 50%; bottom: 18px; display: flex; gap: 9px; transform: translateX(-50%); }
+.welcome-banner-dots button { width: 9px; height: 9px; padding: 0; border: 1px solid rgba(255,255,255,.65); border-radius: 50%; background: rgba(0,0,0,.38); box-shadow: 0 2px 9px rgba(0,0,0,.55); transition: width .2s, border-radius .2s, background .2s; }
+.welcome-banner-dots button.is-active { width: 28px; border-radius: 10px; border-color: var(--accent); background: var(--accent); }
+.welcome-home__actions { min-width: 0; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.welcome-home__button { width: 100%; height: 100%; min-width: 0; padding: 18px; border: 0; border-radius: 0; display: grid; place-items: center; font: 700 clamp(1.4rem,2.25vw,2.8rem)/1 "Roboto Condensed",sans-serif; letter-spacing: .025em; text-align: center; text-transform: uppercase; transition: filter .18s, transform .12s; }
+.welcome-home__button:active { transform: scale(.992); filter: brightness(.9); }
+.welcome-home__button--order { color: #fff; background: linear-gradient(105deg,#cf1d19,#fb3c32); }
+.welcome-home__button--waiter { color: #111; border-left: 1px solid rgba(0,0,0,.14); background: #fff; }
+@media (max-width: 560px) { .welcome-home__button { font-size: clamp(1.05rem,5vw,1.55rem); }.welcome-banner-dots { bottom: 12px; } }
+@media (prefers-reduced-motion: reduce) { .welcome-banner { transition: none; } }
+
+/* Browser admin: image upload, scheduling and advertising impression limits. */
+.banner-create { margin-top: 24px; padding: 18px; display: grid; grid-template-columns: minmax(260px,.72fr) minmax(380px,1.28fr); gap: 18px; border: 1px solid #343434; border-radius: 18px; background: #151515; }
+.banner-upload-preview { min-height: 220px; overflow: hidden; display: grid; place-items: center; border: 1px dashed #414141; border-radius: 14px; color: #777; background: #0d0d0d; font-size: .72rem; }
+.banner-upload-preview img { width: 100%; height: 100%; object-fit: cover; }
+.banner-form-grid { min-width: 0; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; align-content: start; }
+.banner-form-grid label { min-width: 0; display: grid; gap: 7px; color: #aaa; font-size: .67rem; font-weight: 800; }
+.banner-form-grid input, .banner-form-grid select { width: 100%; min-height: 47px; padding: 0 12px; color: #fff; border: 1px solid #383838; border-radius: 10px; background: #111; outline: 0; font-size: .76rem; }
+.banner-form-grid input:focus, .banner-form-grid select:focus { border-color: var(--accent); }
+.banner-form-grid input[type="file"] { padding: 10px 12px; }
+.banner-form-grid__wide { grid-column: 1 / -1; }
+.banner-admin-list { margin-top: 18px; display: grid; gap: 14px; }
+.banner-admin-card { min-width: 0; padding: 14px; display: grid; grid-template-columns: minmax(250px,.7fr) minmax(390px,1.3fr); gap: 16px; border: 1px solid #343434; border-radius: 18px; background: #151515; }
+.banner-admin-card.is-muted { opacity: .58; }
+.banner-admin-card__image { min-height: 220px; position: relative; overflow: hidden; border-radius: 13px; background: #090909; }
+.banner-admin-card__image img { width: 100%; height: 100%; position: absolute; inset: 0; object-fit: cover; }
+.banner-admin-card__image span { position: absolute; z-index: 1; top: 10px; left: 10px; padding: 6px 8px; border-radius: 7px; color: #fff; background: rgba(0,0,0,.72); font: 700 .58rem "Roboto Condensed",sans-serif; letter-spacing: .12em; }
+.banner-admin-card__stats { display: flex; align-items: baseline; gap: 7px; color: #888; }
+.banner-admin-card__stats b { color: var(--accent); font: 700 1.8rem "Roboto Condensed",sans-serif; }.banner-admin-card__stats span { font-size: .67rem; }
+.banner-admin-card__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+@media (max-width: 900px) { .banner-create, .banner-admin-card { grid-template-columns: 1fr; }.banner-upload-preview, .banner-admin-card__image { min-height: 260px; } }
+@media (max-width: 560px) { .banner-form-grid { grid-template-columns: 1fr; }.banner-form-grid__wide { grid-column: auto; }.banner-admin-card__actions .button { width: 100%; }.banner-upload-preview, .banner-admin-card__image { min-height: 190px; } }

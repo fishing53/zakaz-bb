@@ -39,13 +39,17 @@ export interface CartLine {
   modifiers?: Array<{ productId: string; name: string; amount: number; price: number }>;
 }
 
-export interface Promotion {
+export interface Banner {
   id: string;
-  productId: string;
-  title: string;
-  subtitle: string;
-  label: string;
+  name: string;
+  image: string;
+  kind: 'restaurant' | 'advertising';
   active: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  impressionLimit: number | null;
+  impressions: number;
+  sortOrder: number;
 }
 
 export interface ProductDisplaySettings {

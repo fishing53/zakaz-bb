@@ -18,10 +18,9 @@ import { welcomePage } from './pages/welcome';
 import { tablePage } from './pages/table';
 import { adminPage } from './pages/admin';
 import { debounce, formatPrice } from './utils/helpers';
-import { marketingService } from './services/marketing-service';
 import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
-import type { Product } from './types/menu';
+import type { Banner, Product } from './types/menu';
 import type { WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
 
@@ -31,11 +30,13 @@ let inactivityCountdown = 0;
 let adminTaps = 0;
 let lastAdminTap = 0;
 let submittingOrder = false;
-let promoSwipeStart: { x: number; y: number } | null = null;
-let suppressPromoOpenUntil = 0;
+let bannerSwipeStart: { x: number; y: number } | null = null;
+let bannerRotationTimer = 0;
+let currentBannerId = '';
 let statusRefreshTimer = 0;
 let auditLog: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [];
 let waiterProfiles: WaiterProfile[] = [];
+let adminBanners: Banner[] = [];
 const updateSearch = debounce((value: string) => {
   appStore.set({ search: value }, false);
   refreshMenuResults();
@@ -46,7 +47,7 @@ function page() {
   const state = appStore.get();
   const route = router.current();
   switch (route) {
-    case 'welcome': return welcomePage(menuService.featured(), state.promotions, menuService.all(), state.productDisplay, state.terminal);
+    case 'welcome': return welcomePage(state.banners);
     case 'table': return tablePage(state.tables);
     case 'menu': return menuPage(menuService.categories(), menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay);
     case 'order': return orderPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment, state.promoCode);
@@ -56,7 +57,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), state.promotions, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, waiterProfiles) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, waiterProfiles) : '';
   }
 }
 
@@ -81,6 +82,11 @@ export function render() {
   const related = root.querySelector<HTMLElement>('[data-related-for]');
   if (product && related) related.innerHTML = relatedCards(menuService.related(product), state.productDisplay);
   applyLanguage(root, state.language);
+  if (route === 'welcome') setupWelcomeBanners();
+  else {
+    if (bannerRotationTimer) { clearInterval(bannerRotationTimer); bannerRotationTimer = 0; }
+    currentBannerId = '';
+  }
   resetInactivity();
   if (route === 'status' && !statusRefreshTimer) statusRefreshTimer = window.setInterval(() => { void syncServer(); }, 15_000);
   if (route !== 'status' && statusRefreshTimer) { clearInterval(statusRefreshTimer); statusRefreshTimer = 0; }
@@ -146,13 +152,29 @@ function flash(message: string) {
   window.setTimeout(() => { if (appStore.get().toast === message) appStore.set({ toast: null }); }, 2600);
 }
 
-function selectPromo(index: number) {
-  const promos = [...root.querySelectorAll<HTMLElement>('.welcome-promo')];
-  if (!promos.length) return;
-  const next = ((index % promos.length) + promos.length) % promos.length;
-  promos.forEach((promo, itemIndex) => promo.classList.toggle('is-manual-active', itemIndex === next));
-  root.querySelectorAll<HTMLElement>('.welcome-promo__dots button').forEach((dot, itemIndex) => dot.classList.toggle('is-active', itemIndex === next));
-  root.querySelector<HTMLElement>('.welcome-showcase__promos')?.classList.add('is-manual');
+function selectBanner(index: number) {
+  const banners = [...root.querySelectorAll<HTMLElement>('.welcome-banner')];
+  if (!banners.length) return;
+  const next = ((index % banners.length) + banners.length) % banners.length;
+  banners.forEach((item, itemIndex) => item.classList.toggle('is-active', itemIndex === next));
+  root.querySelectorAll<HTMLElement>('.welcome-banner-dots button').forEach((dot, itemIndex) => dot.classList.toggle('is-active', itemIndex === next));
+  const id = banners[next].dataset.bannerId ?? '';
+  if (id && id !== currentBannerId) {
+    currentBannerId = id;
+    void apiService.recordBannerImpression(id).then((result) => { if (result.exhausted) void syncServer(); }).catch(() => undefined);
+  }
+}
+
+function setupWelcomeBanners() {
+  const banners = [...root.querySelectorAll<HTMLElement>('.welcome-banner')];
+  if (!banners.length) return;
+  const preservedIndex = Math.max(0, banners.findIndex((item) => item.dataset.bannerId === currentBannerId));
+  selectBanner(preservedIndex);
+  if (bannerRotationTimer) clearInterval(bannerRotationTimer);
+  bannerRotationTimer = banners.length > 1 ? window.setInterval(() => {
+    const current = [...root.querySelectorAll<HTMLElement>('.welcome-banner')].findIndex((item) => item.classList.contains('is-active'));
+    selectBanner((current < 0 ? 0 : current) + 1);
+  }, 8_000) : 0;
 }
 
 function transientToast(message: string) {
@@ -209,10 +231,11 @@ async function action(element: HTMLElement) {
   }
   if (type === 'logout-admin') { apiService.logout(); appStore.set({ adminAuthenticated: false, adminScope: null, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
-    const adminTab = element.dataset.adminTab as 'terminal' | 'menu' | 'promotions' | 'staff' | 'quality' | 'audit';
+    const adminTab = element.dataset.adminTab as 'terminal' | 'menu' | 'banners' | 'staff' | 'quality' | 'audit';
     appStore.set({ adminTab });
     if (adminTab === 'audit') apiService.audit().then((items) => { auditLog = items; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'staff') apiService.waiters().then((items) => { waiterProfiles = items; render(); }).catch((error) => flash(error.message));
+    if (adminTab === 'banners') apiService.banners().then((items) => { adminBanners = items; render(); }).catch((error) => flash(error.message));
     return;
   }
   if (type === 'create-waiter') { try { const name = root.querySelector<HTMLInputElement>('[data-admin-waiter="name"]')?.value.trim() ?? ''; const pin = root.querySelector<HTMLInputElement>('[data-admin-waiter="pin"]')?.value ?? ''; await apiService.createWaiter({ name, pin }); waiterProfiles = await apiService.waiters(); flash('Официант добавлен'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить официанта'); } return; }
@@ -226,9 +249,8 @@ async function action(element: HTMLElement) {
     location.reload();
     return;
   }
-  if (type === 'promo-slide') { selectPromo(Number(element.dataset.promoIndex ?? 0)); return; }
+  if (type === 'banner-slide') { selectBanner(Number(element.dataset.bannerIndex ?? 0)); return; }
   if (type === 'open-product') {
-    if (Date.now() < suppressPromoOpenUntil) return;
     const id = element.dataset.productId ?? null;
     const recentProductIds = id ? [id, ...appStore.get().recentProductIds.filter((item) => item !== id)].slice(0, 8) : appStore.get().recentProductIds;
     const fromWelcome = router.current() === 'welcome';
@@ -318,43 +340,82 @@ async function action(element: HTMLElement) {
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить блюдо'); }
     return;
   }
-  if (type === 'create-promotion') {
-    const input = <T extends HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(name: string) => root.querySelector<T>(`[data-admin-promo="${name}"]`);
+  if (type === 'upload-banner-image') {
+    const input = element as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { flash('Изображение должно быть не больше 8 МБ'); return; }
+    input.disabled = true;
     try {
-      const productId = input<HTMLSelectElement>('productId')?.value ?? '';
-      const product = menuService.find(productId);
-      const promotion = await apiService.createPromotion({ productId, title: input<HTMLInputElement>('title')?.value.trim() || product?.name || '', subtitle: input<HTMLTextAreaElement>('subtitle')?.value.trim() || product?.description || '', label: input<HTMLInputElement>('label')?.value.trim() || 'СПЕЦПРЕДЛОЖЕНИЕ', active: true });
-      appStore.set({ promotions: [...appStore.get().promotions, promotion] }); flash('Акция добавлена');
-    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить акцию'); }
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result ?? ''));
+        reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+        reader.readAsDataURL(file);
+      });
+      const uploaded = await apiService.uploadBannerImage(dataUrl);
+      const target = input.dataset.bannerTarget ?? 'create';
+      if (target === 'create') {
+        const image = root.querySelector<HTMLInputElement>('[data-banner-create="image"]');
+        const preview = root.querySelector<HTMLElement>('[data-banner-preview="create"]');
+        if (image) image.value = uploaded.url;
+        if (preview) preview.innerHTML = `<img src="${uploaded.url}" alt="">`;
+      } else {
+        const card = root.querySelector<HTMLElement>(`[data-banner-card="${CSS.escape(target)}"]`);
+        const image = card?.querySelector<HTMLInputElement>('[data-banner-field="image"]');
+        const preview = card?.querySelector<HTMLImageElement>('.banner-admin-card__image img');
+        if (image) image.value = uploaded.url;
+        if (preview) preview.src = uploaded.url;
+      }
+      transientToast('Изображение загружено');
+    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось загрузить изображение'); }
+    finally { input.disabled = false; }
     return;
   }
-  if (type === 'toggle-promotion-server') {
-    const promotion = appStore.get().promotions.find((item) => item.id === element.dataset.promotionId);
-    if (!promotion) return;
-    try { const saved = await apiService.savePromotion({ ...promotion, active: !promotion.active }); appStore.set({ promotions: appStore.get().promotions.map((item) => item.id === saved.id ? saved : item) }); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось изменить акцию'); }
+  if (type === 'create-banner') {
+    const input = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => root.querySelector<T>(`[data-banner-create="${name}"]`);
+    const date = (name: string) => input<HTMLInputElement>(name)?.value ? new Date(input<HTMLInputElement>(name)!.value).toISOString() : null;
+    const limit = Number(input<HTMLInputElement>('impressionLimit')?.value || 0) || null;
+    try {
+      await apiService.createBanner({ name: input<HTMLInputElement>('name')?.value.trim() ?? '', image: input<HTMLInputElement>('image')?.value ?? '', kind: (input<HTMLSelectElement>('kind')?.value ?? 'restaurant') as Banner['kind'], active: true, startsAt: date('startsAt'), endsAt: date('endsAt'), impressionLimit: limit, sortOrder: Number(input<HTMLInputElement>('sortOrder')?.value ?? 0) });
+      adminBanners = await apiService.banners();
+      await syncServer();
+      flash('Баннер добавлен');
+    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить баннер'); }
     return;
   }
-  if (type === 'delete-promotion-server') {
-    const id = element.dataset.promotionId!;
-    try { await apiService.deletePromotion(id); appStore.set({ promotions: appStore.get().promotions.filter((item) => item.id !== id) }); flash('Акция удалена'); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось удалить акцию'); }
+  if (type === 'save-banner') {
+    const id = element.dataset.bannerId ?? '';
+    const current = adminBanners.find((item) => item.id === id);
+    const card = root.querySelector<HTMLElement>(`[data-banner-card="${CSS.escape(id)}"]`);
+    if (!current || !card) return;
+    const input = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => card.querySelector<T>(`[data-banner-field="${name}"]`);
+    const date = (name: string) => input<HTMLInputElement>(name)?.value ? new Date(input<HTMLInputElement>(name)!.value).toISOString() : null;
+    try {
+      await apiService.saveBanner({ ...current, name: input<HTMLInputElement>('name')?.value.trim() ?? '', image: input<HTMLInputElement>('image')?.value ?? current.image, kind: (input<HTMLSelectElement>('kind')?.value ?? 'restaurant') as Banner['kind'], startsAt: date('startsAt'), endsAt: date('endsAt'), impressionLimit: Number(input<HTMLInputElement>('impressionLimit')?.value || 0) || null, sortOrder: Number(input<HTMLInputElement>('sortOrder')?.value ?? 0) });
+      adminBanners = await apiService.banners();
+      await syncServer();
+      flash('Баннер сохранён');
+    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить баннер'); }
     return;
   }
-  if (type === 'save-promotion') {
-    const value = (name: string) => root.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[data-admin-input="${name}"]`)?.value.trim() ?? '';
-    const product = menuService.find(value('product'));
-    if (!product) return;
-    const promotion = { id: `promo-${crypto.randomUUID()}`, productId: product.id, title: value('title') || product.name, subtitle: value('subtitle') || product.description || product.name, label: value('label') || 'СПЕЦПРЕДЛОЖЕНИЕ', active: true };
-    appStore.set({ promotions: [promotion, ...appStore.get().promotions] });
-    flash('Баннер добавлен на welcome-экран');
+  if (type === 'toggle-banner') {
+    const current = adminBanners.find((item) => item.id === element.dataset.bannerId);
+    if (!current) return;
+    try { await apiService.saveBanner({ ...current, active: !current.active }); adminBanners = await apiService.banners(); await syncServer(); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Не удалось изменить баннер'); }
     return;
   }
-  if (type === 'toggle-promotion') {
-    const id = element.dataset.promotionId!;
-    appStore.set({ promotions: appStore.get().promotions.map((promotion) => promotion.id === id ? { ...promotion, active: !promotion.active } : promotion) });
+  if (type === 'reset-banner-impressions') {
+    try { await apiService.resetBannerImpressions(element.dataset.bannerId ?? ''); adminBanners = await apiService.banners(); await syncServer(); flash('Счётчик показов сброшен'); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сбросить показы'); }
     return;
   }
-  if (type === 'delete-promotion') {
-    appStore.set({ promotions: appStore.get().promotions.filter((promotion) => promotion.id !== element.dataset.promotionId) });
+  if (type === 'delete-banner') {
+    const id = element.dataset.bannerId ?? '';
+    if (!confirm('Удалить этот баннер?')) return;
+    try { await apiService.deleteBanner(id); adminBanners = await apiService.banners(); await syncServer(); flash('Баннер удалён'); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Не удалось удалить баннер'); }
     return;
   }
   if (type === 'apply-promo') {
@@ -363,7 +424,6 @@ async function action(element: HTMLElement) {
     flash(code === 'BOWL10' ? 'Промокод применён: скидка 10%' : 'Промокод не найден. Попробуйте BOWL10');
     return;
   }
-  if (type === 'reset-promotions') { appStore.set({ promotions: marketingService.defaults() }); flash('Тестовые баннеры восстановлены'); return; }
   if (type === 'save-display') {
     const field = (name: string) => root.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-admin-display="${name}"]`);
     const productId = field('product')?.value;
@@ -487,7 +547,7 @@ async function syncServer(includeAudit = false) {
   try {
     const data = await apiService.bootstrap();
     setCatalog(data.products);
-    appStore.set({ promotions: data.promotions, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId: appStore.get().selectedOrderId ?? data.orders[0]?.id ?? null, orderNumber: appStore.get().orderNumber ?? data.orders[0]?.id ?? null });
+    appStore.set({ banners: data.banners, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId: appStore.get().selectedOrderId ?? data.orders[0]?.id ?? null, orderNumber: appStore.get().orderNumber ?? data.orders[0]?.id ?? null });
     appStore.set({ isOnline: true }, false);
     if (includeAudit) auditLog = await apiService.audit();
   } catch (error) {
@@ -554,23 +614,22 @@ export function startApp() {
   });
   root.addEventListener('touchstart', (event) => {
     const target = event.target as HTMLElement;
-    if (!target.closest('.welcome-showcase__promos')) return;
+    if (!target.closest('.welcome-banners')) return;
     const touch = event.touches[0];
-    if (touch) promoSwipeStart = { x: touch.clientX, y: touch.clientY };
+    if (touch) bannerSwipeStart = { x: touch.clientX, y: touch.clientY };
   }, { passive: true });
   root.addEventListener('touchend', (event) => {
-    if (!promoSwipeStart) return;
+    if (!bannerSwipeStart) return;
     const target = event.target as HTMLElement;
     const touch = event.changedTouches[0];
-    const start = promoSwipeStart;
-    promoSwipeStart = null;
-    if (!touch || !target.closest('.welcome-showcase__promos')) return;
+    const start = bannerSwipeStart;
+    bannerSwipeStart = null;
+    if (!touch || !target.closest('.welcome-banners')) return;
     const distanceX = touch.clientX - start.x;
     const distanceY = touch.clientY - start.y;
     if (Math.abs(distanceX) < 42 || Math.abs(distanceX) < Math.abs(distanceY)) return;
-    const current = [...root.querySelectorAll('.welcome-promo')].findIndex((promo) => promo.classList.contains('is-manual-active'));
-    selectPromo((current < 0 ? 0 : current) + (distanceX < 0 ? 1 : -1));
-    suppressPromoOpenUntil = Date.now() + 450;
+    const current = [...root.querySelectorAll('.welcome-banner')].findIndex((banner) => banner.classList.contains('is-active'));
+    selectBanner((current < 0 ? 0 : current) + (distanceX < 0 ? 1 : -1));
   }, { passive: true });
   ['pointerdown', 'touchstart', 'keydown'].forEach((event) => addEventListener(event, resetInactivity, { passive: true }));
   addEventListener('online', () => { appStore.set({ isOnline: true }); flash('Соединение восстановлено'); });

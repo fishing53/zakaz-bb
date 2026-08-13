@@ -14,10 +14,31 @@ await pool.query(`
     is_available boolean not null default true, badge text not null default '', image_position text not null default 'center', allergens text not null default '', spicy text not null default 'none' check (spicy in ('none','mild','hot')), sort_order integer not null default 0,
     created_at timestamptz not null default now(), updated_at timestamptz not null default now()
   );
-  create table if not exists promotions (
-    id bigserial primary key, product_id text not null references products(id) on delete cascade, title text not null, subtitle text not null, label text not null, active boolean not null default true, sort_order integer not null default 0,
-    created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+  create table if not exists banners (
+    id bigserial primary key,
+    name text not null default '',
+    image_url text not null,
+    kind text not null default 'restaurant' check (kind in ('restaurant','advertising')),
+    active boolean not null default true,
+    starts_at timestamptz,
+    ends_at timestamptz,
+    impression_limit integer check (impression_limit is null or impression_limit > 0),
+    impressions integer not null default 0 check (impressions >= 0),
+    sort_order integer not null default 0,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    check (ends_at is null or starts_at is null or ends_at > starts_at)
   );
+  create index if not exists banners_public_idx on banners(active, sort_order, id);
+  create table if not exists banner_impressions (
+    id bigserial primary key,
+    banner_id bigint not null references banners(id) on delete cascade,
+    terminal_id text not null,
+    exposure_bucket bigint not null,
+    shown_at timestamptz not null default now(),
+    unique (banner_id, terminal_id, exposure_bucket)
+  );
+  drop table if exists promotions;
   create table if not exists terminals (
     id text primary key, label text not null default '', table_number text not null default '', is_active boolean not null default true, idle_seconds integer not null default 45 check (idle_seconds >= 15 and idle_seconds <= 600),
     created_at timestamptz not null default now(), updated_at timestamptz not null default now(), last_seen_at timestamptz not null default now()
@@ -150,10 +171,12 @@ if (!existing.rows[0].count) {
     ]);
   }
 }
-const promotionCount = await pool.query('select count(*)::int as count from promotions');
-if (!promotionCount.rows[0].count) {
-  const featured = catalog.slice(0, 3);
-  for (const [index, product] of featured.entries()) await pool.query('insert into promotions(product_id,title,subtitle,label,sort_order) values ($1,$2,$3,$4,$5)', [product.id, product.name, product.description ?? product.name, index ? 'ВЫБОР ГОСТЕЙ' : 'СПЕЦПРЕДЛОЖЕНИЕ', index]);
+const bannerCount = await pool.query('select count(*)::int as count from banners');
+if (!bannerCount.rows[0].count) {
+  const defaults = await pool.query("select name,image from products where image <> '' order by sort_order,name limit 3");
+  for (const [index, product] of defaults.rows.entries()) {
+    await pool.query('insert into banners(name,image_url,kind,sort_order) values($1,$2,$3,$4)', [product.name, product.image, 'restaurant', index]);
+  }
 }
 await pool.query(`insert into app_settings(key,value) values ('business_hours', '"12:00 – 03:00"'::jsonb) on conflict (key) do nothing`);
 console.log('Database migration complete');

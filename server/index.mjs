@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import http from 'node:http';
+import pathModule from 'node:path';
 import { URL } from 'node:url';
 import pg from 'pg';
 
@@ -19,6 +20,8 @@ const iikoExternalMenuId = process.env.IIKO_EXTERNAL_MENU_ID ?? '';
 const iikoOrderTypeId = process.env.IIKO_ORDER_TYPE_ID ?? '';
 const iikoOrderSourceKey = process.env.IIKO_ORDER_SOURCE_KEY ?? 'BrooklynBowl Kiosk';
 const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/manifest.json';
+const bannerUploadDir = process.env.BANNER_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/uploads/banners';
+const bannerPublicPath = process.env.BANNER_PUBLIC_PATH ?? '/uploads/banners';
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
 if (!process.env.DATABASE_URL || !tokenSecret || !adminPasswordHash) throw new Error('DATABASE_URL, TOKEN_SECRET and ADMIN_PASSWORD_HASH are required');
@@ -27,17 +30,40 @@ const json = (response, status, body) => {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(body));
 };
-const readBody = async (request) => {
+const readBody = async (request, maxBytes = 1_000_000) => {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 1_000_000) throw Object.assign(new Error('Payload too large'), { status: 413 });
+    if (size > maxBytes) throw Object.assign(new Error('Payload too large'), { status: 413 });
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
   catch { throw Object.assign(new Error('Invalid JSON'), { status: 400 }); }
+};
+const bannerKinds = new Set(['restaurant', 'advertising']);
+const bannerPayload = (body) => {
+  const kind = String(body.kind ?? 'restaurant');
+  const imageUrl = String(body.image_url ?? '').trim();
+  const startsAt = body.starts_at ? new Date(body.starts_at) : null;
+  const endsAt = body.ends_at ? new Date(body.ends_at) : null;
+  const impressionLimit = body.impression_limit === null || body.impression_limit === undefined || body.impression_limit === '' ? null : Number(body.impression_limit);
+  const sortOrder = Number(body.sort_order ?? 0);
+  if (!bannerKinds.has(kind)) throw Object.assign(new Error('Некорректный тип баннера'), { status: 400 });
+  if (!imageUrl || (!imageUrl.startsWith('/uploads/banners/') && !imageUrl.startsWith('/images/') && !/^https:\/\//i.test(imageUrl))) throw Object.assign(new Error('Загрузите изображение баннера'), { status: 400 });
+  if ((startsAt && Number.isNaN(startsAt.getTime())) || (endsAt && Number.isNaN(endsAt.getTime()))) throw Object.assign(new Error('Некорректный период показа'), { status: 400 });
+  if (startsAt && endsAt && endsAt <= startsAt) throw Object.assign(new Error('Окончание показа должно быть позже начала'), { status: 400 });
+  if (impressionLimit !== null && (!Number.isInteger(impressionLimit) || impressionLimit < 1)) throw Object.assign(new Error('Лимит показов должен быть целым положительным числом'), { status: 400 });
+  if (!Number.isInteger(sortOrder)) throw Object.assign(new Error('Некорректный порядок баннера'), { status: 400 });
+  if (kind === 'advertising' && (!startsAt || !endsAt || !impressionLimit)) throw Object.assign(new Error('Для рекламного баннера укажите начало, окончание и лимит показов'), { status: 400 });
+  return { name: String(body.name ?? '').trim().slice(0, 120) || 'Баннер', imageUrl, kind, active: body.active !== false, startsAt, endsAt, impressionLimit, sortOrder };
+};
+const removeUploadedBanner = async (imageUrl) => {
+  if (!String(imageUrl ?? '').startsWith(`${bannerPublicPath}/`)) return;
+  const filename = pathModule.basename(String(imageUrl));
+  if (!/^[a-f0-9-]+\.(png|jpe?g|webp)$/i.test(filename)) return;
+  await fs.unlink(pathModule.join(bannerUploadDir, filename)).catch((error) => { if (error.code !== 'ENOENT') console.warn('Unable to remove banner image:', error.message); });
 };
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const sign = (payload) => {
@@ -310,12 +336,16 @@ const publicIikoStatus = (row) => ({
 });
 
 const publicState = async (terminalId) => {
-  const [localProducts, iikoProducts, promotions, terminal, selection, settings] = await Promise.all([
+  const [localProducts, iikoProducts, banners, terminal, selection, settings] = await Promise.all([
     pool.query('select * from products order by category, sort_order, name'),
     pool.query(`select m.*, o.image as override_image, o.pairs_with as override_pairs_with, o.badge as override_badge, o.image_position as override_image_position,
       exists(select 1 from iiko_stop_list_items s where s.organization_id=$1 and s.terminal_group_id=$2 and s.product_id=m.product_id and s.balance <= 0) as stopped
       from iiko_menu_items m left join iiko_product_overrides o on o.product_id=m.product_id where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId, iikoTerminalGroupId]),
-    pool.query('select * from promotions order by sort_order, created_at desc'),
+    pool.query(`select * from banners where active=true
+      and (starts_at is null or starts_at <= now())
+      and (ends_at is null or ends_at > now())
+      and (impression_limit is null or impressions < impression_limit)
+      order by sort_order,id`),
     pool.query('insert into terminals(id) values ($1) on conflict (id) do update set last_seen_at = now() returning *', [terminalId]),
     pool.query('select * from terminal_table_selections where terminal_id=$1', [terminalId]),
     pool.query('select key, value from app_settings'),
@@ -330,7 +360,7 @@ const publicState = async (terminalId) => {
     pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: '', spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
   })) : localProducts.rows;
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId]);
-  return { products, promotions: promotions.rows, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? 'guest' : null), table_id: fixedTable ? null : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
+  return { products, banners: banners.rows, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? 'guest' : null), table_id: fixedTable ? null : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
 };
 
 const serviceTypes = new Set(['waiter', 'cutlery', 'bill', 'help']);
@@ -580,6 +610,34 @@ const server = http.createServer(async (request, response) => {
       if (!terminalId || !/^[a-zA-Z0-9_-]{8,80}$/.test(terminalId)) return json(response, 400, { error: 'Invalid terminalId' });
       return json(response, 200, await publicState(terminalId));
     }
+    if (request.method === 'POST' && path.startsWith('/api/v1/banners/') && path.endsWith('/impression')) {
+      const id = Number(path.slice('/api/v1/banners/'.length, -'/impression'.length));
+      const body = await readBody(request);
+      const terminalId = String(body.terminal_id ?? '');
+      if (!Number.isInteger(id) || !/^[a-zA-Z0-9_-]{8,80}$/.test(terminalId)) return json(response, 400, { error: 'Некорректный показ баннера' });
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const banner = await client.query(`select *, active=true and (starts_at is null or starts_at<=now()) and (ends_at is null or ends_at>now()) and (impression_limit is null or impressions<impression_limit) as eligible from banners where id=$1 for update`, [id]);
+        if (!banner.rowCount) { await client.query('rollback'); return json(response, 404, { error: 'Баннер не найден' }); }
+        const row = banner.rows[0];
+        if (!row.eligible) {
+          await client.query('commit');
+          return json(response, 200, { counted: false, exhausted: Boolean(row.impression_limit && row.impressions >= row.impression_limit), impressions: Number(row.impressions) });
+        }
+        const exposure = await client.query('insert into banner_impressions(banner_id,terminal_id,exposure_bucket) values($1,$2,$3) on conflict do nothing returning id', [id, terminalId, Math.floor(Date.now() / 5_000)]);
+        let impressions = Number(row.impressions);
+        if (exposure.rowCount) {
+          const updated = await client.query('update banners set impressions=impressions+1,updated_at=now() where id=$1 returning impressions,impression_limit', [id]);
+          impressions = Number(updated.rows[0].impressions);
+        }
+        await client.query('commit');
+        return json(response, 200, { counted: Boolean(exposure.rowCount), exhausted: Boolean(row.impression_limit && impressions >= Number(row.impression_limit)), impressions });
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally { client.release(); }
+    }
     if (request.method === 'GET' && path === '/api/v1/tables') {
       const terminalId = url.searchParams.get('terminalId');
       if (!terminalId || !/^[a-zA-Z0-9_-]{8,80}$/.test(terminalId)) return json(response, 400, { error: 'Invalid terminalId' });
@@ -740,26 +798,62 @@ const server = http.createServer(async (request, response) => {
       await audit(actor, 'update', 'terminal', id, before.rows[0] ?? null, result.rows[0]);
       return json(response, 200, result.rows[0]);
     }
-    if (request.method === 'POST' && path === '/api/v1/admin/promotions') {
-      const body = await readBody(request);
-      const result = await pool.query('insert into promotions(product_id, title, subtitle, label, active, sort_order) values ($1,$2,$3,$4,$5,$6) returning *', [body.product_id, body.title, body.subtitle, body.label, body.active !== false, Number(body.sort_order ?? 0)]);
-      await audit(actor, 'create', 'promotion', result.rows[0].id, null, result.rows[0]);
+    if (request.method === 'GET' && path === '/api/v1/admin/banners') {
+      const result = await pool.query('select * from banners order by sort_order,id');
+      return json(response, 200, result.rows);
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/banners/upload') {
+      const body = await readBody(request, 12_000_000);
+      const match = /^data:image\/(png|jpeg|webp);base64,([a-zA-Z0-9+/=]+)$/.exec(String(body.data_url ?? ''));
+      if (!match) return json(response, 400, { error: 'Поддерживаются PNG, JPEG и WebP' });
+      const data = Buffer.from(match[2], 'base64');
+      if (!data.length || data.length > 8 * 1024 * 1024) return json(response, 413, { error: 'Изображение должно быть не больше 8 МБ' });
+      const valid = match[1] === 'png'
+        ? data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+        : match[1] === 'jpeg'
+          ? data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff
+          : data.subarray(0, 4).toString() === 'RIFF' && data.subarray(8, 12).toString() === 'WEBP';
+      if (!valid) return json(response, 400, { error: 'Файл изображения повреждён' });
+      const extension = match[1] === 'jpeg' ? 'jpg' : match[1];
+      const filename = `${crypto.randomUUID()}.${extension}`;
+      await fs.mkdir(bannerUploadDir, { recursive: true });
+      await fs.writeFile(pathModule.join(bannerUploadDir, filename), data, { flag: 'wx' });
+      return json(response, 201, { url: `${bannerPublicPath}/${filename}` });
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/banners') {
+      const value = bannerPayload(await readBody(request));
+      const result = await pool.query('insert into banners(name,image_url,kind,active,starts_at,ends_at,impression_limit,sort_order) values($1,$2,$3,$4,$5,$6,$7,$8) returning *', [value.name, value.imageUrl, value.kind, value.active, value.startsAt, value.endsAt, value.impressionLimit, value.sortOrder]);
+      await audit(actor, 'create', 'banner', result.rows[0].id, null, result.rows[0]);
       return json(response, 201, result.rows[0]);
     }
-    if (request.method === 'PUT' && path.startsWith('/api/v1/admin/promotions/')) {
-      const id = Number(path.slice('/api/v1/admin/promotions/'.length));
-      const body = await readBody(request);
-      const before = await pool.query('select * from promotions where id = $1', [id]);
-      if (!before.rowCount) return json(response, 404, { error: 'Promotion not found' });
-      const result = await pool.query('update promotions set product_id=$1,title=$2,subtitle=$3,label=$4,active=$5,sort_order=$6,updated_at=now() where id=$7 returning *', [body.product_id, body.title, body.subtitle, body.label, body.active !== false, Number(body.sort_order ?? 0), id]);
-      await audit(actor, 'update', 'promotion', id, before.rows[0], result.rows[0]);
+    if (request.method === 'POST' && path.startsWith('/api/v1/admin/banners/') && path.endsWith('/reset-impressions')) {
+      const id = Number(path.slice('/api/v1/admin/banners/'.length, -'/reset-impressions'.length));
+      if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный баннер' });
+      const before = await pool.query('select * from banners where id=$1', [id]);
+      if (!before.rowCount) return json(response, 404, { error: 'Баннер не найден' });
+      const result = await pool.query('update banners set impressions=0,updated_at=now() where id=$1 returning *', [id]);
+      await pool.query('delete from banner_impressions where banner_id=$1', [id]);
+      await audit(actor, 'reset_impressions', 'banner', id, before.rows[0], result.rows[0]);
       return json(response, 200, result.rows[0]);
     }
-    if (request.method === 'DELETE' && path.startsWith('/api/v1/admin/promotions/')) {
-      const id = Number(path.slice('/api/v1/admin/promotions/'.length));
-      const before = await pool.query('delete from promotions where id = $1 returning *', [id]);
-      if (!before.rowCount) return json(response, 404, { error: 'Promotion not found' });
-      await audit(actor, 'delete', 'promotion', id, before.rows[0], null);
+    if (request.method === 'PUT' && path.startsWith('/api/v1/admin/banners/')) {
+      const id = Number(path.slice('/api/v1/admin/banners/'.length));
+      if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный баннер' });
+      const value = bannerPayload(await readBody(request));
+      const before = await pool.query('select * from banners where id=$1', [id]);
+      if (!before.rowCount) return json(response, 404, { error: 'Баннер не найден' });
+      const result = await pool.query('update banners set name=$1,image_url=$2,kind=$3,active=$4,starts_at=$5,ends_at=$6,impression_limit=$7,sort_order=$8,updated_at=now() where id=$9 returning *', [value.name, value.imageUrl, value.kind, value.active, value.startsAt, value.endsAt, value.impressionLimit, value.sortOrder, id]);
+      if (before.rows[0].image_url !== value.imageUrl) await removeUploadedBanner(before.rows[0].image_url);
+      await audit(actor, 'update', 'banner', id, before.rows[0], result.rows[0]);
+      return json(response, 200, result.rows[0]);
+    }
+    if (request.method === 'DELETE' && path.startsWith('/api/v1/admin/banners/')) {
+      const id = Number(path.slice('/api/v1/admin/banners/'.length));
+      if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный баннер' });
+      const removed = await pool.query('delete from banners where id=$1 returning *', [id]);
+      if (!removed.rowCount) return json(response, 404, { error: 'Баннер не найден' });
+      await removeUploadedBanner(removed.rows[0].image_url);
+      await audit(actor, 'delete', 'banner', id, removed.rows[0], null);
       return json(response, 204, {});
     }
     if (request.method === 'GET' && path === '/api/v1/admin/audit') {

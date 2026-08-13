@@ -1,6 +1,5 @@
-import type { CartLine, OrderType, ProductDisplaySettings, Promotion, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
+import type { Banner, CartLine, OrderType, ProductDisplaySettings, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
 import { storage } from '../services/storage';
-import { marketingService } from '../services/marketing-service';
 
 export interface AppState {
   category: string;
@@ -13,7 +12,7 @@ export interface AppState {
   adminLoginOpen: boolean;
   adminScope: 'terminal' | 'restaurant' | null;
   adminProductId: string | null;
-  adminTab: 'terminal' | 'menu' | 'promotions' | 'staff' | 'quality' | 'audit';
+  adminTab: 'terminal' | 'menu' | 'banners' | 'staff' | 'quality' | 'audit';
   inactivityWarning: boolean;
   inactivitySeconds: number;
   orderNumber: string | null;
@@ -23,7 +22,7 @@ export interface AppState {
   promoCode: string;
   productId: string | null;
   pwaUpdateReady: boolean;
-  promotions: Promotion[];
+  banners: Banner[];
   recentProductIds: string[];
   search: string;
   serviceOpen: boolean;
@@ -34,8 +33,8 @@ export interface AppState {
   upsellId: string | null;
 }
 
-const persisted = storage.get<Pick<AppState, 'cart' | 'language' | 'orderNumber' | 'orders' | 'selectedOrderId' | 'statusStep' | 'orderType' | 'recentProductIds' | 'promotions' | 'productDisplay'>>('bb-kiosk', {
-  cart: [], language: 'ru', orderNumber: null, orders: [], selectedOrderId: null, statusStep: 0, orderType: null, recentProductIds: [], promotions: marketingService.defaults(), productDisplay: {},
+const persisted = storage.get<Pick<AppState, 'cart' | 'language' | 'orderNumber' | 'orders' | 'selectedOrderId' | 'statusStep' | 'orderType' | 'recentProductIds' | 'banners' | 'productDisplay'>>('bb-kiosk', {
+  cart: [], language: 'ru', orderNumber: null, orders: [], selectedOrderId: null, statusStep: 0, orderType: null, recentProductIds: [], banners: [], productDisplay: {},
 });
 const restoredOrders: SubmittedOrder[] = persisted.orders ?? (persisted.orderNumber ? [{
   id: persisted.orderNumber,
@@ -73,7 +72,7 @@ let state: AppState = {
   orders: restoredOrders,
   selectedOrderId: persisted.selectedOrderId ?? restoredOrders[0]?.id ?? null,
   orderType: persisted.orderType ?? null,
-  promotions: persisted.promotions ?? marketingService.defaults(),
+  banners: persisted.banners ?? [],
   recentProductIds: persisted.recentProductIds ?? [],
   statusStep: persisted.statusStep ?? 0,
   productDisplay: persisted.productDisplay ?? {},
@@ -81,7 +80,7 @@ let state: AppState = {
 const subscribers = new Set<(value: AppState) => void>();
 
 function persist() {
-  storage.set('bb-kiosk', { cart: state.cart, language: state.language, orderNumber: state.orderNumber, orders: state.orders, selectedOrderId: state.selectedOrderId, statusStep: state.statusStep, orderType: state.orderType, recentProductIds: state.recentProductIds, promotions: state.promotions, productDisplay: state.productDisplay });
+  storage.set('bb-kiosk', { cart: state.cart, language: state.language, orderNumber: state.orderNumber, orders: state.orders, selectedOrderId: state.selectedOrderId, statusStep: state.statusStep, orderType: state.orderType, recentProductIds: state.recentProductIds, banners: state.banners, productDisplay: state.productDisplay });
 }
 
 export const appStore = {
