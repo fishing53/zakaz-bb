@@ -1,15 +1,17 @@
-import rawCatalog from '../../menu.json';
 import type { Catalog, Product } from '../types/menu';
 
-let catalog = { menu: (rawCatalog as Catalog).menu.map((product, index) => ({ ...product, image: `/images/menu/${index}.webp` })) } satisfies Catalog;
-let byId = new Map(catalog.menu.map((product) => [product.id, product]));
+let catalog: Catalog = { menu: [] };
+let byId = new Map<string, Product>();
+let ready = false;
 
 export function setCatalog(products: Product[]) {
   catalog = { menu: products };
   byId = new Map(products.map((product) => [product.id, product]));
+  ready = true;
 }
 
 export const menuService = {
+  ready: () => ready,
   all: () => catalog.menu,
   find: (id: string) => byId.get(id),
   categories: () => [...new Set(catalog.menu.map((product) => product.category))],

@@ -62,7 +62,7 @@ function page() {
   switch (route) {
     case 'welcome': return welcomePage(state.banners);
     case 'table': return tablePage(state.tables);
-    case 'menu': return menuPage(menuService.categories(), menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay);
+    case 'menu': return menuPage(menuService.categories(), menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay, menuService.ready());
     case 'order': return orderPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment, state.promoCode);
     case 'orders': return ordersPage(state.orders);
     case 'payment': return paymentPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment);
@@ -177,6 +177,15 @@ function updateOrderTotals(lineElement: HTMLElement) {
     const lineTotal = lineElement.querySelector<HTMLElement>('[data-line-total]');
     if (quantity) quantity.textContent = String(line.quantity);
     if (lineTotal) lineTotal.textContent = formatPrice((line.customPrice ?? product.price_rub) * line.quantity);
+    root.querySelectorAll<HTMLElement>(`[data-parent-key="${CSS.escape(line.key)}"]`).forEach((modifierLine) => {
+      const modifier = line.modifiers?.find((item) => item.productId === modifierLine.dataset.modifierId);
+      if (!modifier) return;
+      const modifierQuantity = modifier.amount * line.quantity;
+      const quantityLabel = modifierLine.querySelector<HTMLElement>('[data-modifier-quantity]');
+      const modifierTotal = modifierLine.querySelector<HTMLElement>('[data-modifier-total]');
+      if (quantityLabel) quantityLabel.textContent = `×${modifierQuantity}`;
+      if (modifierTotal) modifierTotal.textContent = formatPrice(modifier.price * modifierQuantity);
+    });
   }
   const subtotal = orderStore.subtotal();
   const discount = orderStore.discount();
@@ -361,8 +370,10 @@ async function action(element: HTMLElement) {
     const group = element.closest('.option-group');
     if (group?.getAttribute('data-multiple') === 'true') element.classList.toggle('is-selected');
     else {
+      const wasSelected = element.classList.contains('is-selected');
+      const isOptional = Number(group?.getAttribute('data-min-quantity') ?? 1) === 0;
       group?.querySelectorAll('button').forEach((button) => button.classList.remove('is-selected'));
-      element.classList.add('is-selected');
+      if (!wasSelected || !isOptional) element.classList.add('is-selected');
     }
     updateModalTotal();
     return;
@@ -604,6 +615,7 @@ async function action(element: HTMLElement) {
     return;
   }
   if (type === 'remove-line') { orderStore.remove(element.dataset.key!); return; }
+  if (type === 'remove-modifier') { orderStore.removeModifier(element.dataset.key!, element.dataset.modifierId!); return; }
   if (type === 'open-service') { appStore.set({ serviceOpen: true }); return; }
   if (type === 'close-service') { appStore.set({ serviceOpen: false }); return; }
   if (type === 'request-service') { waiterService.request(element.dataset.service ?? '').then((result) => { appStore.set({ serviceOpen: false }); flash(result.message); }); return; }
@@ -686,7 +698,7 @@ function refreshMenuResults() {
   const target = root.querySelector<HTMLElement>('[data-menu-results]');
   if (!target || router.current() !== 'menu') return;
   const state = appStore.get();
-  target.innerHTML = menuResults(menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay);
+  target.innerHTML = menuResults(menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay, menuService.ready());
 }
 
 async function syncServer(includeAudit = false) {

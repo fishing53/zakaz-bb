@@ -24,6 +24,7 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
   try {
     const response = await fetch(`${apiBase}${path}`, {
       ...init,
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
     });
     if (response.status === 204) return undefined as T;
@@ -61,7 +62,7 @@ const order = (item: ServerOrder): SubmittedOrder => ({ id: item.order_number, i
 export const apiService = {
   terminalId,
   async bootstrap() {
-    const data = await request<{ products: ServerProduct[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown> }>(`/bootstrap?terminalId=${terminalId}`);
+    const data = await request<{ products: ServerProduct[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown> }>(`/bootstrap?terminalId=${terminalId}&fresh=${Date.now()}`);
     return { products: data.products.map(product), display: Object.fromEntries(data.products.map((item) => [item.id, display(item)])), banners: data.banners.map(banner), terminal: terminal(data.terminal), orders: data.orders.map(order), settings: data.settings };
   },
   async login(password: string, scope: 'terminal' | 'restaurant', username = '') {

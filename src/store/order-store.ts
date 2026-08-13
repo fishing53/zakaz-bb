@@ -24,7 +24,7 @@ export const orderStore = {
   subtotal: () => appStore.get().cart.reduce((sum, line) => sum + linePrice(line) * line.quantity, 0),
   discount: () => appStore.get().promoCode.trim().toUpperCase() === 'BOWL10' ? Math.round(orderStore.subtotal() * .1) : 0,
   total: () => Math.max(0, orderStore.subtotal() - orderStore.discount()),
-  count: () => appStore.get().cart.reduce((sum, line) => sum + line.quantity, 0),
+  count: () => appStore.get().cart.reduce((sum, line) => sum + line.quantity + (line.modifiers ?? []).reduce((modifierSum, modifier) => modifierSum + modifier.amount * line.quantity, 0), 0),
   add(product: Product, options: Omit<CartLine, 'key' | 'productId' | 'quantity'> = {}) {
     const next = { productId: product.id, kind: 'product' as const, ...options };
     const cart = appStore.get().cart.map((line) => ({ ...line }));
@@ -49,6 +49,22 @@ export const orderStore = {
   change(key: string, delta: number, notify = true) {
     const cart = appStore.get().cart.map((line) => line.key === key ? { ...line, quantity: line.quantity + delta } : line).filter((line) => line.quantity > 0);
     appStore.set({ cart, pendingOrderRequestId: null }, notify);
+  },
+  removeModifier(key: string, modifierId: string) {
+    const cart: CartLine[] = appStore.get().cart.map((line) => ({ ...line, ...(line.modifiers ? { modifiers: line.modifiers.map((modifier) => ({ ...modifier })) } : {}) }));
+    const index = cart.findIndex((line) => line.key === key);
+    if (index < 0) return;
+    const modifiers = (cart[index].modifiers ?? []).filter((modifier) => modifier.productId !== modifierId);
+    const updated: CartLine = { ...cart[index], modifiers: modifiers.length ? modifiers : undefined };
+    updated.key = lineKey(updated);
+    const duplicateIndex = cart.findIndex((line, lineIndex) => lineIndex !== index && line.key === updated.key);
+    if (duplicateIndex >= 0) {
+      cart[duplicateIndex].quantity += updated.quantity;
+      cart.splice(index, 1);
+    } else {
+      cart[index] = updated;
+    }
+    appStore.set({ cart, pendingOrderRequestId: null });
   },
   remove(key: string) { appStore.set({ cart: appStore.get().cart.filter((line) => line.key !== key), pendingOrderRequestId: null }); },
 };
