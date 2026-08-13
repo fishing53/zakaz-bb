@@ -3,7 +3,7 @@ import pg from 'pg';
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const restaurantId = process.env.IIKO_ORGANIZATION_ID ?? '';
+let restaurantId = process.env.IIKO_ORGANIZATION_ID ?? '';
 const localCatalog = new URL('./menu.json', import.meta.url);
 const catalogSource = fs.existsSync(localCatalog) ? localCatalog : new URL('../menu.json', import.meta.url);
 const catalog = JSON.parse(fs.readFileSync(catalogSource)).menu;
@@ -216,7 +216,27 @@ await pool.query(`
   alter table monitoring_events add column if not exists alerted_at timestamptz;
   create index if not exists monitoring_events_recent_idx on monitoring_events(component,created_at desc);
   delete from monitoring_events where created_at < now()-interval '90 days';
+  create table if not exists iiko_connection_settings (
+    id text primary key default 'active' check(id='active'),
+    api_base text not null,
+    organization_id text not null,
+    terminal_group_id text not null,
+    external_menu_id text not null,
+    order_type_id text not null,
+    order_source_key text not null default 'BrooklynBowl Kiosk',
+    credentials_ciphertext text not null,
+    credentials_iv text not null,
+    credentials_tag text not null,
+    encryption_version integer not null default 1,
+    configured_by text not null,
+    last_test_at timestamptz,
+    last_test_details jsonb,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
 `);
+const configuredRestaurant = await pool.query("select organization_id from iiko_connection_settings where id='active'");
+restaurantId = configuredRestaurant.rows[0]?.organization_id ?? restaurantId;
 await pool.query(`insert into iiko_product_presentations(restaurant_id,sku,image,image_position,badge,pairs_with_skus)
   select $1,m.sku,o.image,o.image_position,o.badge,
     coalesce((select jsonb_agg(pm.sku) from jsonb_array_elements_text(o.pairs_with) pair(product_id) join iiko_menu_items pm on pm.product_id=pair.product_id and pm.sku is not null),'[]'::jsonb)

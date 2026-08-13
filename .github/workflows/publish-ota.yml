@@ -47,4 +47,4 @@ jobs:
           scp server/index.mjs server/migrate.mjs root@194.226.142.35:/opt/zakaz-api/
           ssh root@194.226.142.35 'mkdir -p /opt/zakaz-api/ops'
           scp ops/* root@194.226.142.35:/opt/zakaz-api/ops/
-          ssh root@194.226.142.35 'set -a; . /etc/zakaz-api.env; set +a; cd /opt/zakaz-api && node --check index.mjs && node migrate.mjs && chmod 755 ops/*.sh && cp ops/zakaz-*.service ops/zakaz-*.timer /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now zakaz-backup.timer zakaz-health.timer && systemctl restart zakaz-api && systemctl is-active zakaz-api && curl --fail --silent --show-error --retry 8 --retry-connrefused --retry-delay 2 http://127.0.0.1:3107/api/v1/health/ready >/dev/null'
+          ssh root@194.226.142.35 'bash /opt/zakaz-api/ops/deploy-api.sh'

@@ -55,20 +55,18 @@ API-ключ, показанный в карточке API-логина, — э�
 
 ## Конфигурация сервера
 
-Секреты находятся только в `/etc/zakaz-api.env` на production-сервере. Минимальный набор:
+Системные секреты находятся в `/etc/zakaz-api.env` на production-сервере. Минимальный набор:
 
 ```env
 DATABASE_URL=postgres://...
 TOKEN_SECRET=<длинный случайный секрет>
 ADMIN_PASSWORD_HASH=<sha256 хеш пароля админки>
+IIKO_CONFIG_ENCRYPTION_KEY=<32 байта в hex, не менять после создания>
 
-IIKO_API_BASE=https://api-ru.iiko.services
-IIKO_APP_ID=<App ID из Портала разработчика>
-IIKO_API_LOGIN=<API key из iikoWeb>
-IIKO_CLIENT_SECRET=<Client Secret из Портала разработчика>
 IIKO_ORGANIZATION_ID=<UUID организации iiko>
-IIKO_WEBHOOK_TOKEN=<случайная строка не менее 32 байт>
 ```
+
+Данные подключения iiko вводятся в веб-админке → «Проверка iiko» → «Настройки подключения iiko». App ID, API Login, Client Secret и Webhook Token сохраняются в PostgreSQL только в зашифрованном виде. Переменные `IIKO_APP_ID`, `IIKO_API_LOGIN`, `IIKO_CLIENT_SECRET` и `IIKO_WEBHOOK_TOKEN` нужны лишь для первичного переноса старой установки и автоматически удаляются из env после успешного импорта.
 
 После изменения конфигурации:
 

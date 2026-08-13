@@ -1,4 +1,4 @@
-import type { AdminDiagnostics, AdminOrder, Banner, CartLine, Product, ProductDisplaySettings, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
+import type { AdminDiagnostics, AdminOrder, Banner, CartLine, IikoConnectionConfig, IikoConnectionDraft, IikoConnectionTest, Product, ProductDisplaySettings, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
 import { Capacitor } from '@capacitor/core';
 
 let token = sessionStorage.getItem('zakaz-admin-token') ?? '';
@@ -113,6 +113,10 @@ export const apiService = {
     const data = await request<{ generated_at: string; api: { ok: boolean; uptime_seconds: number; started_at: string }; database: { ok: boolean; latency_ms: number }; disk: { ok: boolean; usedPercent: number | null }; menu: { active_products: number; updated_at: string | null }; iiko_orders: { ok: boolean; errors_24h: number; last_error_at: string | null }; webhook: { ok: boolean; errors_24h: number; events_24h: number; last_event_at: string | null }; iiko_sync: { ok: boolean; errors_24h: number; backoff_until: string | null }; incidents: Array<{ component: string; severity: 'warning' | 'error' | 'critical'; message: string; context: Record<string, unknown>; created_at: string }> }>('/admin/diagnostics');
     return { generatedAt: data.generated_at, api: { ok: data.api.ok, uptimeSeconds: data.api.uptime_seconds, startedAt: data.api.started_at }, database: { ok: data.database.ok, latencyMs: data.database.latency_ms }, disk: data.disk, menu: { activeProducts: data.menu.active_products, updatedAt: data.menu.updated_at }, iikoOrders: { ok: data.iiko_orders.ok, errors24h: data.iiko_orders.errors_24h, lastErrorAt: data.iiko_orders.last_error_at }, webhook: { ok: data.webhook.ok, errors24h: data.webhook.errors_24h, events24h: data.webhook.events_24h, lastEventAt: data.webhook.last_event_at }, iikoSync: { ok: data.iiko_sync.ok, errors24h: data.iiko_sync.errors_24h, backoffUntil: data.iiko_sync.backoff_until }, incidents: data.incidents.map((item) => ({ component: item.component, severity: item.severity, message: item.message, context: item.context, createdAt: item.created_at })) };
   },
+  unlockIikoConfig: (password: string) => request<{ token: string; expiresIn: number }>('/admin/iiko-config/unlock', { method: 'POST', body: JSON.stringify({ password }) }),
+  iikoConfig: (stepToken: string) => request<IikoConnectionConfig>('/admin/iiko-config', { headers: { Authorization: `Bearer ${stepToken}` } }),
+  testIikoConfig: (stepToken: string, value: IikoConnectionDraft) => request<{ result: IikoConnectionTest; testToken: string }>('/admin/iiko-config/test', { method: 'POST', headers: { Authorization: `Bearer ${stepToken}` }, body: JSON.stringify(value) }),
+  applyIikoConfig: (stepToken: string, value: IikoConnectionDraft, testToken: string) => request<{ config: IikoConnectionConfig; sync: { menuItems: number; tables: number } }>('/admin/iiko-config/apply', { method: 'POST', headers: { Authorization: `Bearer ${stepToken}` }, body: JSON.stringify({ ...value, testToken }) }),
   async banners() {
     const data = await request<ServerBanner[]>('/admin/banners');
     return data.map(banner);

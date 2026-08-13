@@ -11,14 +11,18 @@ const port = Number(process.env.PORT ?? 3107);
 const tokenSecret = process.env.TOKEN_SECRET;
 const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
 const terminalAdminPasswordHash = process.env.TERMINAL_ADMIN_PASSWORD_HASH ?? adminPasswordHash;
-const iikoApiBase = process.env.IIKO_API_BASE ?? 'https://api-ru.iiko.services';
-const iikoOrganizationId = process.env.IIKO_ORGANIZATION_ID ?? '528faa64-3219-4cc9-b17f-96fa28fd8627';
-const iikoWebhookToken = process.env.IIKO_WEBHOOK_TOKEN;
+let iikoApiBase = process.env.IIKO_API_BASE || 'https://api-ru.iiko.services';
+let iikoOrganizationId = process.env.IIKO_ORGANIZATION_ID ?? '';
+let iikoWebhookToken = process.env.IIKO_WEBHOOK_TOKEN ?? '';
 const firebaseServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-const iikoTerminalGroupId = process.env.IIKO_TERMINAL_GROUP_ID ?? '';
-const iikoExternalMenuId = process.env.IIKO_EXTERNAL_MENU_ID ?? '';
-const iikoOrderTypeId = process.env.IIKO_ORDER_TYPE_ID ?? '';
-const iikoOrderSourceKey = process.env.IIKO_ORDER_SOURCE_KEY ?? 'BrooklynBowl Kiosk';
+let iikoTerminalGroupId = process.env.IIKO_TERMINAL_GROUP_ID ?? '';
+let iikoExternalMenuId = process.env.IIKO_EXTERNAL_MENU_ID ?? '';
+let iikoOrderTypeId = process.env.IIKO_ORDER_TYPE_ID ?? '';
+let iikoOrderSourceKey = process.env.IIKO_ORDER_SOURCE_KEY || 'BrooklynBowl Kiosk';
+let iikoAppId = process.env.IIKO_APP_ID ?? '';
+let iikoApiLogin = process.env.IIKO_API_LOGIN ?? '';
+let iikoClientSecret = process.env.IIKO_CLIENT_SECRET ?? '';
+const iikoConfigEncryptionKeyHex = process.env.IIKO_CONFIG_ENCRYPTION_KEY ?? '';
 const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/manifest.json';
 const bannerUploadDir = process.env.BANNER_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/uploads/banners';
 const bannerPublicPath = process.env.BANNER_PUBLIC_PATH ?? '/uploads/banners';
@@ -26,7 +30,8 @@ const productUploadDir = process.env.PRODUCT_UPLOAD_DIR ?? '/var/www/zakaz-zvyak
 const productPublicPath = process.env.PRODUCT_PUBLIC_PATH ?? '/uploads/products';
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
-if (!process.env.DATABASE_URL || !tokenSecret || !adminPasswordHash) throw new Error('DATABASE_URL, TOKEN_SECRET and ADMIN_PASSWORD_HASH are required');
+if (!process.env.DATABASE_URL || !tokenSecret || !adminPasswordHash || !/^[a-f0-9]{64}$/i.test(iikoConfigEncryptionKeyHex)) throw new Error('DATABASE_URL, TOKEN_SECRET, ADMIN_PASSWORD_HASH and a 32-byte IIKO_CONFIG_ENCRYPTION_KEY are required');
+const iikoConfigEncryptionKey = Buffer.from(iikoConfigEncryptionKeyHex, 'hex');
 
 const json = (response, status, body) => {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -115,6 +120,75 @@ const deterministicUuid = (value) => {
   const hex = bytes.toString('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
+const allowedIikoApiBases = new Set(['https://api-ru.iiko.services']);
+const encryptIikoCredentials = (credentials) => {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', iikoConfigEncryptionKey, iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(credentials), 'utf8'), cipher.final()]);
+  return { ciphertext: ciphertext.toString('base64'), iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64') };
+};
+const decryptIikoCredentials = (row) => {
+  const decipher = crypto.createDecipheriv('aes-256-gcm', iikoConfigEncryptionKey, Buffer.from(row.credentials_iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(row.credentials_tag, 'base64'));
+  return JSON.parse(Buffer.concat([decipher.update(Buffer.from(row.credentials_ciphertext, 'base64')), decipher.final()]).toString('utf8'));
+};
+const validateIikoConfig = (value) => {
+  const config = {
+    apiBase: String(value.apiBase ?? '').trim().replace(/\/$/, ''), appId: String(value.appId ?? '').trim(), apiLogin: String(value.apiLogin ?? '').trim(), clientSecret: String(value.clientSecret ?? '').trim(),
+    organizationId: String(value.organizationId ?? '').trim(), terminalGroupId: String(value.terminalGroupId ?? '').trim(), externalMenuId: String(value.externalMenuId ?? '').trim(), orderTypeId: String(value.orderTypeId ?? '').trim(),
+    orderSourceKey: String(value.orderSourceKey ?? 'BrooklynBowl Kiosk').trim(), webhookToken: String(value.webhookToken ?? '').trim(),
+  };
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!allowedIikoApiBases.has(config.apiBase)) throw Object.assign(new Error('Допустим только официальный российский адрес iiko Cloud API'), { status: 400 });
+  if (!uuid.test(config.appId) || !uuid.test(config.organizationId) || !uuid.test(config.terminalGroupId) || !uuid.test(config.orderTypeId)) throw Object.assign(new Error('Проверьте UUID приложения, организации, терминальной группы и типа заказа'), { status: 400 });
+  if (!/^[a-zA-Z0-9=_-]{16,200}$/.test(config.apiLogin) || config.clientSecret.length < 24) throw Object.assign(new Error('API Login или Client Secret имеют неверный формат'), { status: 400 });
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(config.externalMenuId)) throw Object.assign(new Error('Некорректный ID внешнего меню'), { status: 400 });
+  if (!config.orderSourceKey || config.orderSourceKey.length > 120) throw Object.assign(new Error('Источник заказа должен содержать от 1 до 120 символов'), { status: 400 });
+  if (config.webhookToken.length < 32 || config.webhookToken.length > 256) throw Object.assign(new Error('Webhook Token должен содержать от 32 до 256 символов'), { status: 400 });
+  return config;
+};
+const applyRuntimeIikoConfig = (config) => {
+  iikoApiBase = config.apiBase; iikoAppId = config.appId; iikoApiLogin = config.apiLogin; iikoClientSecret = config.clientSecret;
+  iikoOrganizationId = config.organizationId; iikoTerminalGroupId = config.terminalGroupId; iikoExternalMenuId = config.externalMenuId;
+  iikoOrderTypeId = config.orderTypeId; iikoOrderSourceKey = config.orderSourceKey; iikoWebhookToken = config.webhookToken;
+  iikoAccessToken = ''; iikoAccessTokenExpiresAt = 0; iikoRetryAfter = 0;
+};
+let iikoConnectionMetadata = null;
+let iikoConfigSwitching = false;
+const runtimeIikoConfig = () => ({ apiBase: iikoApiBase, appId: iikoAppId, apiLogin: iikoApiLogin, clientSecret: iikoClientSecret, organizationId: iikoOrganizationId, terminalGroupId: iikoTerminalGroupId, externalMenuId: iikoExternalMenuId, orderTypeId: iikoOrderTypeId, orderSourceKey: iikoOrderSourceKey, webhookToken: iikoWebhookToken });
+const configFromRow = (row) => validateIikoConfig({
+  apiBase: row.api_base, organizationId: row.organization_id, terminalGroupId: row.terminal_group_id, externalMenuId: row.external_menu_id,
+  orderTypeId: row.order_type_id, orderSourceKey: row.order_source_key, ...decryptIikoCredentials(row),
+});
+const safeIikoConfig = (row = iikoConnectionMetadata) => row ? ({
+  apiBase: row.api_base, organizationId: row.organization_id, terminalGroupId: row.terminal_group_id, externalMenuId: row.external_menu_id, orderTypeId: row.order_type_id, orderSourceKey: row.order_source_key,
+  appIdConfigured: true, apiLoginConfigured: true, clientSecretConfigured: true, webhookTokenConfigured: true,
+  updatedAt: row.updated_at, configuredBy: row.configured_by, lastTestAt: row.last_test_at, lastTestDetails: row.last_test_details,
+}) : ({ apiBase: iikoApiBase, organizationId: iikoOrganizationId, terminalGroupId: iikoTerminalGroupId, externalMenuId: iikoExternalMenuId, orderTypeId: iikoOrderTypeId, orderSourceKey: iikoOrderSourceKey,
+  appIdConfigured: Boolean(iikoAppId), apiLoginConfigured: Boolean(iikoApiLogin), clientSecretConfigured: Boolean(iikoClientSecret), webhookTokenConfigured: Boolean(iikoWebhookToken),
+  updatedAt: null, configuredBy: 'Не настроено', lastTestAt: null, lastTestDetails: null });
+const loadStoredIikoConfig = async () => {
+  let result = await pool.query("select * from iiko_connection_settings where id='active'");
+  if (!result.rowCount) {
+    if (![iikoAppId,iikoApiLogin,iikoClientSecret,iikoOrganizationId,iikoTerminalGroupId,iikoExternalMenuId,iikoOrderTypeId,iikoWebhookToken].every(Boolean)) return;
+    const initial = validateIikoConfig({ apiBase: iikoApiBase, appId: iikoAppId, apiLogin: iikoApiLogin, clientSecret: iikoClientSecret, organizationId: iikoOrganizationId, terminalGroupId: iikoTerminalGroupId, externalMenuId: iikoExternalMenuId, orderTypeId: iikoOrderTypeId, orderSourceKey: iikoOrderSourceKey, webhookToken: iikoWebhookToken });
+    const encrypted = encryptIikoCredentials({ appId: initial.appId, apiLogin: initial.apiLogin, clientSecret: initial.clientSecret, webhookToken: initial.webhookToken });
+    result = await pool.query(`insert into iiko_connection_settings(id,api_base,organization_id,terminal_group_id,external_menu_id,order_type_id,order_source_key,credentials_ciphertext,credentials_iv,credentials_tag,configured_by)
+      values('active',$1,$2,$3,$4,$5,$6,$7,$8,$9,'environment-migration') returning *`, [initial.apiBase, initial.organizationId, initial.terminalGroupId, initial.externalMenuId, initial.orderTypeId, initial.orderSourceKey, encrypted.ciphertext, encrypted.iv, encrypted.tag]);
+  }
+  iikoConnectionMetadata = result.rows[0];
+  applyRuntimeIikoConfig(configFromRow(result.rows[0]));
+};
+const candidateIikoConfig = (body) => {
+  const current = iikoConnectionMetadata ? configFromRow(iikoConnectionMetadata) : runtimeIikoConfig();
+  const keepSecret = (name) => String(body[name] ?? '').trim() || current[name];
+  return validateIikoConfig({
+    apiBase: body.apiBase ?? current.apiBase, appId: keepSecret('appId'), apiLogin: keepSecret('apiLogin'), clientSecret: keepSecret('clientSecret'), webhookToken: keepSecret('webhookToken'),
+    organizationId: body.organizationId ?? current.organizationId, terminalGroupId: body.terminalGroupId ?? current.terminalGroupId, externalMenuId: body.externalMenuId ?? current.externalMenuId,
+    orderTypeId: body.orderTypeId ?? current.orderTypeId, orderSourceKey: body.orderSourceKey ?? current.orderSourceKey,
+  });
+};
+const iikoConfigHash = (config) => sha256(JSON.stringify(config));
 const requestIp = (request) => String(request.headers['x-forwarded-for'] ?? request.socket.remoteAddress ?? '').split(',')[0].trim();
 const authAttemptKey = (request, realm) => sha256(`${realm}:${requestIp(request)}`);
 const assertAuthAllowed = async (key) => {
@@ -164,6 +238,17 @@ const requireAdmin = (request) => {
   const payload = verify(token);
   if (!payload?.admin) throw Object.assign(new Error('Unauthorized'), { status: 401 });
   return payload;
+};
+const requireIikoConfigAccess = (request) => {
+  const payload = requireAdmin(request);
+  if (!payload.configAccess || payload.role !== 'administrator') throw Object.assign(new Error('Требуется повторное подтверждение пароля администратора'), { status: 403 });
+  return payload;
+};
+const verifyAdministratorPassword = async (admin, password) => {
+  if (admin.role !== 'administrator' || !password) return false;
+  if (!admin.userId) return sha256(password) === adminPasswordHash;
+  const result = await pool.query('select password_hash from admin_users where id=$1 and is_active=true', [admin.userId]);
+  return Boolean(result.rowCount && passwordMatches(password, result.rows[0].password_hash));
 };
 const requireWaiter = (request) => {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
@@ -311,14 +396,38 @@ const iikoRequest = async (path, body) => {
 };
 const getIikoAccessToken = async () => {
   if (iikoAccessToken && iikoAccessTokenExpiresAt > Date.now()) return iikoAccessToken;
-  const { IIKO_APP_ID: appId, IIKO_API_LOGIN: apiLogin, IIKO_CLIENT_SECRET: clientSecret } = process.env;
-  if (!appId || !apiLogin || !clientSecret) throw Object.assign(new Error('iiko credentials are not configured'), { status: 503 });
-  const result = await fetch(`${iikoApiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId, apiLogin, clientSecret }) });
+  if (!iikoAppId || !iikoApiLogin || !iikoClientSecret) throw Object.assign(new Error('iiko credentials are not configured'), { status: 503 });
+  const result = await fetch(`${iikoApiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId: iikoAppId, apiLogin: iikoApiLogin, clientSecret: iikoClientSecret }) });
   const body = await result.json().catch(() => ({}));
   if (!result.ok || !body.token) throw Object.assign(new Error(body.errorDescription ?? 'iiko authorization failed'), { status: 502 });
   iikoAccessToken = body.token;
   iikoAccessTokenExpiresAt = Date.now() + 14 * 60 * 1000;
   return iikoAccessToken;
+};
+const testIikoConnection = async (config) => {
+  const started = Date.now();
+  const auth = await fetch(`${config.apiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId: config.appId, apiLogin: config.apiLogin, clientSecret: config.clientSecret }) });
+  const authBody = await auth.json().catch(() => ({}));
+  if (!auth.ok || !authBody.token) throw Object.assign(new Error(authBody.errorDescription ?? 'iiko не принял данные авторизации'), { status: 409 });
+  const call = async (path, body) => {
+    const result = await fetch(`${config.apiBase}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authBody.token}` }, body: JSON.stringify(body) });
+    const payload = await result.json().catch(() => ({}));
+    if (!result.ok) throw Object.assign(new Error(payload.errorDescription ?? `Проверка iiko не пройдена: ${path}`), { status: 409 });
+    return payload;
+  };
+  const organizations = await call('/api/1/organizations', { organizationIds: [config.organizationId], returnAdditionalInfo: false, includeDisabled: false });
+  if (!arrayValue(organizations.organizations).some((item) => String(item.id) === config.organizationId)) throw Object.assign(new Error('У API-логина нет доступа к выбранной организации'), { status: 409 });
+  const menu = await call('/api/2/menu/by_id', { organizationIds: [config.organizationId], externalMenuId: config.externalMenuId, version: 2, language: 'ru', asyncMode: false });
+  const menuItems = arrayValue(menu.itemCategories).reduce((sum, category) => sum + arrayValue(category?.items).length, 0);
+  if (!menuItems) throw Object.assign(new Error('Выбранное внешнее меню не содержит блюд'), { status: 409 });
+  const sections = await call('/api/1/reserve/available_restaurant_sections', { organizationIds: [config.organizationId], terminalGroupIds: [config.terminalGroupId], returnSchema: true });
+  const tables = arrayValue(sections.restaurantSections).reduce((sum, section) => sum + arrayValue(section?.tables).length, 0);
+  if (!tables) throw Object.assign(new Error('В выбранной терминальной группе не найдены столы'), { status: 409 });
+  const orderTypes = await call('/api/1/deliveries/order_types', { organizationIds: [config.organizationId] });
+  const orderTypeRows = arrayValue(orderTypes.orderTypes).flatMap((item) => arrayValue(item?.items).length ? item.items : [item]);
+  if (!orderTypeRows.some((item) => String(item?.id) === config.orderTypeId)) throw Object.assign(new Error('Выбранный тип заказа недоступен организации'), { status: 409 });
+  await call('/api/1/stop_lists', { organizationIds: [config.organizationId], terminalGroupsIds: [config.terminalGroupId], returnSize: true });
+  return { organizationName: arrayValue(organizations.organizations).find((item) => String(item.id) === config.organizationId)?.name ?? '', menuItems, tables, orderTypes: orderTypeRows.length, responseMs: Date.now() - started };
 };
 const defaultItemSize = (item) => arrayValue(item?.itemSizes).find((size) => size?.isDefault) ?? arrayValue(item?.itemSizes)[0] ?? {};
 const iikoPrice = (size) => Number(arrayValue(size?.prices).find((price) => String(price?.organizationId) === iikoOrganizationId)?.price ?? arrayValue(size?.prices)[0]?.price ?? 0);
@@ -682,9 +791,9 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && path === '/api/v1/health') return json(response, 200, { ok: true, service: 'brooklynbowl-kiosk-api', time: new Date().toISOString() });
     if (request.method === 'GET' && path === '/api/v1/health/ready') {
       const database = await pool.query('select now() as now');
-      const cache = await pool.query(`select max(updated_at) as menu_updated_at,count(*) filter(where not is_hidden) as active_products from iiko_menu_items`);
-      const ready = Number(cache.rows[0].active_products) > 0;
-      return json(response, ready ? 200 : 503, { ok: ready, database: database.rows[0].now, menu: cache.rows[0], syncRunning: backgroundSyncRunning, iikoBackoffUntil: iikoRetryAfter ? new Date(iikoRetryAfter).toISOString() : null });
+      const cache = await pool.query(`select max(updated_at) as menu_updated_at,count(*) filter(where not is_hidden)::int as active_products,(select count(*)::int from products) as local_products from iiko_menu_items`);
+      const ready = Number(cache.rows[0].active_products) > 0 || Number(cache.rows[0].local_products) > 0;
+      return json(response, ready ? 200 : 503, { ok: ready, database: database.rows[0].now, menu: cache.rows[0], iikoConfigured: Boolean(iikoConnectionMetadata), syncRunning: backgroundSyncRunning, iikoBackoffUntil: iikoRetryAfter ? new Date(iikoRetryAfter).toISOString() : null });
     }
     if (request.method === 'POST' && path === '/api/v1/iiko/webhook') {
       if (!iikoWebhookToken) return json(response, 503, { error: 'Webhook is not configured' });
@@ -848,6 +957,7 @@ const server = http.createServer(async (request, response) => {
       return json(response, 200, result.rows[0]);
     }
     if (request.method === 'POST' && path === '/api/v1/orders') {
+      if (iikoConfigSwitching) return json(response, 503, { error: 'Настройки iiko обновляются. Повторите отправку через несколько секунд.' });
       const body = await readBody(request);
       if (!body.terminal_id) return json(response, 400, { error: 'Некорректный заказ' });
       enforceRequestRate(`order:${requestIp(request)}:${String(body.terminal_id)}`, 10, 5 * 60_000);
@@ -951,6 +1061,57 @@ const server = http.createServer(async (request, response) => {
     if (admin.role === 'hostess' && !hostessAllowed) throw Object.assign(new Error('Недостаточно прав'), { status: 403 });
     const actor = admin.userId ? `admin-user:${admin.userId}` : admin.scope === 'terminal' ? 'terminal-admin' : 'restaurant-admin';
     if (request.method === 'GET' && path === '/api/v1/admin/state') return json(response, 200, await publicState(url.searchParams.get('terminalId') ?? 'admin-preview'));
+    if (request.method === 'POST' && path === '/api/v1/admin/iiko-config/unlock') {
+      if (admin.role !== 'administrator') return json(response, 403, { error: 'Настройки iiko доступны только администратору' });
+      const body = await readBody(request); const password = String(body.password ?? '');
+      const attemptKey = authAttemptKey(request, 'iiko-config'); await assertAuthAllowed(attemptKey);
+      if (!await verifyAdministratorPassword(admin, password)) { await recordAuthFailure(attemptKey); return json(response, 401, { error: 'Неверный пароль администратора' }); }
+      await clearAuthFailures(attemptKey);
+      await audit(actor, 'unlock', 'iiko_connection', 'active', null, { expiresInMinutes: 5 });
+      return json(response, 200, { token: sign({ admin: true, configAccess: true, scope: 'restaurant', role: 'administrator', userId: admin.userId ?? null, exp: Date.now() + 5 * 60_000 }), expiresIn: 300 });
+    }
+    if (request.method === 'GET' && path === '/api/v1/admin/iiko-config') {
+      requireIikoConfigAccess(request);
+      return json(response, 200, { ...safeIikoConfig(), allowedApiBases: [...allowedIikoApiBases], webhookUrl: 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1/iiko/webhook' });
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/iiko-config/test') {
+      const configAdmin = requireIikoConfigAccess(request); const body = await readBody(request); const candidate = candidateIikoConfig(body);
+      enforceRequestRate(`iiko-config-test:${requestIp(request)}:${String(configAdmin.userId ?? 'master')}`, 5, 10 * 60_000);
+      const result = await testIikoConnection(candidate);
+      await audit(actor, 'test', 'iiko_connection', 'candidate', null, { ...result, organizationId: candidate.organizationId, terminalGroupId: candidate.terminalGroupId, externalMenuId: candidate.externalMenuId });
+      return json(response, 200, { result, testToken: sign({ configTest: true, configHash: iikoConfigHash(candidate), userId: configAdmin.userId ?? null, result, exp: Date.now() + 5 * 60_000 }) });
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/iiko-config/apply') {
+      const configAdmin = requireIikoConfigAccess(request); const body = await readBody(request); const candidate = candidateIikoConfig(body);
+      enforceRequestRate(`iiko-config-apply:${requestIp(request)}:${String(configAdmin.userId ?? 'master')}`, 3, 10 * 60_000);
+      const tested = verify(body.testToken);
+      if (!tested?.configTest || tested.configHash !== iikoConfigHash(candidate) || String(tested.userId ?? '') !== String(configAdmin.userId ?? '')) return json(response, 409, { error: 'Сначала проверьте именно эту конфигурацию ещё раз' });
+      const previousRow = iikoConnectionMetadata; const previousConfig = previousRow ? configFromRow(previousRow) : runtimeIikoConfig(); const before = safeIikoConfig(previousRow);
+      const encrypted = encryptIikoCredentials({ appId: candidate.appId, apiLogin: candidate.apiLogin, clientSecret: candidate.clientSecret, webhookToken: candidate.webhookToken });
+      iikoConfigSwitching = true; let restoreOk = true;
+      try {
+        const saved = await pool.query(`insert into iiko_connection_settings(id,api_base,organization_id,terminal_group_id,external_menu_id,order_type_id,order_source_key,credentials_ciphertext,credentials_iv,credentials_tag,configured_by,last_test_at,last_test_details)
+          values('active',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),$11)
+          on conflict(id) do update set api_base=excluded.api_base,organization_id=excluded.organization_id,terminal_group_id=excluded.terminal_group_id,external_menu_id=excluded.external_menu_id,order_type_id=excluded.order_type_id,order_source_key=excluded.order_source_key,
+          credentials_ciphertext=excluded.credentials_ciphertext,credentials_iv=excluded.credentials_iv,credentials_tag=excluded.credentials_tag,configured_by=excluded.configured_by,last_test_at=excluded.last_test_at,last_test_details=excluded.last_test_details,updated_at=now() returning *`,
+        [candidate.apiBase,candidate.organizationId,candidate.terminalGroupId,candidate.externalMenuId,candidate.orderTypeId,candidate.orderSourceKey,encrypted.ciphertext,encrypted.iv,encrypted.tag,actor,JSON.stringify(tested.result ?? {})]);
+        iikoConnectionMetadata = saved.rows[0]; applyRuntimeIikoConfig(candidate);
+        const [menuCount, tableCount] = await Promise.all([syncIikoMenu(), syncIikoTables()]);
+        await fetchIikoStopLists([candidate.terminalGroupId]);
+        const after = safeIikoConfig(saved.rows[0]); await audit(actor, 'activate', 'iiko_connection', 'active', before, after);
+        await publishEvent('iiko_connection_changed', 'iiko_connection', 'active', { actor, organizationId: candidate.organizationId, menuCount, tableCount }, candidate.organizationId);
+        return json(response, 200, { config: after, sync: { menuItems: menuCount, tables: tableCount } });
+      } catch (error) {
+        try {
+          if (previousRow) await pool.query(`update iiko_connection_settings set api_base=$1,organization_id=$2,terminal_group_id=$3,external_menu_id=$4,order_type_id=$5,order_source_key=$6,credentials_ciphertext=$7,credentials_iv=$8,credentials_tag=$9,configured_by=$10,last_test_at=$11,last_test_details=$12,updated_at=$13 where id='active'`,
+            [previousRow.api_base,previousRow.organization_id,previousRow.terminal_group_id,previousRow.external_menu_id,previousRow.order_type_id,previousRow.order_source_key,previousRow.credentials_ciphertext,previousRow.credentials_iv,previousRow.credentials_tag,previousRow.configured_by,previousRow.last_test_at,previousRow.last_test_details,previousRow.updated_at]);
+          else await pool.query("delete from iiko_connection_settings where id='active'");
+          iikoConnectionMetadata = previousRow; applyRuntimeIikoConfig(previousConfig);
+          if (previousConfig.appId && previousConfig.apiLogin && previousConfig.clientSecret && previousConfig.organizationId) await Promise.all([syncIikoMenu(), syncIikoTables(), fetchIikoStopLists([previousConfig.terminalGroupId])]);
+        } catch (restoreError) { restoreOk = false; console.error('Unable to restore previous iiko configuration:', restoreError); }
+        throw error;
+      } finally { iikoConfigSwitching = !restoreOk; }
+    }
     if (request.method === 'GET' && path === '/api/v1/admin/orders') {
       const filter = url.searchParams.get('filter') === 'all' ? 'all' : 'active';
       const result = await pool.query(`select o.order_number,o.iiko_order_id,o.iiko_pos_id,o.table_number,coalesce(t.label,'') as terminal_label,o.items,o.total,o.status_step,
@@ -1127,6 +1288,7 @@ const syncActiveIikoOrders = async () => {
 };
 const backgroundSync = async () => {
   if (backgroundSyncRunning) return;
+  if (!iikoAppId || !iikoApiLogin || !iikoClientSecret || !iikoOrganizationId) return;
   backgroundSyncRunning = true;
   try {
     const results = await Promise.allSettled([syncIikoMenu(), syncIikoTables(), fetchIikoStopLists(iikoTerminalGroupId ? [iikoTerminalGroupId] : [])]);
@@ -1140,6 +1302,7 @@ const backgroundSync = async () => {
   finally { backgroundSyncRunning = false; }
 };
 
+await loadStoredIikoConfig();
 server.listen(port, '127.0.0.1', () => {
   console.log(`Zakaz API listening on ${port}`);
   setTimeout(() => { void backgroundSync(); }, 3_000);

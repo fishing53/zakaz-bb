@@ -85,7 +85,7 @@ export interface AdminOrder {
   creationStatus: string | null;
   source: 'tablet' | 'qr' | 'waiter';
   createdAt: string;
-  updatedAt: string;
+  updatedAt: string | null;
   completedAt: string | null;
   history: Array<{ eventType: string; payload: Record<string, unknown>; createdAt: string }>;
 }
@@ -100,6 +100,39 @@ export interface AdminDiagnostics {
   webhook: { ok: boolean; errors24h: number; events24h: number; lastEventAt: string | null };
   iikoSync: { ok: boolean; errors24h: number; backoffUntil: string | null };
   incidents: Array<{ component: string; severity: 'warning' | 'error' | 'critical'; message: string; context: Record<string, unknown>; createdAt: string }>;
+}
+
+export interface IikoConnectionConfig {
+  apiBase: string;
+  organizationId: string;
+  terminalGroupId: string;
+  externalMenuId: string;
+  orderTypeId: string;
+  orderSourceKey: string;
+  appIdConfigured: boolean;
+  apiLoginConfigured: boolean;
+  clientSecretConfigured: boolean;
+  webhookTokenConfigured: boolean;
+  updatedAt: string;
+  configuredBy: string;
+  lastTestAt: string | null;
+  lastTestDetails: Record<string, unknown> | null;
+  allowedApiBases: string[];
+  webhookUrl: string;
+}
+
+export interface IikoConnectionDraft {
+  apiBase: string; appId: string; apiLogin: string; clientSecret: string;
+  organizationId: string; terminalGroupId: string; externalMenuId: string;
+  orderTypeId: string; orderSourceKey: string; webhookToken: string;
+}
+
+export interface IikoConnectionTest {
+  organizationName: string;
+  menuItems: number;
+  tables: number;
+  orderTypes: number;
+  responseMs: number;
 }
 
 export interface TerminalSettings {

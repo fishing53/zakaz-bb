@@ -86,13 +86,14 @@ npm run preview
 DATABASE_URL=postgres://user:password@host:5432/database
 TOKEN_SECRET=replace-with-a-long-random-value
 ADMIN_PASSWORD_HASH=sha256-hash-of-admin-password
+IIKO_CONFIG_ENCRYPTION_KEY=64-hex-characters
 ```
 
 Секреты, пароли и ключи развёртывания не коммитятся. `menu.json` используется как исходный набор данных; в работающем продукте изменения меню вносятся через сервер и админ-панель.
 
 ## iiko Cloud API
 
-Интеграция с iiko Cloud API подготовлена на сервере: внешнее меню, столы, создание заказа, статусы кухни, webhook-и и стоп-лист. Полная инструкция по настройке, переменным окружения, запросам, rate limit и проверке — [docs/IIKO_CLOUD_API.md](docs/IIKO_CLOUD_API.md).
+Интеграция с iiko Cloud API подготовлена на сервере: внешнее меню, столы, создание заказа, статусы кухни, webhook-и и стоп-лист. Подключение ресторана выполняется в защищённом блоке «Проверка iiko» после повторного ввода пароля администратора. Полная инструкция по запросам, rate limit и проверке — [docs/IIKO_CLOUD_API.md](docs/IIKO_CLOUD_API.md).
 
 ## Android и kiosk-режим
 

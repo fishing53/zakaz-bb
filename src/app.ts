@@ -20,7 +20,7 @@ import { adminPage } from './pages/admin';
 import { debounce, formatPrice } from './utils/helpers';
 import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
-import type { AdminDiagnostics, AdminOrder, Banner, Product } from './types/menu';
+import type { AdminDiagnostics, AdminOrder, Banner, IikoConnectionConfig, IikoConnectionDraft, Product } from './types/menu';
 import type { AdminUserProfile, WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
 
@@ -41,6 +41,10 @@ let adminUserProfiles: AdminUserProfile[] = [];
 let adminBanners: Banner[] = [];
 let adminOrders: AdminOrder[] = [];
 let adminDiagnostics: AdminDiagnostics | null = null;
+let iikoConfigAccessToken = '';
+let adminIikoConfig: IikoConnectionConfig | null = null;
+let iikoConfigTestToken = '';
+let iikoConfigLockTimer = 0;
 let adminOrderFilter: 'active' | 'all' = 'active';
 let adminOrderRefreshTimer = 0;
 const updateSearch = debounce((value: string) => {
@@ -63,7 +67,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig) : '';
   }
 }
 
@@ -112,6 +116,11 @@ async function loadAdminDiagnostics(notify = true) {
     adminDiagnostics = await apiService.diagnostics();
     if (notify) render();
   } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось проверить систему'); }
+}
+
+function readIikoConfigDraft(): IikoConnectionDraft {
+  const value = (name: string) => root.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-iiko-config="${name}"]`)?.value.trim() ?? '';
+  return { apiBase: value('apiBase'), appId: value('appId'), apiLogin: value('apiLogin'), clientSecret: value('clientSecret'), organizationId: value('organizationId'), terminalGroupId: value('terminalGroupId'), externalMenuId: value('externalMenuId'), orderTypeId: value('orderTypeId'), orderSourceKey: value('orderSourceKey'), webhookToken: value('webhookToken') };
 }
 
 function updateModalTotal() {
@@ -253,7 +262,7 @@ async function action(element: HTMLElement) {
     } catch (error) { flash(error instanceof Error ? error.message : 'Неверный пароль'); }
     return;
   }
-  if (type === 'logout-admin') { apiService.logout(); appStore.set({ adminAuthenticated: false, adminScope: null, adminRole: null, adminTab: 'terminal' }); router.go('welcome'); return; }
+  if (type === 'logout-admin') { apiService.logout(); clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; appStore.set({ adminAuthenticated: false, adminScope: null, adminRole: null, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
     const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'staff' | 'quality' | 'audit';
     appStore.set({ adminTab });
@@ -262,11 +271,53 @@ async function action(element: HTMLElement) {
     if (adminTab === 'banners') apiService.banners().then((items) => { adminBanners = items; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'orders') void loadAdminOrders();
     if (adminTab === 'quality') void loadAdminDiagnostics();
+    else { clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; }
     return;
   }
   if (type === 'set-admin-order-filter') { adminOrderFilter = element.dataset.orderFilter === 'all' ? 'all' : 'active'; await loadAdminOrders(); return; }
   if (type === 'refresh-admin-orders') { await loadAdminOrders(); flash('Заказы обновлены'); return; }
   if (type === 'refresh-admin-diagnostics') { await loadAdminDiagnostics(); flash('Проверка обновлена'); return; }
+  if (type === 'unlock-iiko-config') {
+    const password = root.querySelector<HTMLInputElement>('[data-iiko-config-password]')?.value ?? '';
+    try {
+      const access = await apiService.unlockIikoConfig(password); iikoConfigAccessToken = access.token;
+      adminIikoConfig = await apiService.iikoConfig(access.token); iikoConfigTestToken = ''; render();
+      clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = window.setTimeout(() => { iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; if (router.current() === 'admin' && appStore.get().adminTab === 'quality') render(); }, access.expiresIn * 1000);
+    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось открыть настройки iiko'); }
+    return;
+  }
+  if (type === 'test-iiko-config') {
+    const button = element as HTMLButtonElement; const resultBox = root.querySelector<HTMLElement>('[data-iiko-test-result]');
+    try {
+      button.disabled = true; if (resultBox) { resultBox.dataset.state = 'loading'; resultBox.textContent = 'Проверяем авторизацию, меню, столы, тип заказа и стоп-лист…'; }
+      const checked = await apiService.testIikoConfig(iikoConfigAccessToken, readIikoConfigDraft()); iikoConfigTestToken = checked.testToken;
+      if (resultBox) { resultBox.dataset.state = 'success'; resultBox.textContent = `${checked.result.organizationName}: ${checked.result.menuItems} блюд, ${checked.result.tables} столов, ответ ${checked.result.responseMs} мс. Конфигурацию можно применить.`; }
+      const applyButton = root.querySelector<HTMLButtonElement>('[data-action="apply-iiko-config"]'); if (applyButton) applyButton.disabled = false;
+    } catch (error) { iikoConfigTestToken = ''; if (resultBox) { resultBox.dataset.state = 'error'; resultBox.textContent = error instanceof Error ? error.message : 'Проверка iiko не пройдена'; } }
+    finally { button.disabled = false; }
+    return;
+  }
+  if (type === 'generate-iiko-webhook-token') {
+    const field = root.querySelector<HTMLInputElement>('[data-iiko-config="webhookToken"]');
+    if (field) { const bytes = crypto.getRandomValues(new Uint8Array(32)); field.value = [...bytes].map((value) => value.toString(16).padStart(2, '0')).join(''); field.dispatchEvent(new Event('input', { bubbles: true })); }
+    return;
+  }
+  if (type === 'copy-iiko-webhook-token') {
+    const value = root.querySelector<HTMLInputElement>('[data-iiko-config="webhookToken"]')?.value ?? '';
+    if (!value) { flash('Сначала создайте или введите новый webhook-токен'); return; }
+    try { await navigator.clipboard.writeText(value); flash('Новый webhook-токен скопирован'); } catch { flash('Не удалось скопировать токен'); }
+    return;
+  }
+  if (type === 'apply-iiko-config') {
+    const button = element as HTMLButtonElement; const resultBox = root.querySelector<HTMLElement>('[data-iiko-test-result]');
+    try {
+      button.disabled = true; if (resultBox) { resultBox.dataset.state = 'loading'; resultBox.textContent = 'Применяем настройки и обновляем меню, столы и стоп-лист…'; }
+      const applied = await apiService.applyIikoConfig(iikoConfigAccessToken, readIikoConfigDraft(), iikoConfigTestToken);
+      clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null;
+      await loadAdminDiagnostics(false); await syncServer(true); flash(`iiko подключена: ${applied.sync.menuItems} блюд, ${applied.sync.tables} столов`);
+    } catch (error) { button.disabled = false; if (resultBox) { resultBox.dataset.state = 'error'; resultBox.textContent = error instanceof Error ? error.message : 'Не удалось применить настройки'; } }
+    return;
+  }
   if (type === 'create-waiter') { try { const name = root.querySelector<HTMLInputElement>('[data-admin-waiter="name"]')?.value.trim() ?? ''; const pin = root.querySelector<HTMLInputElement>('[data-admin-waiter="pin"]')?.value ?? ''; await apiService.createWaiter({ name, pin }); waiterProfiles = await apiService.waiters(); flash('Официант добавлен'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить официанта'); } return; }
   if (type === 'save-waiter' || type === 'toggle-waiter') { try { const id = element.dataset.waiterId ?? ''; const pin = root.querySelector<HTMLInputElement>(`[data-waiter-pin="${CSS.escape(id)}"]`)?.value ?? ''; const isActive = type === 'toggle-waiter' ? element.dataset.waiterActive === 'true' : undefined; await apiService.updateWaiter(id, { pin, isActive }); waiterProfiles = await apiService.waiters(); flash('Доступ обновлён'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось обновить доступ'); } return; }
   if (type === 'create-admin-user') { try { const field = (name: string) => root.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-admin-user="${name}"]`); await apiService.createAdminUser({ name: field('name')?.value.trim() ?? '', username: field('username')?.value.trim() ?? '', password: field('password')?.value ?? '', role: field('role')?.value === 'administrator' ? 'administrator' : 'hostess' }); adminUserProfiles = await apiService.adminUsers(); flash('Сотрудник добавлен'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить сотрудника'); } return; }
@@ -684,6 +735,11 @@ export function startApp() {
     const target = event.target as HTMLInputElement | HTMLTextAreaElement;
     if (target.dataset.action === 'search') updateSearch(target.value);
     if (target.dataset.action === 'set-comment') updateComment(target.value);
+    if ('iikoConfig' in target.dataset) {
+      iikoConfigTestToken = '';
+      const applyButton = root.querySelector<HTMLButtonElement>('[data-action="apply-iiko-config"]'); if (applyButton) applyButton.disabled = true;
+      const resultBox = root.querySelector<HTMLElement>('[data-iiko-test-result]'); if (resultBox) { resultBox.dataset.state = ''; resultBox.textContent = 'После изменений снова выполните проверку подключения.'; }
+    }
     resetInactivity();
   });
   root.addEventListener('change', (event) => {
@@ -691,6 +747,11 @@ export function startApp() {
     if (target) action(target);
     const productSelect = event.target as HTMLSelectElement;
     if (productSelect.matches('[data-admin-product-select]')) appStore.set({ adminProductId: productSelect.value });
+    if (productSelect.matches('[data-iiko-config]')) {
+      iikoConfigTestToken = '';
+      const applyButton = root.querySelector<HTMLButtonElement>('[data-action="apply-iiko-config"]'); if (applyButton) applyButton.disabled = true;
+      const resultBox = root.querySelector<HTMLElement>('[data-iiko-test-result]'); if (resultBox) { resultBox.dataset.state = ''; resultBox.textContent = 'После изменений снова выполните проверку подключения.'; }
+    }
     resetInactivity();
   });
   root.addEventListener('touchstart', (event) => {
