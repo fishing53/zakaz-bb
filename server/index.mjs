@@ -569,7 +569,7 @@ const publicModifierGroups = (groups) => arrayValue(groups).map((group) => ({
   name: String(group?.name ?? 'Дополнения'), minQuantity: Number(group?.restrictions?.minQuantity ?? 0), maxQuantity: Number(group?.restrictions?.maxQuantity ?? 99), freeQuantity: Number(group?.restrictions?.freeQuantity ?? 0),
   items: arrayValue(group?.items).filter((item) => item?.itemId && !item?.isHidden).map((item) => {
     const restrictions = arrayValue(item?.restrictions)[0] ?? {};
-    return { productId: String(item.itemId), name: String(item.name ?? ''), price: iikoPrice(item), defaultQuantity: Number(restrictions.byDefault ?? 0), minQuantity: Number(restrictions.minQuantity ?? 0), maxQuantity: Number(restrictions.maxQuantity ?? 1) };
+    return { productId: String(item.itemId), name: String(item.name ?? ''), price: iikoPrice(item), image: String(item.buttonImageUrl ?? ''), defaultQuantity: Number(restrictions.byDefault ?? 0), minQuantity: Number(restrictions.minQuantity ?? 0), maxQuantity: Number(restrictions.maxQuantity ?? 1) };
   }),
 })).filter((group) => group.items.length);
 const syncIikoMenu = async () => {
@@ -798,6 +798,7 @@ const normalizeIikoOrder = async (input) => {
         amount: modifierAmount,
         name: String(modifierItem.name ?? ''),
         price: iikoPrice(modifierItem),
+        image: String(modifierItem.buttonImageUrl || '/images/sauce-fallback.webp'),
         ...(binding.productGroupId ? { productGroupId: binding.productGroupId } : {}),
       };
     });

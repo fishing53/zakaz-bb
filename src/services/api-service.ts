@@ -52,7 +52,7 @@ const product = (item: ServerProduct): Product => ({
   id: item.id, sku: item.sku, name: item.name, category: item.category, price_rub: Number(item.price_rub), portion: item.portion, unit: item.unit, description: item.description,
   kbju: item.kbju, image: assetUrl(item.image), source_url: item.source_url, sauce_options: item.sauce_options ?? [], sauce_addon_price_rub: item.sauce_addon_price_rub ?? undefined,
   addon_options: item.addon_options ?? [], flavor_options: item.flavor_options ?? [], size_option: item.size_option ?? undefined, pairs_with: item.pairs_with ?? [], recommendations_note: item.recommendations_note ?? undefined,
-  modifier_groups: item.modifier_groups ?? [],
+  modifier_groups: (item.modifier_groups ?? []).map((group) => ({ ...group, items: group.items.map((modifier) => ({ ...modifier, image: assetUrl(modifier.image || '/images/sauce-fallback.webp') })) })),
 });
 const display = (item: ServerProduct): ProductDisplaySettings => ({ badge: item.badge ?? '', unavailable: !item.is_available, imagePosition: item.image_position ?? 'center', allergens: item.allergens ?? '', spicy: item.spicy ?? 'none' });
 const banner = (item: ServerBanner): Banner => ({ id: String(item.id), name: item.name, image: assetUrl(item.image_url), productId: item.product_id ?? null, kind: item.kind, active: item.active, startsAt: item.starts_at, endsAt: item.ends_at, impressionLimit: item.impression_limit === null ? null : Number(item.impression_limit), impressions: Number(item.impressions), sortOrder: Number(item.sort_order) });

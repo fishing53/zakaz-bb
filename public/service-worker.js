@@ -1,5 +1,5 @@
-const CACHE = 'brooklyn-kiosk-v56';
-const UI_IMAGES = ['./images/home-mascot.png', './images/waiter-character.png', './images/inactivity-character.png', './images/stop-list-stamp.png'];
+const CACHE = 'brooklyn-kiosk-v57';
+const UI_IMAGES = ['./images/home-mascot.png', './images/waiter-character.png', './images/inactivity-character.png', './images/stop-list-stamp.png', './images/sauce-fallback.webp'];
 const APP_SHELL = ['./', './index.html', './manifest.webmanifest', ...UI_IMAGES];
 
 self.addEventListener('install', (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())));

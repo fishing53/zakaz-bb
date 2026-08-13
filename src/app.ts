@@ -401,7 +401,7 @@ async function action(element: HTMLElement) {
     const relatedIds = [...root.querySelectorAll<HTMLElement>('.related-choice.is-selected')].map((item) => item.dataset.productId ?? '');
     const quantity = Number(root.querySelector<HTMLElement>('[data-modal-quantity]')?.textContent ?? 1);
     const related = relatedIds.map((id) => menuService.find(id)).filter((item): item is Product => Boolean(item));
-    const modifiers = [...root.querySelectorAll<HTMLElement>('[data-iiko-modifier="true"].is-selected')].map((item) => ({ productId: item.dataset.productId ?? '', name: item.dataset.value ?? '', amount: 1, price: Number(item.dataset.price ?? 0) })).filter((item) => item.productId);
+    const modifiers = [...root.querySelectorAll<HTMLElement>('[data-iiko-modifier="true"].is-selected')].map((item) => ({ productId: item.dataset.productId ?? '', name: item.dataset.value ?? '', amount: 1, price: Number(item.dataset.price ?? 0), image: item.dataset.image || '/images/sauce-fallback.webp' })).filter((item) => item.productId);
     orderStore.addBundle(product, { addon: valueAt('Добавки'), flavor: valueAt('Вкус'), ...(modifiers.length ? { modifiers } : {}) }, sauces, related, quantity);
     transientToast('Выбранные позиции добавлены в заказ');
     return;
