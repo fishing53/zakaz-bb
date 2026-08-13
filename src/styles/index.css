@@ -817,7 +817,8 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
    choice and the persistent order action live in the right column. */
 .product-overlay { padding: 0; place-items: stretch; background: #080808; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .product-overlay .product-modal { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; display: grid; grid-template-columns: minmax(0,46%) minmax(420px,54%); grid-template-rows: minmax(0,1fr); overflow: hidden; border: 0; border-radius: 0; background: #101010; box-shadow: none; }
-.product-overlay .product-modal__visual { width: 100%; height: 100dvh; min-height: 0; position: relative; top: auto; border-right: 1px solid rgba(255,255,255,.09); background: linear-gradient(90deg,transparent 58%,rgba(16,16,16,.3) 76%,#101010 100%),var(--image) var(--image-position,center)/cover; }
+.product-overlay .product-modal__visual { width: 100%; height: 100dvh; min-height: 0; position: relative; top: auto; border-right: 0; background: var(--image) var(--image-position,center)/cover; }
+.product-overlay .product-modal__visual::after { position: absolute; z-index: 1; inset: 0 -1px 0 48%; content: ''; pointer-events: none; background: linear-gradient(90deg,transparent 0,rgba(16,16,16,.18) 38%,rgba(16,16,16,.72) 76%,#101010 100%); }
 .product-overlay .product-modal__body { width: 100%; height: 100dvh; min-height: 0; margin: 0; padding: 0; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; background: #101010; }
 .product-overlay .product-modal__scroll { min-height: 0; padding: clamp(25px,3vw,46px) clamp(28px,3.4vw,54px) 24px; overflow-y: auto; overscroll-behavior: contain; }
 .product-overlay .product-modal__back { margin-bottom: clamp(13px,2vh,23px); }
@@ -832,7 +833,8 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 }
 @media (max-width: 699px) {
   .product-overlay .product-modal { grid-template-columns: 1fr; grid-template-rows: minmax(190px,34dvh) minmax(0,1fr); }
-  .product-overlay .product-modal__visual { width: 100%; height: auto; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.09); background: linear-gradient(0deg,#101010 0%,transparent 40%),var(--image) var(--image-position,center)/cover; }
+  .product-overlay .product-modal__visual { width: 100%; height: auto; border-right: 0; border-bottom: 0; background: var(--image) var(--image-position,center)/cover; }
+  .product-overlay .product-modal__visual::after { inset: 42% 0 -1px; background: linear-gradient(0deg,#101010 0%,rgba(16,16,16,.55) 43%,transparent 100%); }
   .product-overlay .product-modal__body { height: auto; }
   .product-overlay .product-modal__scroll { padding: 18px 20px 14px; }
   .product-overlay .product-modal__submit { width: calc(100% - 40px); margin: 0 20px 18px !important; }
@@ -875,3 +877,14 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .product-overlay .product-modal__visual .product-modal__back { min-height: 46px; margin: 0; padding: 0 19px; position: absolute; z-index: 2; top: clamp(18px,2.5vw,34px); left: clamp(18px,2.5vw,34px); color: #111; border: 0; border-radius: 999px; background: #fff; box-shadow: 0 10px 28px rgba(0,0,0,.32); transition: transform .2s ease,box-shadow .2s ease; }
 .product-overlay .product-modal__visual .product-modal__back:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(0,0,0,.4); }
 .product-overlay .product-modal__visual .product-modal__back:active { transform: scale(.97); }
+.product-overlay .product-modal__composition { margin-top: 17px; }
+.product-overlay .product-modal__composition h3,.product-overlay .nutrition-details__heading h3 { margin: 0; color: #fff; font: 700 .92rem/1 "Roboto Condensed",sans-serif; letter-spacing: .07em; text-transform: uppercase; }
+.product-overlay .product-modal__composition .product-modal__description { margin: 9px 0 15px; }
+.product-overlay .nutrition-details { margin-top: 18px; padding: 17px 0 0; overflow: visible; border: 0; border-top: 1px solid rgba(255,255,255,.16); border-radius: 0; background: transparent; }
+.product-overlay .nutrition-details__heading { margin-bottom: 13px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.product-overlay .nutrition-details__heading small { color: rgba(255,255,255,.48); font: 700 .58rem/1 "Roboto Condensed",sans-serif; letter-spacing: .1em; }
+.product-overlay .nutrition-details .nutrition { padding: 0; }
+.product-overlay .nutrition-details .nutrition > div { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; }
+.product-overlay .nutrition-details .nutrition span { min-height: 52px; padding: 0; display: grid; align-content: center; gap: 4px; border: 0; border-radius: 0; background: transparent; }
+.product-overlay .nutrition-details .nutrition b { color: var(--accent); font: 700 1.22rem/1 "Roboto Condensed",sans-serif; }
+.product-overlay .nutrition-details .nutrition small { color: #fff; font: 700 .59rem/1 "Roboto Condensed",sans-serif; letter-spacing: .07em; }

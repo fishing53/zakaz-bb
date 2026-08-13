@@ -25,14 +25,14 @@ export function productModal(product: Product | undefined, display: ProductDispl
   return `<div class="overlay product-overlay" data-action="close-product">
     <section class="product-modal">
       <button class="modal__close" data-action="close-product" aria-label="Вернуться к меню">${icon('close')}</button>
-      <div class="product-modal__visual" ${imageStyle(product.image, display.imagePosition)}><button class="product-modal__back" data-action="close-product">${icon('arrow')}<span>К меню</span></button></div>
+      <div class="product-modal__visual" ${imageStyle(product.image, display.imagePosition)}><button class="product-modal__back" data-action="close-product"><span>К меню</span></button></div>
       <div class="product-modal__body">
         <div class="product-modal__scroll">
           <h2><span>${escapeHtml(product.name)}</span>${product.portion || product.unit ? `<small class="product-modal__weight">, ${escapeHtml(product.portion)} ${escapeHtml(product.unit)}</small>` : ''}</h2>
           <div class="product-modal__price"><strong>${formatPrice(product.price_rub)}</strong></div>
-          <p class="product-modal__description">${escapeHtml(product.description || 'Подробное описание блюда уточнит официант.')}</p>
+          <section class="product-modal__composition"><h3>Состав</h3><p class="product-modal__description">${escapeHtml(product.description || 'Состав блюда уточнит официант.')}</p></section>
           <div class="product-facts">${spicyLabel(display.spicy)}<span class="product-fact product-fact--allergens" data-product-allergens data-base-allergens="${escapeHtml(baseAllergens)}">${allergens ? `Аллергены: ${escapeHtml(allergens)}` : 'Аллергены уточняйте у официанта'}</span></div>
-          ${product.kbju ? `<details class="nutrition-details"><summary><span>Состав и КБЖУ</span><small>Показать подробности</small>${icon('plus')}</summary><div class="nutrition"><div><span>${icon('flame')}<b>${escapeHtml(product.kbju.calories)}</b>ккал</span><span>${icon('plate')}<b>${escapeHtml(product.kbju.protein)}</b>белки</span><span>${icon('heart')}<b>${escapeHtml(product.kbju.fat)}</b>жиры</span><span>${icon('plus')}<b>${escapeHtml(product.kbju.carbs)}</b>углеводы</span></div></div></details>` : ''}
+          ${product.kbju ? `<section class="nutrition-details"><header class="nutrition-details__heading"><h3>КБЖУ</h3><small>НА 100 Г</small></header><div class="nutrition"><div><span><b>${escapeHtml(product.kbju.calories)}</b><small>ККАЛ</small></span><span><b>${escapeHtml(product.kbju.protein)}</b><small>БЕЛКИ</small></span><span><b>${escapeHtml(product.kbju.fat)}</b><small>ЖИРЫ</small></span><span><b>${escapeHtml(product.kbju.carbs)}</b><small>УГЛЕВОДЫ</small></span></div></div></section>` : ''}
           ${choice('Соусы', product.sauce_options, true, saucePrice)}
           ${choice('Добавки', product.addon_options)}
           ${choice('Вкус', product.flavor_options)}
