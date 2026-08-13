@@ -42,7 +42,26 @@ await pool.query(`
     shown_at timestamptz not null default now(),
     unique (banner_id, terminal_id, exposure_bucket)
   );
-  drop table if exists promotions;
+  create table if not exists promotions (
+    id bigserial primary key,
+    restaurant_id text not null,
+    code text not null,
+    name text not null,
+    iiko_discount_type_id text not null,
+    iiko_discount_name text not null,
+    discount_type text not null check(discount_type in ('percent','fixed')),
+    value numeric not null check(value > 0),
+    min_order_total integer not null default 0 check(min_order_total >= 0),
+    active boolean not null default true,
+    starts_at timestamptz,
+    ends_at timestamptz,
+    usage_limit integer check(usage_limit is null or usage_limit > 0),
+    uses_count integer not null default 0 check(uses_count >= 0),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    check(ends_at is null or starts_at is null or ends_at > starts_at)
+  );
+  create unique index if not exists promotions_restaurant_code_idx on promotions(restaurant_id,upper(code));
   create table if not exists terminals (
     id text primary key, label text not null default '', table_number text not null default '', is_active boolean not null default true, idle_seconds integer not null default 45 check (idle_seconds >= 15 and idle_seconds <= 600),
     created_at timestamptz not null default now(), updated_at timestamptz not null default now(), last_seen_at timestamptz not null default now()

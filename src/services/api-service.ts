@@ -1,4 +1,4 @@
-import type { AdminDiagnostics, AdminOrder, Banner, CartLine, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoConnectionTest, IikoRestaurantOptions, Product, ProductDisplaySettings, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
+import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, CartLine, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoConnectionTest, IikoDiscountOption, IikoRestaurantOptions, Product, ProductDisplaySettings, PromoRule, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
 import { Capacitor } from '@capacitor/core';
 
 let token = sessionStorage.getItem('zakaz-admin-token') ?? '';
@@ -84,6 +84,9 @@ export const apiService = {
     const data = await request<ServerOrder>('/orders', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, items: value.items, total: value.total, comment: value.comment, promo_code: value.promoCode, client_request_id: value.requestId }) });
     return order(data);
   },
+  validatePromotion(code: string, subtotal: number) {
+    return request<PromoRule>('/promotions/validate', { method: 'POST', body: JSON.stringify({ code, subtotal }) });
+  },
   async tables() {
     const data = await request<{ tables: Array<{ table_id: string; section_name: string; table_number: string; table_name: string }> }>(`/tables?terminalId=${terminalId}`);
     return data.tables.map((item): RestaurantTable => ({ id: item.table_id, section: item.section_name, number: item.table_number, name: item.table_name }));
@@ -124,6 +127,20 @@ export const apiService = {
     const data = await request<ServerBanner[]>('/admin/banners');
     return data.map(banner);
   },
+  async promotions(refresh = false) {
+    const data = await request<{ promotions: Array<{ id: number | string; code: string; name: string; iiko_discount_type_id: string; iiko_discount_name: string; discount_type: 'percent' | 'fixed'; value: number; min_order_total: number; active: boolean; starts_at: string | null; ends_at: string | null; usage_limit: number | null; uses_count: number }>; iikoDiscounts: IikoDiscountOption[] }>(`/admin/promotions${refresh ? '?refresh=1' : ''}`);
+    return {
+      promotions: data.promotions.map((item): AdminPromotion => ({ id: String(item.id), code: item.code, name: item.name, iikoDiscountTypeId: item.iiko_discount_type_id, iikoDiscountName: item.iiko_discount_name, discountType: item.discount_type, value: Number(item.value), minOrderTotal: Number(item.min_order_total), active: item.active, startsAt: item.starts_at, endsAt: item.ends_at, usageLimit: item.usage_limit === null ? null : Number(item.usage_limit), usesCount: Number(item.uses_count) })),
+      iikoDiscounts: data.iikoDiscounts,
+    };
+  },
+  createPromotion(value: { code: string; name: string; iikoDiscountTypeId: string; active: boolean; startsAt: string | null; endsAt: string | null; usageLimit: number | null }) {
+    return request('/admin/promotions', { method: 'POST', body: JSON.stringify({ code: value.code, name: value.name, iiko_discount_type_id: value.iikoDiscountTypeId, active: value.active, starts_at: value.startsAt, ends_at: value.endsAt, usage_limit: value.usageLimit }) });
+  },
+  updatePromotion(id: string, value: { active: boolean }) {
+    return request(`/admin/promotions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(value) });
+  },
+  deletePromotion(id: string) { return request<void>(`/admin/promotions/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
   async createBanner(value: Omit<Banner, 'id' | 'impressions'>) {
     const data = await request<ServerBanner>('/admin/banners', { method: 'POST', body: JSON.stringify({ name: value.name, image_url: value.image, product_id: value.productId, kind: value.kind, active: value.active, starts_at: value.startsAt, ends_at: value.endsAt, impression_limit: value.impressionLimit, sort_order: value.sortOrder }) });
     return banner(data);

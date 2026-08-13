@@ -20,7 +20,7 @@ import { adminPage } from './pages/admin';
 import { debounce, formatPrice } from './utils/helpers';
 import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
-import type { AdminDiagnostics, AdminOrder, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoRestaurantOptions, Product } from './types/menu';
+import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoDiscountOption, IikoRestaurantOptions, Product } from './types/menu';
 import type { AdminUserProfile, WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
 
@@ -39,6 +39,8 @@ let auditLog: Array<{ action: string; entity: string; entity_id: string; created
 let waiterProfiles: WaiterProfile[] = [];
 let adminUserProfiles: AdminUserProfile[] = [];
 let adminBanners: Banner[] = [];
+let adminPromotions: AdminPromotion[] = [];
+let adminIikoDiscounts: IikoDiscountOption[] = [];
 let adminOrders: AdminOrder[] = [];
 let adminDiagnostics: AdminDiagnostics | null = null;
 let iikoConfigAccessToken = '';
@@ -67,14 +69,14 @@ function page() {
     case 'welcome': return welcomePage(state.banners);
     case 'table': return tablePage(state.tables);
     case 'menu': return menuPage(menuService.categories(), menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay, menuService.ready());
-    case 'order': return orderPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment, state.promoCode);
+    case 'order': return orderPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment, state.promoCode, state.promoRule);
     case 'orders': return ordersPage(state.orders);
     case 'payment': return paymentPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment);
     case 'status': {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts) : '';
   }
 }
 
@@ -125,6 +127,15 @@ async function loadAdminDiagnostics(notify = true) {
   } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось проверить систему'); }
 }
 
+async function loadAdminPromotions(notify = true, refresh = false) {
+  try {
+    const data = await apiService.promotions(refresh);
+    adminPromotions = data.promotions;
+    adminIikoDiscounts = data.iikoDiscounts;
+    if (notify) render();
+  } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось загрузить промокоды'); }
+}
+
 function readIikoConnectionSelection(): IikoConnectionSelection {
   const value = (name: string) => root.querySelector<HTMLSelectElement>(`[data-iiko-selection="${name}"]`)?.value ?? '';
   return { discoveryToken: iikoDiscovery?.discoveryToken ?? '', organizationId: iikoSelectedOrganizationId, terminalGroupId: value('terminalGroupId'), externalMenuId: value('externalMenuId') };
@@ -159,7 +170,7 @@ function updateModalTotal() {
       .map((value) => value.trim())
       .filter(Boolean);
     const uniqueAllergens = [...new Map(allergens.map((value) => [value.toLocaleLowerCase('ru-RU'), value])).values()];
-    allergenLabel.textContent = uniqueAllergens.length ? `Аллергены: ${uniqueAllergens.join(', ')}` : 'Аллергены уточняйте у официанта';
+    allergenLabel.textContent = uniqueAllergens.length ? uniqueAllergens.join(', ') : 'Уточняйте у официанта.';
   }
   const total = root.querySelector<HTMLElement>('[data-modal-total]');
   if (total) total.textContent = formatPrice((product.price_rub + sauceTotal + iikoTotal) * quantity + relatedTotal);
@@ -297,11 +308,12 @@ async function action(element: HTMLElement) {
   }
   if (type === 'logout-admin') { apiService.logout(); clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; appStore.set({ adminAuthenticated: false, adminScope: null, adminRole: null, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
-    const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'staff' | 'quality' | 'audit';
+    const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'promotions' | 'staff' | 'quality' | 'audit';
     appStore.set({ adminTab });
     if (adminTab === 'audit') apiService.audit().then((items) => { auditLog = items; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'staff') Promise.all([apiService.waiters(), apiService.adminUsers()]).then(([waiters, users]) => { waiterProfiles = waiters; adminUserProfiles = users; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'banners') apiService.banners().then((items) => { adminBanners = items; render(); }).catch((error) => flash(error.message));
+    if (adminTab === 'promotions') void loadAdminPromotions();
     if (adminTab === 'orders') void loadAdminOrders();
     if (adminTab === 'quality') void loadAdminDiagnostics();
     else { clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; }
@@ -310,6 +322,7 @@ async function action(element: HTMLElement) {
   if (type === 'set-admin-order-filter') { adminOrderFilter = element.dataset.orderFilter === 'all' ? 'all' : 'active'; await loadAdminOrders(); return; }
   if (type === 'refresh-admin-orders') { await loadAdminOrders(); flash('Заказы обновлены'); return; }
   if (type === 'refresh-admin-diagnostics') { await loadAdminDiagnostics(); flash('Проверка обновлена'); return; }
+  if (type === 'refresh-promotions') { await loadAdminPromotions(true, true); flash('Скидки iiko обновлены'); return; }
   if (type === 'unlock-iiko-config') {
     const password = root.querySelector<HTMLInputElement>('[data-iiko-config-password]')?.value ?? '';
     try {
@@ -593,10 +606,54 @@ async function action(element: HTMLElement) {
     catch (error) { flash(error instanceof Error ? error.message : 'Не удалось удалить баннер'); }
     return;
   }
+  if (type === 'create-promotion') {
+    const input = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => root.querySelector<T>(`[data-promotion-create="${name}"]`);
+    const date = (name: string) => input<HTMLInputElement>(name)?.value ? new Date(input<HTMLInputElement>(name)!.value).toISOString() : null;
+    try {
+      await apiService.createPromotion({
+        code: input<HTMLInputElement>('code')?.value.trim().toUpperCase() ?? '',
+        name: input<HTMLInputElement>('name')?.value.trim() ?? '',
+        iikoDiscountTypeId: input<HTMLSelectElement>('iikoDiscountTypeId')?.value ?? '',
+        active: true,
+        startsAt: date('startsAt'),
+        endsAt: date('endsAt'),
+        usageLimit: Number(input<HTMLInputElement>('usageLimit')?.value || 0) || null,
+      });
+      await loadAdminPromotions();
+      flash('Промокод создан');
+    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось создать промокод'); }
+    return;
+  }
+  if (type === 'toggle-promotion') {
+    const id = element.dataset.promotionId ?? '';
+    const current = adminPromotions.find((item) => item.id === id);
+    if (!current) return;
+    try { await apiService.updatePromotion(id, { active: !current.active }); await loadAdminPromotions(); flash(current.active ? 'Промокод отключён' : 'Промокод включён'); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Не удалось изменить промокод'); }
+    return;
+  }
+  if (type === 'delete-promotion') {
+    const id = element.dataset.promotionId ?? '';
+    if (!confirm('Удалить этот промокод?')) return;
+    try { await apiService.deletePromotion(id); await loadAdminPromotions(); flash('Промокод удалён'); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Не удалось удалить промокод'); }
+    return;
+  }
   if (type === 'apply-promo') {
     const code = root.querySelector<HTMLInputElement>('[data-action="set-promo"]')?.value.trim().toUpperCase() ?? '';
-    appStore.set({ promoCode: code, pendingOrderRequestId: null });
-    flash(code === 'BOWL10' ? 'Промокод применён: скидка 10%' : 'Промокод не найден. Попробуйте BOWL10');
+    if (!code) { flash('Введите промокод'); return; }
+    try {
+      const promoRule = await apiService.validatePromotion(code, orderStore.subtotal());
+      appStore.set({ promoCode: promoRule.code, promoRule, pendingOrderRequestId: null });
+      flash(`Промокод применён: −${formatPrice(promoRule.discount)}`);
+    } catch (error) {
+      appStore.set({ promoCode: '', promoRule: null, pendingOrderRequestId: null });
+      flash(error instanceof Error ? error.message : 'Промокод не найден');
+    }
+    return;
+  }
+  if (type === 'remove-promo') {
+    appStore.set({ promoCode: '', promoRule: null, pendingOrderRequestId: null });
     return;
   }
   if (type === 'save-display') {
@@ -660,7 +717,7 @@ async function action(element: HTMLElement) {
       await orderService.submit();
       // No intermediate render: clearing the cart while still on the review
       // route used to trigger its empty-cart guard before status could open.
-      appStore.set({ cart: [], comment: '', promoCode: '' }, false);
+      appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null }, false);
       router.go('status');
     } catch (error) {
       button.disabled = false;
@@ -699,6 +756,7 @@ function finishInactiveSession() {
       comment: '',
       orderType: null,
       promoCode: '',
+      promoRule: null,
       productId: null,
       serviceOpen: false,
       upsellId: null,

@@ -1,4 +1,4 @@
-import type { Banner, CartLine, OrderType, ProductDisplaySettings, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
+import type { Banner, CartLine, OrderType, ProductDisplaySettings, PromoRule, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
 import { storage } from '../services/storage';
 
 export interface AppState {
@@ -13,7 +13,7 @@ export interface AppState {
   adminScope: 'terminal' | 'restaurant' | null;
   adminRole: 'administrator' | 'hostess' | 'terminal_manager' | null;
   adminProductId: string | null;
-  adminTab: 'terminal' | 'orders' | 'menu' | 'banners' | 'staff' | 'quality' | 'audit';
+  adminTab: 'terminal' | 'orders' | 'menu' | 'banners' | 'promotions' | 'staff' | 'quality' | 'audit';
   inactivityWarning: boolean;
   inactivitySeconds: number;
   orderNumber: string | null;
@@ -21,6 +21,7 @@ export interface AppState {
   selectedOrderId: string | null;
   orderType: OrderType;
   promoCode: string;
+  promoRule: PromoRule | null;
   pendingOrderRequestId: string | null;
   productId: string | null;
   pwaUpdateReady: boolean;
@@ -61,6 +62,7 @@ let state: AppState = {
   inactivitySeconds: 15,
   productId: null,
   promoCode: '',
+  promoRule: null,
   pwaUpdateReady: false,
   search: '',
   serviceOpen: false,
@@ -95,5 +97,5 @@ export const appStore = {
     if (notify) subscribers.forEach((subscriber) => subscriber(state));
   },
   subscribe(subscriber: (value: AppState) => void) { subscribers.add(subscriber); return () => subscribers.delete(subscriber); },
-  resetOrder() { this.set({ cart: [], comment: '', orderNumber: null, orderType: null, promoCode: '', pendingOrderRequestId: null, productId: null, serviceOpen: false, statusStep: 0, upsellId: null, inactivityWarning: false, inactivitySeconds: 15 }); },
+  resetOrder() { this.set({ cart: [], comment: '', orderNumber: null, orderType: null, promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, serviceOpen: false, statusStep: 0, upsellId: null, inactivityWarning: false, inactivitySeconds: 15 }); },
 };

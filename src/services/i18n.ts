@@ -11,7 +11,7 @@ const en: Record<string, string> = {
   'ВЫ НЕДАВНО СМОТРЕЛИ': 'RECENTLY VIEWED', 'Вернуться к выбору': 'Choose again',
   'Ничего не нашли. Попробуйте другой запрос.': 'Nothing found. Try another search.',
   'Добавить в заказ': 'Add to order', 'В заказ': 'Add', 'Соусы': 'Sauces', 'Добавки': 'Extras', 'Вкус': 'Flavor',
-  'выбрано': 'selected', 'Состав': 'Ingredients', 'Состав и КБЖУ': 'Ingredients & nutrition', 'Показать подробности': 'Show details',
+  'выбрано': 'selected', 'Состав': 'Ingredients', 'Состав и КБЖУ': 'Ingredients & nutrition', 'Состав, КБЖУ и аллергены': 'Ingredients, nutrition & allergens', 'Аллергены': 'Allergens', 'Показать подробности': 'Show details',
   'Аллергены уточняйте у официанта': 'Ask a waiter about allergens', 'Острое': 'Spicy', 'Слегка острое': 'Mildly spicy',
   'ВАШ ВЫБОР': 'YOUR SELECTION', 'Состав заказа': 'Order breakdown', 'Основное блюдо ×': 'Main dish ×',
   'Соусы ×': 'Sauces ×', 'Дополнительно ×': 'Extras ×',
@@ -20,8 +20,8 @@ const en: Record<string, string> = {
   'Идеально с этим блюдом': 'Perfect with this dish', 'Можно выбрать несколько позиций': 'You can select several items',
   'Ваш': 'Your', 'заказ': 'order', 'Проверьте позиции перед оформлением.': 'Review the items before checkout.',
   'Ваш заказ пока пуст. В меню найдется много интересного.': 'Your order is empty. Explore our menu.',
-  'Итог заказа': 'Order summary', 'Комментарий': 'Comment', 'Промокод': 'Promo code', 'Применить': 'Apply',
-  'Блюда': 'Items', 'Скидка': 'Discount', 'К оплате': 'Total', 'Оформить заказ': 'Checkout',
+  'ВАШ ЗАКАЗ': 'YOUR ORDER', 'Комментарий для кухни': 'Note for the kitchen', 'ПРОМОКОД': 'PROMO CODE', 'Если он у вас есть': 'If you have one', 'Применить': 'Apply',
+  'Заказ': 'Order', 'Скидка по промокоду': 'Promo discount', 'К оплате': 'Total', 'Оформить заказ': 'Checkout',
   'Подтвердите': 'Confirm your',
   'Подтвердить заказ': 'Confirm order', 'Нажимая кнопку, вы соглашаетесь с правилами обслуживания.': 'By clicking, you agree to the service terms.',
   'СЕРВИС': 'SERVICE', 'Что вам нужно?': 'How can we help?', 'Мы рядом и готовы помочь.': 'We are nearby and ready to help.',
@@ -49,7 +49,7 @@ const en: Record<string, string> = {
 
 const placeholders: Record<string, string> = {
   'Поиск блюд...': 'Search dishes...', 'Например: без лука, пожалуйста': 'For example: no onions, please',
-  'Например: BOWL10': 'For example: BOWL10', 'Пароль': 'Password',
+  'Введите код': 'Enter code', 'Пароль': 'Password',
 };
 
 export function applyLanguage(root: HTMLElement, language: 'ru' | 'en') {

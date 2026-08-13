@@ -527,6 +527,56 @@ const iikoRequest = async (path, body) => {
   }
   return payload;
 };
+let iikoDiscountCache = { restaurantId: '', expiresAt: 0, items: [] };
+const iikoDiscountOptions = async (force = false) => {
+  if (!force && iikoDiscountCache.restaurantId === iikoOrganizationId && iikoDiscountCache.expiresAt > Date.now()) return iikoDiscountCache.items;
+  if (!iikoOrganizationId) return [];
+  const payload = await iikoRequest('/api/1/discounts', { organizationIds: [iikoOrganizationId] });
+  const wrappers = Array.isArray(payload?.discounts) ? payload.discounts : [];
+  const items = wrappers.flatMap((wrapper) => Array.isArray(wrapper?.items) ? wrapper.items : [])
+    .filter((item) => !item?.isDeleted && item?.isManual && !item?.isAutomatic && !item?.isCategorisedDiscount)
+    .map((item) => {
+      const percent = Math.max(0, Number(item.percent ?? 0));
+      const fixed = Math.max(0, Number(item.sum ?? 0));
+      return {
+        id: String(item.id ?? ''),
+        name: String(item.name ?? 'Скидка iiko').trim(),
+        discountType: percent > 0 ? 'percent' : 'fixed',
+        value: percent > 0 ? percent : Math.round(fixed),
+        minOrderTotal: Math.max(0, Math.round(Number(item.minOrderSum ?? 0))),
+      };
+    })
+    .filter((item) => /^[0-9a-f-]{36}$/i.test(item.id) && item.value > 0);
+  iikoDiscountCache = { restaurantId: iikoOrganizationId, expiresAt: Date.now() + 5 * 60_000, items };
+  return items;
+};
+const resolvePromotion = async (rawCode, subtotal) => {
+  const code = String(rawCode ?? '').trim().toUpperCase();
+  if (!code) return null;
+  const result = await pool.query(`select * from promotions where restaurant_id=$1 and upper(code)=upper($2) and active=true and (starts_at is null or starts_at<=now()) and (ends_at is null or ends_at>now()) and (usage_limit is null or uses_count<usage_limit) limit 1`, [iikoOrganizationId, code]);
+  if (!result.rowCount) throw Object.assign(new Error('Промокод не найден или срок его действия закончился'), { status: 400 });
+  const row = result.rows[0];
+  const safeSubtotal = Math.max(0, Math.round(Number(subtotal ?? 0)));
+  if (safeSubtotal < Number(row.min_order_total)) throw Object.assign(new Error(`Промокод действует от ${Number(row.min_order_total)} ₽`), { status: 400 });
+  const value = Number(row.value);
+  const discount = Math.min(safeSubtotal, row.discount_type === 'percent' ? Math.round(safeSubtotal * value / 100) : Math.round(value));
+  return { id: String(row.id), code: row.code, name: row.name, discountType: row.discount_type, value, discount, iikoDiscountTypeId: row.iiko_discount_type_id };
+};
+const promotionInput = async (body) => {
+  const code = String(body.code ?? '').trim().toUpperCase();
+  const name = String(body.name ?? '').trim();
+  const iikoDiscountTypeId = String(body.iiko_discount_type_id ?? '').trim();
+  const startsAt = body.starts_at ? new Date(body.starts_at) : null;
+  const endsAt = body.ends_at ? new Date(body.ends_at) : null;
+  const usageLimit = body.usage_limit === null || body.usage_limit === undefined || body.usage_limit === '' ? null : Number(body.usage_limit);
+  if (!/^[A-ZА-ЯЁ0-9][A-ZА-ЯЁ0-9_-]{2,31}$/u.test(code)) throw Object.assign(new Error('Код: от 3 до 32 символов, только буквы, цифры, «-» и «_»'), { status: 400 });
+  if (!name || name.length > 120) throw Object.assign(new Error('Укажите название акции'), { status: 400 });
+  if ((startsAt && Number.isNaN(startsAt.getTime())) || (endsAt && Number.isNaN(endsAt.getTime())) || (startsAt && endsAt && endsAt <= startsAt)) throw Object.assign(new Error('Проверьте период действия промокода'), { status: 400 });
+  if (usageLimit !== null && (!Number.isInteger(usageLimit) || usageLimit < 1)) throw Object.assign(new Error('Лимит должен быть положительным целым числом'), { status: 400 });
+  const discount = (await iikoDiscountOptions()).find((item) => item.id === iikoDiscountTypeId);
+  if (!discount) throw Object.assign(new Error('Выберите доступную ручную скидку iiko'), { status: 400 });
+  return { code, name, iikoDiscountTypeId, iikoDiscountName: discount.name, discountType: discount.discountType, value: discount.value, minOrderTotal: discount.minOrderTotal, active: body.active !== false, startsAt, endsAt, usageLimit };
+};
 const getIikoAccessToken = async () => {
   if (iikoAccessToken && iikoAccessTokenExpiresAt > Date.now()) return iikoAccessToken;
   if (!iikoAppId || !iikoApiLogin || !iikoClientSecret) throw Object.assign(new Error('iiko credentials are not configured'), { status: 503 });
@@ -770,9 +820,8 @@ const normalizeOrder = async (input) => {
     subtotal += Number(product.price_rub) * quantity;
     return { key: ['product', product.id, addon, flavor].filter(Boolean).join('|'), productId: product.id, kind: 'product', customName: product.name, customPrice: Number(product.price_rub), ...(addon ? { addon } : {}), ...(flavor ? { flavor } : {}), quantity };
   });
-  const promoCode = String(input.promo_code ?? '').trim().toUpperCase();
-  const discount = promoCode === 'BOWL10' ? Math.round(subtotal * 0.1) : 0;
-  return { items, total: Math.max(0, subtotal - discount), promoCode };
+  const promotion = await resolvePromotion(input.promo_code, subtotal);
+  return { items, total: Math.max(0, subtotal - (promotion?.discount ?? 0)), promoCode: promotion?.code ?? '', promotion };
 };
 const normalizeIikoOrder = async (input) => {
   if (!Array.isArray(input.items) || !input.items.length || input.items.length > 50) throw Object.assign(new Error('Некорректный состав заказа'), { status: 400 });
@@ -819,10 +868,13 @@ const normalizeIikoOrder = async (input) => {
     items.push({ key: `product|${product.product_id}|${modifiers.map((modifier) => modifier.productId).join(',')}`, productId: product.product_id, kind: 'product', customName: product.name, customPrice: Number(product.price_rub), quantity: amount, ...(modifiers.length ? { modifiers } : {}) });
   }
   if (!items.length) throw Object.assign(new Error('В заказе нет блюд'), { status: 400 });
+  const subtotal = Math.round(total);
+  const promotion = await resolvePromotion(input.promo_code, subtotal);
   return {
     items,
-    total: Math.round(total),
-    promoCode: '',
+    total: Math.max(0, subtotal - (promotion?.discount ?? 0)),
+    promoCode: promotion?.code ?? '',
+    promotion,
     iikoItems: items.map((line) => ({
       type: 'Product',
       productId: line.productId,
@@ -849,7 +901,7 @@ const effectiveTableForTerminal = async (terminal) => {
   if (!selection.rowCount) throw Object.assign(new Error('Перед заказом выберите стол'), { status: 409 });
   return selection.rows[0];
 };
-const createIikoOrder = async ({ id = crypto.randomUUID(), number, table, items, comment }) => {
+const createIikoOrder = async ({ id = crypto.randomUUID(), number, table, items, comment, promotion = null }) => {
   if (!iikoTerminalGroupId || !iikoOrderTypeId) throw Object.assign(new Error('Интеграция iiko ещё не настроена на сервере'), { status: 503 });
   const payload = await iikoRequest('/api/1/order/create', {
     organizationId: iikoOrganizationId,
@@ -863,6 +915,7 @@ const createIikoOrder = async ({ id = crypto.randomUUID(), number, table, items,
       orderTypeId: iikoOrderTypeId,
       sourceKey: iikoOrderSourceKey,
       items,
+      ...(promotion ? { discountsInfo: { discounts: [{ type: 'RMS', discountTypeId: promotion.iikoDiscountTypeId }] } } : {}),
       comment: String(comment ?? '').slice(0, 1000),
     },
     createOrderSettings: {
@@ -1018,6 +1071,13 @@ const server = http.createServer(async (request, response) => {
         throw error;
       } finally { client.release(); }
     }
+    if (request.method === 'POST' && path === '/api/v1/promotions/validate') {
+      enforceRequestRate(`promotion:${requestIp(request)}`, 30, 60_000);
+      const body = await readBody(request);
+      const promotion = await resolvePromotion(body.code, body.subtotal);
+      if (!promotion) return json(response, 400, { error: 'Введите промокод' });
+      return json(response, 200, { code: promotion.code, name: promotion.name, discountType: promotion.discountType, value: promotion.value, discount: promotion.discount });
+    }
     if (request.method === 'GET' && path === '/api/v1/tables') {
       const terminalId = url.searchParams.get('terminalId');
       if (!terminalId || !/^[a-zA-Z0-9_-]{8,80}$/.test(terminalId)) return json(response, 400, { error: 'Invalid terminalId' });
@@ -1115,7 +1175,7 @@ const server = http.createServer(async (request, response) => {
       const table = useIiko ? await effectiveTableForTerminal(terminal.rows[0]) : { table_number: terminal.rows[0].table_number };
       const clientRequestId = String(body.client_request_id ?? '').trim();
       if (clientRequestId && !/^[a-zA-Z0-9_-]{8,100}$/.test(clientRequestId)) return json(response, 400, { error: 'Некорректный идентификатор отправки' });
-      const requestHash = sha256(JSON.stringify({ terminalId: body.terminal_id, table: table.table_number, items: order.items, comment: String(body.comment ?? ''), source: body.source === 'qr' ? 'qr' : 'tablet' }));
+      const requestHash = sha256(JSON.stringify({ terminalId: body.terminal_id, table: table.table_number, items: order.items, comment: String(body.comment ?? ''), promoCode: order.promoCode, source: body.source === 'qr' ? 'qr' : 'tablet' }));
       let number = clientRequestId ? `B-${sha256(`${iikoOrganizationId}:${clientRequestId}`).slice(0, 8).toUpperCase()}` : '';
       if (clientRequestId) {
         const existing = await pool.query('select order_number,items,total,status_step,table_number,created_at from customer_orders where restaurant_id=$1 and client_request_id=$2', [iikoOrganizationId, clientRequestId]);
@@ -1143,7 +1203,7 @@ const server = http.createServer(async (request, response) => {
         for (let attempt = 0; attempt < (clientRequestId ? 1 : 5); attempt += 1) {
           if (!number) number = `B-${crypto.randomInt(1000, 10000)}`;
           if (useIiko) {
-            const created = await createIikoOrder({ id: clientRequestId ? deterministicUuid(`${iikoOrganizationId}:${clientRequestId}`) : undefined, number, table, items: order.iikoItems, comment: body.comment });
+            const created = await createIikoOrder({ id: clientRequestId ? deterministicUuid(`${iikoOrganizationId}:${clientRequestId}`) : undefined, number, table, items: order.iikoItems, comment: body.comment, promotion: order.promotion });
             submittedIikoOrderId = created.id;
             initialIikoCreationStatus = String(created.response?.creationStatus ?? '');
           }
@@ -1163,6 +1223,7 @@ const server = http.createServer(async (request, response) => {
             throw Object.assign(new Error(`iiko не создал заказ: ${readableIikoOrderError(creation.error_info)}`), { status: 409 });
           }
         }
+        if (order.promotion?.id) await pool.query('update promotions set uses_count=uses_count+1,updated_at=now() where id=$1', [order.promotion.id]);
         if (clientRequestId) await pool.query(`update order_requests set status='success',order_number=$1,iiko_order_id=$2,updated_at=now() where restaurant_id=$3 and client_request_id=$4`, [saved.rows[0].order_number, submittedIikoOrderId, iikoOrganizationId, clientRequestId]);
       } catch (error) {
         if (clientRequestId) await pool.query(`update order_requests set status='failed',iiko_order_id=coalesce($1,iiko_order_id),error_message=$2,updated_at=now() where restaurant_id=$3 and client_request_id=$4`, [submittedIikoOrderId, String(error.message ?? 'Ошибка отправки').slice(0, 500), iikoOrganizationId, clientRequestId]);
@@ -1387,6 +1448,42 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && path === '/api/v1/admin/banners') {
       const result = await pool.query(`select b.*,coalesce((select m.product_id from iiko_menu_items m where m.sku=b.product_sku and not m.is_hidden order by m.updated_at desc limit 1),b.product_id) as product_id from banners b order by b.sort_order,b.id`);
       return json(response, 200, result.rows);
+    }
+    if (request.method === 'GET' && path === '/api/v1/admin/promotions') {
+      const [result, discounts] = await Promise.all([
+        pool.query('select * from promotions where restaurant_id=$1 order by active desc,created_at desc', [iikoOrganizationId]),
+        iikoDiscountOptions(url.searchParams.get('refresh') === '1'),
+      ]);
+      return json(response, 200, { promotions: result.rows, iikoDiscounts: discounts });
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/promotions') {
+      const value = await promotionInput(await readBody(request));
+      try {
+        const result = await pool.query(`insert into promotions(restaurant_id,code,name,iiko_discount_type_id,iiko_discount_name,discount_type,value,min_order_total,active,starts_at,ends_at,usage_limit) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`, [iikoOrganizationId, value.code, value.name, value.iikoDiscountTypeId, value.iikoDiscountName, value.discountType, value.value, value.minOrderTotal, value.active, value.startsAt, value.endsAt, value.usageLimit]);
+        await audit(actor, 'create', 'promotion', String(result.rows[0].id), null, result.rows[0]);
+        return json(response, 201, result.rows[0]);
+      } catch (error) {
+        if (error.code === '23505') return json(response, 409, { error: 'Такой промокод уже существует' });
+        throw error;
+      }
+    }
+    if (request.method === 'PUT' && path.startsWith('/api/v1/admin/promotions/')) {
+      const id = Number(path.slice('/api/v1/admin/promotions/'.length));
+      if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный промокод' });
+      const body = await readBody(request);
+      const before = await pool.query('select * from promotions where id=$1 and restaurant_id=$2', [id, iikoOrganizationId]);
+      if (!before.rowCount) return json(response, 404, { error: 'Промокод не найден' });
+      const result = await pool.query('update promotions set active=$1,updated_at=now() where id=$2 and restaurant_id=$3 returning *', [body.active === true, id, iikoOrganizationId]);
+      await audit(actor, 'update', 'promotion', String(id), before.rows[0], result.rows[0]);
+      return json(response, 200, result.rows[0]);
+    }
+    if (request.method === 'DELETE' && path.startsWith('/api/v1/admin/promotions/')) {
+      const id = Number(path.slice('/api/v1/admin/promotions/'.length));
+      if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный промокод' });
+      const result = await pool.query('delete from promotions where id=$1 and restaurant_id=$2 returning *', [id, iikoOrganizationId]);
+      if (!result.rowCount) return json(response, 404, { error: 'Промокод не найден' });
+      await audit(actor, 'delete', 'promotion', String(id), result.rows[0], null);
+      return json(response, 204, {});
     }
     if (request.method === 'POST' && path === '/api/v1/admin/products/upload') {
       const url = await saveImageUpload(await readBody(request, 12_000_000), productUploadDir, productPublicPath);

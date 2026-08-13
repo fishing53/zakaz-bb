@@ -55,6 +55,38 @@ export interface Banner {
   sortOrder: number;
 }
 
+export interface PromoRule {
+  code: string;
+  name: string;
+  discountType: 'percent' | 'fixed';
+  value: number;
+  discount: number;
+}
+
+export interface AdminPromotion {
+  id: string;
+  code: string;
+  name: string;
+  iikoDiscountTypeId: string;
+  iikoDiscountName: string;
+  discountType: 'percent' | 'fixed';
+  value: number;
+  minOrderTotal: number;
+  active: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  usageLimit: number | null;
+  usesCount: number;
+}
+
+export interface IikoDiscountOption {
+  id: string;
+  name: string;
+  discountType: 'percent' | 'fixed';
+  value: number;
+  minOrderTotal: number;
+}
+
 export interface ProductDisplaySettings {
   badge: string;
   unavailable: boolean;

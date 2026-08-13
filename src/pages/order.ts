@@ -1,8 +1,8 @@
-import type { CartLine, Product } from '../types/menu';
+import type { CartLine, Product, PromoRule } from '../types/menu';
 import { formatPrice, escapeHtml } from '../utils/helpers';
 import { icon } from '../components/icons';
 
-export function orderPage(lines: CartLine[], productFor: (line: CartLine) => Product | undefined, subtotal: number, discount: number, total: number, comment: string, promoCode: string) {
+export function orderPage(lines: CartLine[], productFor: (line: CartLine) => Product | undefined, subtotal: number, discount: number, total: number, comment: string, promoCode: string, promoRule: PromoRule | null) {
   const orderLines = lines.length ? lines.map((line) => {
     const product = productFor(line);
     if (!product) return '';
@@ -41,14 +41,18 @@ export function orderPage(lines: CartLine[], productFor: (line: CartLine) => Pro
     <div class="order-layout">
       <section class="order-lines">${orderLines}</section>
       <aside class="order-summary">
-        <h2>Итог заказа</h2>
-        <label>Комментарий<textarea data-action="set-comment" placeholder="Например: без лука, пожалуйста">${escapeHtml(comment)}</textarea></label>
-        <div class="promo-code"><label>Промокод<input data-action="set-promo" value="${escapeHtml(promoCode)}" placeholder="Например: BOWL10" /></label><button class="button button--secondary button--compact" data-action="apply-promo">Применить</button></div>
-        <small class="promo-hint">Тестовый код: <b>BOWL10</b> даёт скидку 10%</small>
-        <div class="summary-row"><span>Блюда</span><b data-order-subtotal>${formatPrice(subtotal)}</b></div>
-        <div class="summary-row summary-row--discount"><span>Скидка</span><b data-order-discount>${discount ? `−${formatPrice(discount)}` : '0 ₽'}</b></div>
-        <div class="summary-total"><span>К оплате</span><strong data-order-total>${formatPrice(total)}</strong></div>
-        <button class="button button--primary button--wide" ${lines.length ? 'data-action="navigate" data-route="payment"' : 'disabled'}>Оформить заказ ${icon('arrow')}</button>
+        <header class="order-summary__header"><span>ВАШ ЗАКАЗ</span><strong>${lines.reduce((sum, line) => sum + line.quantity, 0)} поз.</strong></header>
+        <label class="order-summary__comment"><span>Комментарий для кухни</span><textarea data-action="set-comment" placeholder="Например: без лука, пожалуйста">${escapeHtml(comment)}</textarea></label>
+        <section class="order-summary__promo ${promoRule ? 'is-applied' : ''}">
+          <div class="order-summary__promo-title"><span>ПРОМОКОД</span>${promoRule ? `<b>${escapeHtml(promoRule.name)}</b>` : '<small>Если он у вас есть</small>'}</div>
+          <div class="promo-code"><input aria-label="Промокод" data-action="set-promo" value="${escapeHtml(promoCode)}" placeholder="Введите код" ${promoRule ? 'readonly' : ''}/>${promoRule ? '<button class="promo-code__remove" data-action="remove-promo" aria-label="Удалить промокод">×</button>' : '<button class="button button--secondary button--compact" data-action="apply-promo">Применить</button>'}</div>
+        </section>
+        <div class="order-summary__receipt">
+          <div class="summary-row"><span>Заказ</span><b data-order-subtotal>${formatPrice(subtotal)}</b></div>
+          ${discount ? `<div class="summary-row summary-row--discount"><span>Скидка по промокоду</span><b data-order-discount>−${formatPrice(discount)}</b></div>` : ''}
+          <div class="summary-total"><span>К оплате</span><strong data-order-total>${formatPrice(total)}</strong></div>
+        </div>
+        <button class="button button--primary button--wide order-summary__checkout" ${lines.length ? 'data-action="navigate" data-route="payment"' : 'disabled'}><span>Оформить заказ</span><strong>${formatPrice(total)}</strong></button>
       </aside>
     </div>
   </section>`;

@@ -32,7 +32,12 @@ export const orderStore = {
     };
   },
   subtotal: () => appStore.get().cart.reduce((sum, line) => sum + linePrice(line) * line.quantity, 0),
-  discount: () => appStore.get().promoCode.trim().toUpperCase() === 'BOWL10' ? Math.round(orderStore.subtotal() * .1) : 0,
+  discount: () => {
+    const rule = appStore.get().promoRule;
+    if (!rule) return 0;
+    const subtotal = orderStore.subtotal();
+    return Math.min(subtotal, rule.discountType === 'percent' ? Math.round(subtotal * rule.value / 100) : rule.value);
+  },
   total: () => Math.max(0, orderStore.subtotal() - orderStore.discount()),
   count: () => appStore.get().cart.reduce((sum, line) => sum + line.quantity + (line.modifiers ?? []).reduce((modifierSum, modifier) => modifierSum + modifier.amount * line.quantity, 0), 0),
   add(product: Product, options: Omit<CartLine, 'key' | 'productId' | 'quantity'> = {}) {
