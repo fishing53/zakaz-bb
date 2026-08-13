@@ -1035,3 +1035,17 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   .order-summary__receipt { padding: 4px 12px 7px; }
   .order-summary .order-summary__checkout { min-height: 52px; margin: 0; }
 }
+
+/* Красные кнопки остаются акцентными за счёт цвета, без внешнего свечения. */
+.button--primary,
+.button--primary:hover,
+.welcome-order-button,
+.welcome-order-button:hover,
+.status-tablet__actions .welcome-order-button,
+.status-tablet__actions .welcome-order-button:hover,
+.welcome-home__button--order,
+.service-fab,
+.product-overlay .product-modal__submit,
+.pwa-update {
+  box-shadow: none !important;
+}
