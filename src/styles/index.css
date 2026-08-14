@@ -1094,17 +1094,31 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .app-shell--navigation .bottom-nav-blur {
   height: 123px;
 }
+.app-shell--navigation .bottom-navigation {
+  width: max-content;
+  max-width: calc(100% - 24px);
+  position: fixed;
+  z-index: 10;
+  left: 50%;
+  bottom: 17px;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  transform: translateX(-50%);
+}
 .app-shell--navigation .rail {
-  width: min(520px,calc(100% - 34px));
-  height: 65px;
-  inset: auto auto 17px 50%;
-  padding: 7px 9px;
-  gap: 6px;
+  width: max-content;
+  height: 58px;
+  position: static;
+  inset: auto;
+  padding: 4px;
+  gap: 3px;
   justify-content: center;
   border: 0;
   border-radius: 999px;
   background: #191919;
   box-shadow: 0 22px 70px rgba(0,0,0,.58);
+  transform: none;
 }
 .app-shell--navigation .rail__item,
 .app-shell--navigation .rail__item:nth-of-type(4) {
@@ -1158,10 +1172,10 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   box-shadow: none;
 }
 .app-shell--navigation .rail__item.is-active {
-  width: 156px;
-  min-width: 156px;
-  padding: 0 17px;
-  gap: 10px;
+  width: 145px;
+  min-width: 145px;
+  padding: 0 15px;
+  gap: 9px;
   color: #fff;
   background: #212121;
   box-shadow: none;
@@ -1189,26 +1203,37 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .app-shell--navigation .rail__item.is-active > small {
   right: 7px;
 }
-.app-shell--navigation .rail__item--service,
-.app-shell--navigation .rail__item--service:hover {
-  width: 142px;
-  min-width: 142px;
-  margin-left: 8px;
-  padding: 0 18px;
+.app-shell--navigation .rail__service {
+  width: 145px;
+  min-width: 145px;
+  height: 58px;
+  padding: 0 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 9px;
   color: #111;
   border: 0;
+  border-radius: 999px;
   background: #fff;
   box-shadow: none;
+  font: 700 .78rem/1 "Roboto Condensed",sans-serif;
+  letter-spacing: .025em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: background-color .2s ease,transform .18s ease;
 }
-.app-shell--navigation .rail__item--service .icon {
-  color: #111;
+.app-shell--navigation .rail__service:hover {
+  background: #f0f0f0;
 }
-.app-shell--navigation .rail__item--service > span {
-  max-width: 92px;
-  opacity: 1;
+.app-shell--navigation .rail__service:active {
+  transform: scale(.98);
+}
+.app-shell--navigation .rail__service .icon {
+  width: 23px;
+  min-width: 23px;
+  height: 23px;
   color: #111;
-  transform: none;
 }
 .app-shell--navigation.app-shell--menu .menu-content {
   padding-bottom: 128px;
@@ -1216,49 +1241,41 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 @media (max-width: 900px) {
   .app-shell--navigation.app-shell--menu .menu-content { padding-bottom: 118px; }
 }
-@media (max-width: 699px) {
-  .app-shell--navigation .rail__item--service,
-  .app-shell--navigation .rail__item--service:hover {
-    width: 50px;
-    min-width: 50px;
-    margin-left: 4px;
-    padding: 0;
-    gap: 0;
-  }
-  .app-shell--navigation .rail__item--service > span {
-    max-width: 0;
-    opacity: 0;
-  }
-}
 @media (max-width: 420px) {
+  .app-shell--navigation .bottom-navigation {
+    max-width: calc(100% - 8px);
+    bottom: 10px;
+    gap: 5px;
+  }
   .app-shell--navigation .rail {
-    width: calc(100% - 24px);
-    height: 60px;
-    bottom: 12px;
-    padding: 6px;
-    gap: 3px;
+    width: max-content;
+    height: 50px;
+    padding: 3px;
+    gap: 2px;
   }
   .app-shell--navigation .rail__item,
   .app-shell--navigation .rail__item:nth-of-type(4) {
-    width: 43px;
-    min-width: 43px;
-    height: 48px;
-    padding-inline: 10px;
+    width: 40px;
+    min-width: 40px;
+    height: 44px;
+    padding-inline: 8px;
   }
   .app-shell--navigation .rail__item.is-active {
-    width: 128px;
-    min-width: 128px;
-    padding-inline: 13px;
-    gap: 7px;
+    width: 108px;
+    min-width: 108px;
+    padding-inline: 9px;
+    gap: 5px;
   }
-  .app-shell--navigation .rail__item .icon { width: 21px; min-width: 21px; height: 21px; }
-  .app-shell--navigation .rail__item > span { font-size: .65rem; }
-  .app-shell--navigation .rail__item.is-active > span { max-width: 90px; }
-  .app-shell--navigation .rail__item--service,
-  .app-shell--navigation .rail__item--service:hover {
-    width: 43px;
-    min-width: 43px;
-    height: 43px;
-    margin-left: 2px;
+  .app-shell--navigation .rail__item .icon { width: 19px; min-width: 19px; height: 19px; }
+  .app-shell--navigation .rail__item > span { font-size: .61rem; }
+  .app-shell--navigation .rail__item.is-active > span { max-width: 76px; }
+  .app-shell--navigation .rail__service {
+    width: 108px;
+    min-width: 108px;
+    height: 50px;
+    padding-inline: 10px;
+    gap: 5px;
+    font-size: .61rem;
   }
+  .app-shell--navigation .rail__service .icon { width: 19px; min-width: 19px; height: 19px; }
 }
