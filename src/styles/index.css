@@ -1279,3 +1279,50 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   }
   .app-shell--navigation .rail__service .icon { width: 19px; min-width: 19px; height: 19px; }
 }
+
+/* Search uses the same neutral surface as the bottom navigation. */
+.menu-toolbar .search-box,
+.menu-toolbar .search-box:focus-within,
+.menu-toolbar .search-box.is-open,
+.menu-toolbar .search-box:has(input:not(:placeholder-shown)) {
+  border-color: transparent;
+  background: #191919;
+}
+
+/* On phones the complete order is one predictable scroll surface. The kiosk
+   shell remains locked while the title, lines and receipt move together. */
+@media (max-width: 680px) {
+  .app-shell--navigation .order-page {
+    height: calc(100dvh - 122px);
+    min-height: 0;
+    padding: 0 2px 26px 0;
+    display: block;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+  .app-shell--navigation .order-page > .page-heading {
+    margin: 0 0 18px;
+  }
+  .app-shell--navigation .order-layout {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    gap: 16px;
+    overflow: visible;
+  }
+  .app-shell--navigation .order-lines {
+    min-height: 0;
+    max-height: none;
+    padding: 0;
+    overflow: visible;
+  }
+  .app-shell--navigation .order-summary {
+    min-height: 0;
+    height: auto;
+    overflow: visible;
+  }
+}
