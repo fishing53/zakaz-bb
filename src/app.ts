@@ -702,6 +702,11 @@ async function action(element: HTMLElement) {
     router.go('status');
     return;
   }
+  if (type === 'new-order') {
+    appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, upsellId: null });
+    router.go('menu');
+    return;
+  }
   if (type === 'submit-order') {
     if (!orderStore.count()) { router.go('menu'); flash('Добавьте блюда в заказ'); return; }
     if (submittingOrder) return;
@@ -781,9 +786,15 @@ function refreshMenuResults() {
 
 async function syncServer(includeAudit = false) {
   try {
+    const previous = appStore.get();
     const data = await apiService.bootstrap();
     setCatalog(data.products);
-    appStore.set({ banners: data.banners, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId: appStore.get().selectedOrderId ?? data.orders[0]?.id ?? null, orderNumber: appStore.get().orderNumber ?? data.orders[0]?.id ?? null });
+    const selectedOrderId = previous.selectedOrderId ?? data.orders[0]?.id ?? null;
+    const previousOrder = previous.orders.find((item) => item.id === selectedOrderId);
+    const nextOrder = data.orders.find((item) => item.id === selectedOrderId);
+    const statusChanged = previousOrder?.statusStep !== nextOrder?.statusStep || Boolean(previousOrder) !== Boolean(nextOrder);
+    const shouldRender = router.current() !== 'status' || statusChanged;
+    appStore.set({ banners: data.banners, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId, orderNumber: previous.orderNumber ?? data.orders[0]?.id ?? null }, shouldRender);
     appStore.set({ isOnline: true }, false);
     if (includeAudit) auditLog = await apiService.audit();
   } catch (error) {
