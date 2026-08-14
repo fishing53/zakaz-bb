@@ -20,4 +20,6 @@ const paths: Record<string, string> = {
   serviceHelp: '<path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 8.6 8.6 0 0 1-3.3-.7L4 20l1.5-4A7.2 7.2 0 0 1 4 11.5 7.5 7.5 0 0 1 12 4a7.5 7.5 0 0 1 8 7.5Z"/><path d="M10.2 9.5a2 2 0 1 1 3.4 1.4c-.9.8-1.6 1.2-1.6 2.6M12 16h.01"/>',
 };
 
-export const icon = (name: keyof typeof paths, className = '') => `<svg class="icon ${className}" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;
+export type IconName = keyof typeof paths;
+
+export const icon = (name: IconName, className = '') => `<svg class="icon ${className}" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;

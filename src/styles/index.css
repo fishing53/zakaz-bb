@@ -1088,3 +1088,131 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   .app-shell--status .status-tablet__status-column { grid-template-rows: auto minmax(220px,42vh) auto; }
   .app-shell--status .status-tablet__order { min-height: 280px; }
 }
+
+/* Compact icon-first navigation. Inactive destinations stay quiet; the
+   current destination expands into a readable neutral capsule. */
+.app-shell--navigation .bottom-nav-blur {
+  height: 123px;
+}
+.app-shell--navigation .rail {
+  width: min(520px,calc(100% - 34px));
+  height: 65px;
+  inset: auto auto 17px 50%;
+  padding: 7px 9px;
+  gap: 6px;
+  justify-content: center;
+  border-radius: 23px;
+}
+.app-shell--navigation .rail__item,
+.app-shell--navigation .rail__item:nth-of-type(4) {
+  width: 50px;
+  min-width: 50px;
+  height: 50px;
+  padding: 0 14px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  overflow: visible;
+  color: #fff;
+  border-radius: 15px;
+  background: transparent;
+  box-shadow: none;
+  transition: width .34s cubic-bezier(.22,1,.36,1),
+              min-width .34s cubic-bezier(.22,1,.36,1),
+              padding .34s cubic-bezier(.22,1,.36,1),
+              gap .34s cubic-bezier(.22,1,.36,1),
+              background-color .24s ease;
+}
+.app-shell--navigation .rail__item .icon {
+  width: 23px;
+  min-width: 23px;
+  height: 23px;
+  color: #fff;
+  filter: none;
+  transition: transform .3s cubic-bezier(.22,1,.36,1);
+}
+.app-shell--navigation .rail__item > span {
+  display: block;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  color: #fff;
+  font: 700 .78rem/1 "Roboto Condensed",sans-serif;
+  letter-spacing: .025em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: translateX(-5px);
+  transition: max-width .34s cubic-bezier(.22,1,.36,1),
+              opacity .2s ease,
+              transform .34s cubic-bezier(.22,1,.36,1);
+}
+.app-shell--navigation .rail__item:hover {
+  color: #fff;
+  background: rgba(255,255,255,.055);
+  box-shadow: none;
+}
+.app-shell--navigation .rail__item.is-active {
+  width: 156px;
+  min-width: 156px;
+  padding: 0 17px;
+  gap: 10px;
+  color: #fff;
+  background: #303030;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.075);
+}
+.app-shell--navigation .rail__item.is-active:hover {
+  background: #303030;
+}
+.app-shell--navigation .rail__item.is-active .icon {
+  color: #fff;
+  filter: none;
+  transform: scale(1.04);
+}
+.app-shell--navigation .rail__item.is-active > span {
+  max-width: 108px;
+  opacity: 1;
+  transform: translateX(0);
+}
+.app-shell--navigation .rail__item.is-active::after {
+  display: none;
+}
+.app-shell--navigation .rail__item > small {
+  top: 1px;
+  right: 1px;
+}
+.app-shell--navigation .rail__item.is-active > small {
+  right: 7px;
+}
+.app-shell--navigation.app-shell--menu .menu-content {
+  padding-bottom: 128px;
+}
+@media (max-width: 900px) {
+  .app-shell--navigation.app-shell--menu .menu-content { padding-bottom: 118px; }
+}
+@media (max-width: 420px) {
+  .app-shell--navigation .rail {
+    width: calc(100% - 24px);
+    height: 60px;
+    bottom: 12px;
+    padding: 6px;
+    gap: 3px;
+  }
+  .app-shell--navigation .rail__item,
+  .app-shell--navigation .rail__item:nth-of-type(4) {
+    width: 43px;
+    min-width: 43px;
+    height: 48px;
+    padding-inline: 10px;
+  }
+  .app-shell--navigation .rail__item.is-active {
+    width: 128px;
+    min-width: 128px;
+    padding-inline: 13px;
+    gap: 7px;
+  }
+  .app-shell--navigation .rail__item .icon { width: 21px; min-width: 21px; height: 21px; }
+  .app-shell--navigation .rail__item > span { font-size: .65rem; }
+  .app-shell--navigation .rail__item.is-active > span { max-width: 90px; }
+}
