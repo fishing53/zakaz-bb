@@ -50,7 +50,6 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
   return `<section class="live-status ${ready ? 'is-ready' : ''} ${served ? 'is-served' : ''}">
     <header class="live-status__header">
       <div class="live-status__identity"><span>ЗАКАЗ <b>${escapeHtml(number ?? 'B-0000')}</b></span>${table ? `<span>СТОЛ <b>№${escapeHtml(table)}</b></span>` : ''}</div>
-      <div class="live-status__sync"><i></i><span>Статус обновляется автоматически</span></div>
     </header>
     <div class="live-status__layout">
       <main class="live-status__stage">

@@ -1412,23 +1412,6 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   font-size: 1rem;
   letter-spacing: .035em;
 }
-.live-status__sync {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: #797979;
-  font-size: .66rem;
-}
-.live-status__sync i {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 5px rgba(243,52,48,.1);
-  animation: status-sync-pulse 2.2s ease-in-out infinite;
-}
-@keyframes status-sync-pulse { 50% { opacity: .5; transform: scale(.78); } }
 .live-status__layout {
   min-width: 0;
   min-height: 0;
@@ -1761,7 +1744,6 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   .live-status__identity { gap: 5px; }
   .live-status__identity > span { min-height: 38px; padding-inline: 11px; font-size: .5rem; }
   .live-status__identity b { font-size: .82rem; }
-  .live-status__sync span { display: none; }
   .live-status__layout { grid-template-columns: 1fr; gap: 12px; }
   .live-status__stage,.live-status__receipt { border-radius: 22px; }
   .live-status__stage { min-height: 530px; padding: 22px 20px; }
