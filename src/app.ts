@@ -75,7 +75,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState, state.tables) : '';
   }
 }
 
@@ -116,6 +116,15 @@ async function loadAdminOrders(notify = true) {
     adminOrders = await apiService.adminOrders(adminOrderFilter);
     if (notify) render();
   } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось загрузить заказы'); }
+}
+
+async function loadTerminalTables() {
+  try {
+    const tables = await apiService.tables();
+    appStore.set({ tables });
+  } catch (error) {
+    flash(error instanceof Error ? error.message : 'Не удалось получить столы из iiko');
+  }
 }
 
 async function loadAdminDiagnostics(notify = true) {
@@ -322,6 +331,7 @@ async function action(element: HTMLElement) {
       appStore.set({ adminAuthenticated: true, adminLoginOpen: false, adminScope: authenticated.scope, adminRole: authenticated.role, adminTab: authenticated.scope === 'terminal' ? 'terminal' : 'orders' });
       router.go('admin');
       if (authenticated.scope === 'restaurant') void loadAdminOrders();
+      if (authenticated.scope === 'terminal') void loadTerminalTables();
     } catch (error) { flash(error instanceof Error ? error.message : 'Неверный пароль'); }
     return;
   }
@@ -335,6 +345,7 @@ async function action(element: HTMLElement) {
     if (adminTab === 'promotions') void loadAdminPromotions();
     if (adminTab === 'orders') void loadAdminOrders();
     if (adminTab === 'quality') void loadAdminDiagnostics();
+    if (adminTab === 'terminal') void loadTerminalTables();
     else { clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; }
     return;
   }
@@ -465,9 +476,33 @@ async function action(element: HTMLElement) {
   if (type === 'save-terminal') {
     const input = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => root.querySelector<T>(`[data-admin-terminal="${name}"]`);
     try {
-      const terminal = await apiService.saveTerminal({ id: apiService.terminalId, label: input<HTMLInputElement>('label')?.value.trim() ?? '', tableNumber: input<HTMLInputElement>('tableNumber')?.value.trim() ?? '', isActive: input<HTMLInputElement>('isActive')?.checked ?? true, idleSeconds: Number(input<HTMLSelectElement>('idleSeconds')?.value ?? 45) });
+      const terminal = await apiService.saveTerminal({ id: apiService.terminalId, label: input<HTMLInputElement>('label')?.value.trim() ?? '', tableId: input<HTMLInputElement>('tableId')?.value.trim() || null, tableNumber: input<HTMLInputElement>('tableNumber')?.value.trim() ?? '', isActive: input<HTMLInputElement>('isActive')?.checked ?? true, idleSeconds: Number(input<HTMLSelectElement>('idleSeconds')?.value ?? 45) });
       appStore.set({ terminal }); flash('Настройка терминала сохранена');
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить терминал'); }
+    return;
+  }
+  if (type === 'select-admin-terminal-table') {
+    const tableId = element.dataset.tableId ?? '';
+    const tableNumber = element.dataset.tableNumber ?? '';
+    const idInput = root.querySelector<HTMLInputElement>('[data-admin-terminal="tableId"]');
+    const numberInput = root.querySelector<HTMLInputElement>('[data-admin-terminal="tableNumber"]');
+    if (idInput) idInput.value = tableId;
+    if (numberInput) numberInput.value = tableNumber;
+    root.querySelectorAll<HTMLElement>('[data-action="select-admin-terminal-table"]').forEach((button) => {
+      const selected = (button.dataset.tableId ?? '') === tableId;
+      button.classList.toggle('is-selected', selected);
+      button.setAttribute('aria-pressed', String(selected));
+    });
+    const table = appStore.get().tables.find((item) => item.id === tableId);
+    const summary = root.querySelector<HTMLElement>('[data-terminal-table-summary]');
+    if (summary) summary.textContent = table ? `Стол №${table.number || table.name}` : 'Выбирает гость';
+    return;
+  }
+  if (type === 'refresh-terminal-tables') {
+    const button = element as HTMLButtonElement;
+    button.disabled = true;
+    button.textContent = 'Обновляем…';
+    await loadTerminalTables();
     return;
   }
   if (type === 'check-ota-update') {
@@ -888,6 +923,18 @@ export function startApp() {
     const target = event.target as HTMLInputElement | HTMLTextAreaElement;
     if (target.dataset.action === 'search') updateSearch(target.value);
     if (target.dataset.action === 'set-comment') updateComment(target.value);
+    if (target.dataset.action === 'filter-admin-tables') {
+      const query = target.value.trim().toLocaleLowerCase('ru-RU');
+      root.querySelectorAll<HTMLElement>('[data-table-section]').forEach((section) => {
+        let visible = 0;
+        section.querySelectorAll<HTMLElement>('[data-table-search]').forEach((card) => {
+          const matches = !query || (card.dataset.tableSearch ?? '').includes(query);
+          card.hidden = !matches;
+          if (matches) visible += 1;
+        });
+        section.hidden = visible === 0;
+      });
+    }
     resetInactivity();
   });
   root.addEventListener('change', (event) => {

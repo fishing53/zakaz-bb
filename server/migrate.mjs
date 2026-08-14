@@ -63,9 +63,10 @@ await pool.query(`
   );
   create unique index if not exists promotions_restaurant_code_idx on promotions(restaurant_id,upper(code));
   create table if not exists terminals (
-    id text primary key, label text not null default '', table_number text not null default '', is_active boolean not null default true, idle_seconds integer not null default 45 check (idle_seconds >= 15 and idle_seconds <= 600),
+    id text primary key, label text not null default '', table_id text, table_number text not null default '', is_active boolean not null default true, idle_seconds integer not null default 45 check (idle_seconds >= 15 and idle_seconds <= 600),
     created_at timestamptz not null default now(), updated_at timestamptz not null default now(), last_seen_at timestamptz not null default now()
   );
+  alter table terminals add column if not exists table_id text;
   create table if not exists app_settings (key text primary key, value jsonb not null, updated_at timestamptz not null default now());
   create table if not exists audit_log (id bigserial primary key, actor text not null, action text not null, entity text not null, entity_id text not null, before_data jsonb, after_data jsonb, created_at timestamptz not null default now());
   create table if not exists customer_orders (

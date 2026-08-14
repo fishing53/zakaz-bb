@@ -770,6 +770,7 @@ const publicState = async (terminalId) => {
     pool.query('select key, value from app_settings'),
   ]);
   const fixedTable = String(terminal.rows[0].table_number ?? '').trim();
+  const fixedTableId = String(terminal.rows[0].table_id ?? '').trim();
   const chosen = selection.rows[0];
   const effectiveTable = fixedTable || chosen?.table_number || '';
   const products = iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
@@ -779,7 +780,7 @@ const publicState = async (terminalId) => {
     pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
   })) : localProducts.rows;
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId]);
-  return { products, banners: banners.rows, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? 'guest' : null), table_id: fixedTable ? null : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
+  return { products, banners: banners.rows, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? 'guest' : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
 };
 
 const serviceTypes = new Set(['waiter', 'cutlery', 'bill', 'help']);
@@ -893,7 +894,10 @@ const normalizeIikoOrder = async (input) => {
 const effectiveTableForTerminal = async (terminal) => {
   const fixed = String(terminal.table_number ?? '').trim();
   if (fixed) {
-    const table = await pool.query('select * from iiko_tables where terminal_group_id=$1 and table_number=$2 limit 1', [iikoTerminalGroupId, fixed]);
+    const fixedId = String(terminal.table_id ?? '').trim();
+    const table = fixedId
+      ? await pool.query('select * from iiko_tables where terminal_group_id=$1 and table_id=$2 limit 1', [iikoTerminalGroupId, fixedId])
+      : await pool.query('select * from iiko_tables where terminal_group_id=$1 and table_number=$2 limit 1', [iikoTerminalGroupId, fixed]);
     if (!table.rowCount) throw Object.assign(new Error('Стол из настроек терминала не найден в iiko'), { status: 409 });
     return table.rows[0];
   }
@@ -1441,9 +1445,22 @@ const server = http.createServer(async (request, response) => {
       const id = decodeURIComponent(path.slice('/api/v1/admin/terminals/'.length));
       const body = await readBody(request);
       const before = await pool.query('select * from terminals where id = $1', [id]);
-      const result = await pool.query('insert into terminals(id, label, table_number, is_active, idle_seconds) values ($1,$2,$3,$4,$5) on conflict (id) do update set label = excluded.label, table_number = excluded.table_number, is_active = excluded.is_active, idle_seconds = excluded.idle_seconds, updated_at = now() returning *', [id, String(body.label ?? ''), String(body.table_number ?? ''), body.is_active !== false, Math.max(15, Number(body.idle_seconds ?? 45))]);
+      const requestedTableId = String(body.table_id ?? '').trim();
+      const legacyTableNumber = String(body.table_number ?? '').trim();
+      let selectedTable = null;
+      if (requestedTableId) {
+        const table = await pool.query('select table_id,table_number from iiko_tables where table_id=$1 and terminal_group_id=$2', [requestedTableId, iikoTerminalGroupId]);
+        if (!table.rowCount) return json(response, 409, { error: 'Выбранного стола больше нет в актуальной схеме iiko' });
+        selectedTable = table.rows[0];
+      } else if (legacyTableNumber) {
+        const table = await pool.query('select table_id,table_number from iiko_tables where table_number=$1 and terminal_group_id=$2 order by section_name limit 1', [legacyTableNumber, iikoTerminalGroupId]);
+        if (!table.rowCount) return json(response, 409, { error: 'Стол не найден в актуальной схеме iiko' });
+        selectedTable = table.rows[0];
+      }
+      const result = await pool.query('insert into terminals(id, label, table_id, table_number, is_active, idle_seconds) values ($1,$2,$3,$4,$5,$6) on conflict (id) do update set label = excluded.label, table_id = excluded.table_id, table_number = excluded.table_number, is_active = excluded.is_active, idle_seconds = excluded.idle_seconds, updated_at = now() returning *', [id, String(body.label ?? ''), selectedTable?.table_id ?? null, selectedTable?.table_number ?? '', body.is_active !== false, Math.max(15, Number(body.idle_seconds ?? 45))]);
+      await pool.query('delete from terminal_table_selections where terminal_id=$1', [id]);
       await audit(actor, 'update', 'terminal', id, before.rows[0] ?? null, result.rows[0]);
-      return json(response, 200, result.rows[0]);
+      return json(response, 200, { ...result.rows[0], table_source: result.rows[0].table_number ? 'admin' : null });
     }
     if (request.method === 'GET' && path === '/api/v1/admin/banners') {
       const result = await pool.query(`select b.*,coalesce((select m.product_id from iiko_menu_items m where m.sku=b.product_sku and not m.is_hidden order by m.updated_at desc limit 1),b.product_id) as product_id from banners b order by b.sort_order,b.id`);

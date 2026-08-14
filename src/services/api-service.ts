@@ -77,7 +77,7 @@ export const apiService = {
   role: () => adminRole,
   logout() { token = ''; adminScope = null; adminRole = null; sessionStorage.removeItem('zakaz-admin-token'); sessionStorage.removeItem('zakaz-admin-scope'); sessionStorage.removeItem('zakaz-admin-role'); },
   async saveTerminal(value: TerminalSettings) {
-    const data = await request<ServerTerminal>(`/admin/terminals/${encodeURIComponent(value.id)}`, { method: 'PUT', body: JSON.stringify({ label: value.label, table_number: value.tableNumber, is_active: value.isActive, idle_seconds: value.idleSeconds }) });
+    const data = await request<ServerTerminal>(`/admin/terminals/${encodeURIComponent(value.id)}`, { method: 'PUT', body: JSON.stringify({ label: value.label, table_id: value.tableId ?? '', table_number: value.tableNumber, is_active: value.isActive, idle_seconds: value.idleSeconds }) });
     return terminal(data);
   },
   async submitOrder(value: { items: CartLine[]; total: number; comment: string; promoCode: string; requestId: string }) {
