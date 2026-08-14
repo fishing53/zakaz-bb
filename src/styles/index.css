@@ -703,8 +703,24 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .payment-review__edit.button { margin-top: 8px; }
 .inactivity-dialog__cancel.button { margin-top: 9px; }
 .service-actions button { position: relative; overflow: hidden; }
-.service-actions button::before { width: 42px; height: 42px; position: absolute; top: 14px; left: 14px; content: ''; border: 1px solid rgba(255,59,48,.25); border-radius: 13px; background: linear-gradient(145deg,rgba(255,59,48,.16),rgba(255,59,48,.03)); }
-.service-actions .icon { position: relative; z-index: 1; width: 27px; height: 27px; stroke-width: 1.65; }
+.service-actions button::before { display: none; }
+.service-actions .icon { width: 42px; height: 42px; padding: 7px; position: relative; z-index: 1; justify-self: start; box-sizing: border-box; border: 1px solid rgba(255,59,48,.25); border-radius: 13px; background: linear-gradient(145deg,rgba(255,59,48,.16),rgba(255,59,48,.03)); stroke-width: 1.65; }
+@media (max-width: 780px) {
+  .service-sheet .modal__close {
+    width: 44px;
+    height: 44px;
+    position: fixed;
+    z-index: 4;
+    top: max(18px,env(safe-area-inset-top));
+    right: 18px;
+    display: grid !important;
+    place-items: center;
+    border-radius: 50%;
+  }
+  .service-sheet .modal__close .icon { width: 20px; height: 20px; }
+  .service-actions button { justify-items: start; }
+  .service-actions .icon { justify-self: start; }
+}
 
 /* Main screen: one image-only banner stage and two edge-to-edge actions. */
 .app-shell--welcome { width: 100%; height: 100dvh; min-height: 0; padding: 0; overflow: hidden; background: #050505; }
