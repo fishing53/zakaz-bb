@@ -733,6 +733,7 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .welcome-banner.is-active { opacity: 1; transform: scale(1); pointer-events: auto; }
 .welcome-banner img { width: 100%; height: 100%; object-fit: cover; object-position: center; user-select: none; }
 .welcome-banner--empty { background: url('/images/menu/0.webp') center/cover no-repeat; }
+.welcome-table-badge { position: absolute; z-index: 4; top: clamp(16px,2.1vw,30px); right: clamp(16px,2.1vw,30px); min-height: 58px; padding: 10px 23px; display: flex; align-items: center; gap: 9px; color: #111; border: 0; border-radius: 999px; background: #fff; box-shadow: 0 10px 34px rgba(0,0,0,.28); font-family: "Roboto Condensed",sans-serif; text-transform: uppercase; touch-action: manipulation; }.welcome-table-badge span { color: #777; font-size: .62rem; font-weight: 700; letter-spacing: .12em; }.welcome-table-badge strong { font-size: 1.15rem; line-height: 1; }.welcome-table-badge:active { transform: scale(.97); }
 .welcome-banner-dots { position: absolute; z-index: 3; left: 50%; bottom: 18px; display: flex; gap: 9px; transform: translateX(-50%); }
 .welcome-banner-dots button { width: 9px; height: 9px; padding: 0; border: 1px solid rgba(255,255,255,.65); border-radius: 50%; background: rgba(0,0,0,.38); box-shadow: 0 2px 9px rgba(0,0,0,.55); transition: width .2s, border-radius .2s, background .2s; }
 .welcome-banner-dots button.is-active { width: 28px; border-radius: 10px; border-color: var(--accent); background: var(--accent); }
@@ -741,7 +742,7 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .welcome-home__button:active { transform: scale(.992); filter: brightness(.9); }
 .welcome-home__button--order { color: #fff; background: linear-gradient(105deg,#cf1d19,#fb3c32); }
 .welcome-home__button--waiter { color: #111; border-left: 1px solid rgba(0,0,0,.14); background: #fff; }
-@media (max-width: 560px) { .welcome-home__button { font-size: clamp(1.05rem,5vw,1.55rem); }.welcome-banner-dots { bottom: 12px; } }
+@media (max-width: 560px) { .welcome-home__button { font-size: clamp(1.05rem,5vw,1.55rem); }.welcome-table-badge { min-height: 48px; padding: 8px 17px; gap: 7px; }.welcome-table-badge strong { font-size: .96rem; }.welcome-banner-dots { bottom: 12px; } }
 @media (prefers-reduced-motion: reduce) { .welcome-banner { transition: none; } }
 
 /* Browser admin: image upload, scheduling and advertising impression limits. */
@@ -825,8 +826,8 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 @media (max-width: 900px) { .app-shell.app-shell--admin { padding: 18px; }.app-shell--admin .admin-page { height: 100%; } }
 @media (max-width: 680px) { .app-shell.app-shell--admin { padding: 14px; }.app-shell--admin .admin-page { height: 100%; } }
 
-/* A linked banner opens its dish; the small invisible corner keeps the six-tap
-   service entrance available without stealing ordinary banner clicks. */
+/* A linked banner opens its dish immediately. The table badge owns the hidden
+   six-tap service entrance, so promotional banners keep their full behavior. */
 .welcome-banner--linked { cursor: pointer; }
 
 /* Full-screen dish workspace: photography owns the left side, while every

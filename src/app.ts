@@ -28,7 +28,6 @@ let inactivityTimer = 0;
 let inactivityCountdown = 0;
 let adminTaps = 0;
 let lastAdminTap = 0;
-let bannerTapTimer = 0;
 let submittingOrder = false;
 let bannerSwipeStart: { x: number; y: number } | null = null;
 let bannerRotationTimer = 0;
@@ -67,7 +66,7 @@ function page() {
   const state = appStore.get();
   const route = router.current();
   switch (route) {
-    case 'welcome': return welcomePage(state.banners);
+    case 'welcome': return welcomePage(state.banners, state.terminal);
     case 'table': return tablePage(state.tables);
     case 'menu': return menuPage(menuService.categories(), menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay, menuService.ready());
     case 'order': return orderPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment, state.promoCode, state.promoRule);
@@ -259,13 +258,6 @@ function transientToast(message: string) {
   window.setTimeout(() => toast.remove(), 2600);
 }
 
-function openWelcomeProduct(id: string | null) {
-  if (!id) return;
-  const recentProductIds = [id, ...appStore.get().recentProductIds.filter((item) => item !== id)].slice(0, 8);
-  appStore.set({ productId: id, upsellId: null, recentProductIds, category: 'Все блюда', search: '' });
-  router.go('menu');
-}
-
 async function loadCurrentAppVersion(notify = true) {
   try {
     const result = await otaService.current();
@@ -310,26 +302,6 @@ async function action(element: HTMLElement) {
       await syncServer();
       router.go('menu');
     } catch (error) { element.removeAttribute('disabled'); flash(error instanceof Error ? error.message : 'Не удалось выбрать стол'); }
-    return;
-  }
-  if (type === 'banner-tap') {
-    if (Date.now() < suppressBannerOpenUntil) return;
-    const now = Date.now();
-    adminTaps = now - lastAdminTap < 900 ? adminTaps + 1 : 1;
-    lastAdminTap = now;
-    clearTimeout(bannerTapTimer);
-    if (adminTaps >= 6) {
-      adminTaps = 0;
-      lastAdminTap = 0;
-      appStore.set({ adminLoginOpen: true });
-    } else {
-      const productId = element.dataset.productId ?? null;
-      bannerTapTimer = window.setTimeout(() => {
-        adminTaps = 0;
-        lastAdminTap = 0;
-        if (router.current() === 'welcome') openWelcomeProduct(productId);
-      }, 520);
-    }
     return;
   }
   if (type === 'admin-tap') {
