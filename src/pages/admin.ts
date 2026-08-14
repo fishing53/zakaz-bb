@@ -1,6 +1,14 @@
 import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoDiscountOption, IikoRestaurantOptions, Product, ProductDisplaySettings, TerminalSettings } from '../types/menu';
 import { escapeHtml, formatPrice } from '../utils/helpers';
 
+export type AdminUpdateState = {
+  phase: 'idle' | 'checking' | 'available' | 'current' | 'downloading' | 'applying' | 'error';
+  currentVersion: string;
+  latestVersion: string | null;
+  progress: number;
+  browser: boolean;
+};
+
 type AdminTab = 'terminal' | 'orders' | 'menu' | 'banners' | 'promotions' | 'staff' | 'quality' | 'audit';
 const tabs: Array<[AdminTab, string]> = [['terminal', 'Терминал'], ['orders', 'Заказы'], ['menu', 'Витрина'], ['banners', 'Баннеры'], ['promotions', 'Промокоды'], ['staff', 'Официанты'], ['quality', 'Проверка iiko'], ['audit', 'Журнал']];
 const productLabel = (item: Product) => `${item.sku ? `${item.sku} · ` : ''}${item.category} · ${item.name}`;
@@ -22,7 +30,23 @@ type AdminUser = { id: string; username: string; display_name: string; role: 'ad
 const statusNames = ['Принят', 'На кухне', 'Готовится', 'Готов', 'Подан'];
 const compactDate = (value: string | null) => value ? new Date(value).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'событий ещё не было';
 const uptime = (seconds: number) => seconds >= 86400 ? `${Math.floor(seconds / 86400)} дн.` : seconds >= 3600 ? `${Math.floor(seconds / 3600)} ч.` : `${Math.max(1, Math.floor(seconds / 60))} мин.`;
-export function adminPage(products: Product[], banners: Banner[], display: Record<string, ProductDisplaySettings>, terminal: TerminalSettings | null, tab: AdminTab, selectedId: string | null, audit: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [], scope: 'terminal' | 'restaurant' | null = 'restaurant', role: 'administrator' | 'hostess' | 'terminal_manager' | null = 'administrator', waiters: Waiter[] = [], adminUsers: AdminUser[] = [], orders: AdminOrder[] = [], orderFilter: 'active' | 'all' = 'active', diagnostics: AdminDiagnostics | null = null, iikoConfig: IikoConnectionConfig | null = null, iikoDiscovery: IikoConnectionDiscovery | null = null, iikoOptions: IikoRestaurantOptions | null = null, selectedOrganizationId = '', promotions: AdminPromotion[] = [], iikoDiscounts: IikoDiscountOption[] = []) {
+const updateVersion = (value: string | null) => {
+  if (!value) return '—';
+  const numbered = value.match(/^0\.1\.0-(\d+)$/);
+  if (numbered) return `0.1.0 · сборка ${numbered[1]}`;
+  if (/^[a-f0-9]{12,}$/i.test(value)) return `Сборка ${value.slice(0, 7)}`;
+  return value;
+};
+const updateMessage = (state: AdminUpdateState) => {
+  if (state.phase === 'checking') return 'Проверяем наличие новой версии…';
+  if (state.phase === 'available') return 'Новая версия готова к установке';
+  if (state.phase === 'downloading') return `Загружаем обновление — ${state.progress}%`;
+  if (state.phase === 'applying') return 'Устанавливаем обновление…';
+  if (state.phase === 'error') return 'Не удалось проверить обновление. Проверьте интернет и повторите.';
+  if (state.phase === 'current') return state.browser ? 'В браузере открыта актуальная версия' : 'Установлена последняя версия';
+  return 'Нажмите «Проверить», чтобы найти новую версию';
+};
+export function adminPage(products: Product[], banners: Banner[], display: Record<string, ProductDisplaySettings>, terminal: TerminalSettings | null, tab: AdminTab, selectedId: string | null, audit: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [], scope: 'terminal' | 'restaurant' | null = 'restaurant', role: 'administrator' | 'hostess' | 'terminal_manager' | null = 'administrator', waiters: Waiter[] = [], adminUsers: AdminUser[] = [], orders: AdminOrder[] = [], orderFilter: 'active' | 'all' = 'active', diagnostics: AdminDiagnostics | null = null, iikoConfig: IikoConnectionConfig | null = null, iikoDiscovery: IikoConnectionDiscovery | null = null, iikoOptions: IikoRestaurantOptions | null = null, selectedOrganizationId = '', promotions: AdminPromotion[] = [], iikoDiscounts: IikoDiscountOption[] = [], updateState: AdminUpdateState = { phase: 'idle', currentVersion: '—', latestVersion: null, progress: 0, browser: false }) {
   const selected = products.find((item) => item.id === selectedId) ?? products[0];
   const stats = missing(products);
   const terminalView = `<section class="admin-panel admin-terminal">
@@ -34,7 +58,17 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
       <label class="admin-switch"><input type="checkbox" data-admin-terminal="isActive" ${terminal?.isActive !== false ? 'checked' : ''}><span></span> Терминал принимает заказы</label>
       <button class="button button--primary" data-action="save-terminal">Сохранить терминал</button>
     </div>
-    <div class="admin-app-update"><div><span class="eyebrow">ОБНОВЛЕНИЕ ПРИЛОЖЕНИЯ</span><h3>Актуальная версия интерфейса</h3><p>Скачает и сразу применит последнюю OTA-версию. Для логотипа при запуске и системных функций всё ещё нужна новая APK.</p></div><button class="button button--secondary" data-action="install-ota-update">Проверить обновления</button></div>
+    <div class="admin-app-update" data-update-phase="${updateState.phase}">
+      <div class="admin-app-update__head"><span class="eyebrow">ПРИЛОЖЕНИЕ</span><h3>Обновление</h3></div>
+      <div class="admin-app-update__versions">
+        <div><span>Установлена</span><strong>${escapeHtml(updateVersion(updateState.currentVersion))}</strong></div>
+        ${updateState.latestVersion ? `<div><span>Последняя</span><strong>${escapeHtml(updateVersion(updateState.latestVersion))}</strong></div>` : ''}
+      </div>
+      <div class="admin-app-update__status"><span data-ota-status>${escapeHtml(updateMessage(updateState))}</span>${updateState.phase === 'downloading' || updateState.phase === 'applying' ? `<div class="admin-app-update__progress"><i data-ota-progress style="width:${updateState.phase === 'applying' ? 100 : updateState.progress}%"></i></div>` : ''}</div>
+      <div class="admin-app-update__actions">
+        ${updateState.phase === 'available' ? '<button class="button button--secondary" data-action="check-ota-update">Проверить снова</button><button class="button button--primary" data-action="install-ota-update">Обновить</button>' : updateState.phase === 'checking' ? '<button class="button button--secondary" disabled>Проверяем…</button>' : updateState.phase === 'downloading' ? '<button class="button button--secondary" disabled data-ota-button>Загрузка 0%</button>' : updateState.phase === 'applying' ? '<button class="button button--secondary" disabled>Устанавливаем…</button>' : `<button class="button button--secondary" data-action="check-ota-update">${updateState.phase === 'error' ? 'Повторить' : 'Проверить'}</button>`}
+      </div>
+    </div>
   </section>`;
   const ordersView = `<section class="admin-panel admin-orders"><div class="admin-panel__intro"><span class="eyebrow">ЗАЛ И КУХНЯ</span><h2>Заказы</h2><p>Состояние заказов из приложения и iiko. Данные обновляются автоматически.</p></div>
     <div class="admin-orders__toolbar"><div class="admin-order-filters"><button class="${orderFilter === 'active' ? 'is-active' : ''}" data-action="set-admin-order-filter" data-order-filter="active">Активные</button><button class="${orderFilter === 'all' ? 'is-active' : ''}" data-action="set-admin-order-filter" data-order-filter="all">За 30 дней</button></div><button class="button button--secondary button--compact" data-action="refresh-admin-orders">Обновить</button></div>

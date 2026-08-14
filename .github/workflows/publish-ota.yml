@@ -18,15 +18,17 @@ jobs:
           node-version: 22
           cache: npm
       - name: Install and build the kiosk web bundle
+        env:
+          VITE_BUILD_VERSION: 0.1.0-${{ github.run_number }}
         run: |
           npm ci
           npm run build
       - name: Package OTA bundle
         id: bundle
         run: |
-          version="${GITHUB_SHA::12}"
+          version="0.1.0-${GITHUB_RUN_NUMBER}"
           (cd dist && zip -qr "../zakaz-bb-${version}.zip" .)
-          printf '{"version":"%s","url":"https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/ota/zakaz-bb-%s.zip"}\n' "$version" "$version" > ota-manifest.json
+          printf '{"version":"%s","url":"https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/ota/zakaz-bb-%s.zip","publishedAt":"%s"}\n' "$version" "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ota-manifest.json
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Publish bundle to the kiosk update server
         env:

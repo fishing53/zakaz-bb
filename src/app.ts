@@ -15,7 +15,7 @@ import { ordersPage } from './pages/orders';
 import { statusPage } from './pages/status';
 import { welcomePage } from './pages/welcome';
 import { tablePage } from './pages/table';
-import { adminPage } from './pages/admin';
+import { adminPage, type AdminUpdateState } from './pages/admin';
 import { debounce, formatPrice } from './utils/helpers';
 import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
@@ -28,6 +28,7 @@ let inactivityTimer = 0;
 let inactivityCountdown = 0;
 let adminTaps = 0;
 let lastAdminTap = 0;
+let bannerTapTimer = 0;
 let submittingOrder = false;
 let bannerSwipeStart: { x: number; y: number } | null = null;
 let bannerRotationTimer = 0;
@@ -51,6 +52,7 @@ let iikoRestaurantOptions: IikoRestaurantOptions | null = null;
 let iikoSelectedOrganizationId = '';
 let adminOrderFilter: 'active' | 'all' = 'active';
 let adminOrderRefreshTimer = 0;
+let adminUpdateState: AdminUpdateState = { phase: 'idle', currentVersion: otaService.bundledVersion, latestVersion: null, progress: 0, browser: false };
 const updateSearch = debounce((value: string) => {
   const searching = Boolean(value.trim());
   appStore.set({ search: value, ...(searching ? { category: 'Все блюда' } : {}) }, false);
@@ -74,7 +76,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState) : '';
   }
 }
 
@@ -257,6 +259,34 @@ function transientToast(message: string) {
   window.setTimeout(() => toast.remove(), 2600);
 }
 
+function openWelcomeProduct(id: string | null) {
+  if (!id) return;
+  const recentProductIds = [id, ...appStore.get().recentProductIds.filter((item) => item !== id)].slice(0, 8);
+  appStore.set({ productId: id, upsellId: null, recentProductIds, category: 'Все блюда', search: '' });
+  router.go('menu');
+}
+
+async function loadCurrentAppVersion(notify = true) {
+  try {
+    const result = await otaService.current();
+    adminUpdateState = { ...adminUpdateState, currentVersion: result.currentVersion, browser: result.platform === 'browser' };
+    if (notify && router.current() === 'admin') render();
+  } catch {
+    // The embedded build version remains a safe fallback when the native plugin
+    // is unavailable during startup.
+  }
+}
+
+function updateDownloadProgress(percent: number) {
+  adminUpdateState = { ...adminUpdateState, phase: 'downloading', progress: percent };
+  const status = root.querySelector<HTMLElement>('[data-ota-status]');
+  const bar = root.querySelector<HTMLElement>('[data-ota-progress]');
+  const button = root.querySelector<HTMLButtonElement>('[data-ota-button]');
+  if (status) status.textContent = `Загружаем обновление — ${percent}%`;
+  if (bar) bar.style.width = `${percent}%`;
+  if (button) button.textContent = `Загрузка ${percent}%`;
+}
+
 async function action(element: HTMLElement) {
   const type = element.dataset.action;
   if (!type) return;
@@ -280,6 +310,26 @@ async function action(element: HTMLElement) {
       await syncServer();
       router.go('menu');
     } catch (error) { element.removeAttribute('disabled'); flash(error instanceof Error ? error.message : 'Не удалось выбрать стол'); }
+    return;
+  }
+  if (type === 'banner-tap') {
+    if (Date.now() < suppressBannerOpenUntil) return;
+    const now = Date.now();
+    adminTaps = now - lastAdminTap < 900 ? adminTaps + 1 : 1;
+    lastAdminTap = now;
+    clearTimeout(bannerTapTimer);
+    if (adminTaps >= 6) {
+      adminTaps = 0;
+      lastAdminTap = 0;
+      appStore.set({ adminLoginOpen: true });
+    } else {
+      const productId = element.dataset.productId ?? null;
+      bannerTapTimer = window.setTimeout(() => {
+        adminTaps = 0;
+        lastAdminTap = 0;
+        if (router.current() === 'welcome') openWelcomeProduct(productId);
+      }, 520);
+    }
     return;
   }
   if (type === 'admin-tap') {
@@ -448,22 +498,38 @@ async function action(element: HTMLElement) {
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить терминал'); }
     return;
   }
-  if (type === 'install-ota-update') {
-    const button = element as HTMLButtonElement;
-    const label = button.textContent;
-    button.disabled = true;
-    button.textContent = 'ПРОВЕРЯЕМ…';
+  if (type === 'check-ota-update') {
+    adminUpdateState = { ...adminUpdateState, phase: 'checking', latestVersion: null, progress: 0 };
+    render();
     try {
-      const result = await otaService.installLatest();
-      if (result.state === 'browser') flash('OTA доступна только в установленном Android-приложении');
-      else if (result.state === 'current') flash('Уже установлена последняя версия интерфейса');
-      // On a new version CapacitorUpdater.set reloads the app immediately.
-    } catch (error) {
-      flash(error instanceof Error ? `Не удалось обновить: ${error.message}` : 'Не удалось проверить обновления');
-    } finally {
-      button.disabled = false;
-      button.textContent = label;
+      const result = await otaService.check();
+      adminUpdateState = {
+        phase: result.available ? 'available' : 'current',
+        currentVersion: result.currentVersion,
+        latestVersion: result.latestVersion,
+        progress: 0,
+        browser: result.platform === 'browser',
+      };
+    } catch {
+      adminUpdateState = { ...adminUpdateState, phase: 'error', latestVersion: null, progress: 0 };
     }
+    render();
+    return;
+  }
+  if (type === 'install-ota-update') {
+    adminUpdateState = { ...adminUpdateState, phase: 'downloading', progress: 0 };
+    render();
+    try {
+      const result = await otaService.installLatest(updateDownloadProgress);
+      if (result.state === 'browser') adminUpdateState = { ...adminUpdateState, phase: 'current', browser: true };
+      else if (result.state === 'current') {
+        const checked = await otaService.check();
+        adminUpdateState = { phase: 'current', currentVersion: checked.currentVersion, latestVersion: checked.latestVersion, progress: 100, browser: false };
+      } else adminUpdateState = { ...adminUpdateState, phase: 'applying', progress: 100 };
+    } catch {
+      adminUpdateState = { ...adminUpdateState, phase: 'error', progress: 0 };
+    }
+    render();
     return;
   }
   if (type === 'save-product') {
@@ -894,5 +960,6 @@ export function startApp() {
   render();
   resetInactivity();
   void otaService.markReady();
+  void loadCurrentAppVersion(false);
   void syncServer();
 }
