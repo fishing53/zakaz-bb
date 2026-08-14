@@ -10,6 +10,9 @@ waiter/firebase-admin*.json
 .env
 .env.*
 !.env.example
+
+# Internal product ideas and planning stay on the local workstation only.
+ROADMAP.md
 android/.gradle/
 android/local.properties
 android/app/build/
