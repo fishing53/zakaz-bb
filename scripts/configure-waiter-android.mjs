@@ -6,6 +6,28 @@ const android = resolve(root, 'waiter/android');
 const manifestPath = resolve(android, 'app/src/main/AndroidManifest.xml');
 const gradlePath = resolve(android, 'app/build.gradle');
 const javaDestination = resolve(android, 'app/src/main/java/ru/zvyak/brooklynbowl/waiter/WaiterFirebaseMessagingService.java');
+const kioskResources = resolve(root, 'android/app/src/main/res');
+const waiterResources = resolve(android, 'app/src/main/res');
+
+const launcherAssets = [
+  ...['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'].flatMap((density) => [
+    `mipmap-${density}/ic_launcher.png`,
+    `mipmap-${density}/ic_launcher_round.png`,
+    `mipmap-${density}/ic_launcher_foreground.png`,
+  ]),
+  'mipmap-anydpi-v26/ic_launcher.xml',
+  'mipmap-anydpi-v26/ic_launcher_round.xml',
+  'drawable/ic_launcher_background.xml',
+  'drawable-v24/ic_launcher_foreground.xml',
+  'values/ic_launcher_background.xml',
+];
+
+for (const asset of launcherAssets) {
+  const destination = resolve(waiterResources, asset);
+  await mkdir(dirname(destination), { recursive: true });
+  await cp(resolve(kioskResources, asset), destination, { force: true });
+}
+
 let manifest = await readFile(manifestPath, 'utf8');
 for (const permission of ['android.permission.POST_NOTIFICATIONS', 'android.permission.USE_FULL_SCREEN_INTENT', 'android.permission.VIBRATE']) {
   if (!manifest.includes(permission)) manifest = manifest.replace('<application', `    <uses-permission android:name="${permission}" />\n\n    <application`);
