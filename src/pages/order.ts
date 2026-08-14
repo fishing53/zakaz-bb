@@ -6,11 +6,11 @@ export function orderPage(lines: CartLine[], productFor: (line: CartLine) => Pro
   const orderLines = lines.length ? lines.map((line) => {
     const product = productFor(line);
     if (!product) return '';
+    const weight = [product.portion, product.unit].filter(Boolean).join(' ');
     const modifiers = (line.modifiers ?? []).map((modifier) => `<article class="order-line order-line--modifier" data-parent-key="${escapeHtml(line.key)}" data-modifier-id="${escapeHtml(modifier.productId)}">
       <img src="${escapeHtml(modifier.image || '/images/sauce-fallback.webp')}" alt="${escapeHtml(modifier.name)}">
-      <div>
+      <div class="order-line__details">
         <h3>${escapeHtml(modifier.name)}</h3>
-        <p>К блюду «${escapeHtml(product.name)}»</p>
         <b data-modifier-total>${formatPrice(modifier.price * modifier.amount * line.quantity)}</b>
       </div>
       <div class="quantity">
@@ -22,9 +22,8 @@ export function orderPage(lines: CartLine[], productFor: (line: CartLine) => Pro
     </article>`).join('');
     return `<article class="order-line" data-key="${escapeHtml(line.key)}">
       <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}">
-      <div>
-        <h3>${escapeHtml(product.name)}</h3>
-        <p>${[line.sauce, line.addon, line.flavor].filter(Boolean).map(escapeHtml).join(' · ') || `${escapeHtml(product.portion)} ${escapeHtml(product.unit)}`}</p>
+      <div class="order-line__details">
+        <h3>${escapeHtml(product.name)}${weight ? `<span class="order-line__weight">, ${escapeHtml(weight)}</span>` : ''}</h3>
         <b data-line-total>${formatPrice((line.customPrice ?? product.price_rub) * line.quantity)}</b>
       </div>
       <div class="quantity">

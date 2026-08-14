@@ -1790,3 +1790,85 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   .live-status-item { grid-template-columns: 54px minmax(0,1fr) auto; column-gap: 9px; }
   .live-status-item img { width: 54px; height: 54px; }
 }
+
+/* Cart lines keep product information and controls on one stable axis. */
+.order-line__details {
+  min-width: 0;
+  align-self: center;
+}
+.order-line__details h3 {
+  margin: 0;
+  color: #fff;
+  line-height: 1.18;
+}
+.order-line__weight {
+  color: rgba(255,255,255,.5);
+  font: inherit;
+  font-size: .78em;
+  text-transform: none;
+}
+.order-line__details > b {
+  display: block;
+  margin-top: 10px;
+}
+@media (max-width: 780px) {
+  .order-line,
+  .order-line.order-line--modifier {
+    min-height: 88px;
+    padding: 9px;
+    grid-template-columns: 66px minmax(0,1fr) auto 22px;
+    grid-template-rows: 1fr;
+    gap: 8px;
+    align-items: center;
+  }
+  .order-line > img {
+    width: 66px;
+    height: 66px;
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .order-line__details {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .order-line__details h3 {
+    margin: 0;
+    font-size: .78rem;
+  }
+  .order-line__details > b {
+    margin-top: 8px;
+    font-size: .8rem;
+  }
+  .order-line .quantity {
+    width: max-content;
+    padding: 4px;
+    grid-column: 3;
+    grid-row: 1;
+    gap: 5px;
+  }
+  .order-line .quantity button {
+    width: 27px;
+    height: 27px;
+  }
+  .order-line .quantity span { min-width: 12px; }
+  .order-line .line-remove {
+    grid-column: 4;
+    grid-row: 1;
+  }
+}
+@media (max-width: 420px) {
+  .order-line,
+  .order-line.order-line--modifier {
+    min-height: 80px;
+    grid-template-columns: 58px minmax(0,1fr) auto 19px;
+    gap: 6px;
+  }
+  .order-line > img { width: 58px; height: 58px; }
+  .order-line__details h3 { font-size: .7rem; }
+  .order-line__details > b { margin-top: 6px; font-size: .74rem; }
+  .order-line .quantity { gap: 3px; padding: 3px; }
+  .order-line .quantity button { width: 25px; height: 25px; }
+  .order-line .quantity .icon { width: 13px; }
+  .order-line .quantity span { min-width: 10px; font-size: .7rem; }
+  .order-line .line-remove .icon { width: 16px; }
+}
