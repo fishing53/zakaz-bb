@@ -1100,7 +1100,7 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   position: fixed;
   z-index: 10;
   left: 50%;
-  bottom: 17px;
+  bottom: 22px;
   display: flex;
   align-items: stretch;
   gap: 8px;
@@ -1244,7 +1244,7 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 @media (max-width: 420px) {
   .app-shell--navigation .bottom-navigation {
     max-width: calc(100% - 8px);
-    bottom: 10px;
+    bottom: 15px;
     gap: 5px;
   }
   .app-shell--navigation .rail {
