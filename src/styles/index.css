@@ -1872,3 +1872,47 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   .order-line .quantity span { min-width: 10px; font-size: .7rem; }
   .order-line .line-remove .icon { width: 16px; }
 }
+
+/* Compact receipt rows on the live status screen. */
+.live-status__items { gap: 0; }
+.live-status-line {
+  min-width: 0;
+  min-height: 43px;
+  padding: 9px 0;
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px solid #2b2b2b;
+}
+.live-status-line:first-child { border-top: 1px solid #2b2b2b; }
+.live-status-line h3 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #fff;
+  font: 700 .78rem/1.15 "Roboto Condensed",sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-status-line h3 span {
+  color: rgba(255,255,255,.48);
+  font-size: .82em;
+}
+.live-status-line > small {
+  color: #777;
+  font: 700 .64rem "Roboto Condensed",sans-serif;
+}
+.live-status-line > strong {
+  min-width: 58px;
+  color: var(--accent);
+  font: 700 .84rem "Roboto Condensed",sans-serif;
+  text-align: right;
+  white-space: nowrap;
+}
+.live-status-line[data-kind="modifier"] h3 { color: #d4d4d4; }
+@media (max-width: 699px) {
+  .live-status-line { min-height: 46px; gap: 9px; }
+  .live-status-line h3 { font-size: .74rem; }
+  .live-status-line > strong { min-width: 54px; font-size: .8rem; }
+}

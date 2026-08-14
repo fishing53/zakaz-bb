@@ -9,8 +9,6 @@ const stages = [
   ['Подан', 'Заказ у вашего стола'],
 ] as const;
 
-const fallbackImage = '/images/sauce-fallback.webp';
-
 export const statusPage = (order: SubmittedOrder | undefined, number: string | null, step: number, productFor: (line: CartLine) => Product | undefined) => {
   // iiko exposes five technical item states. Added and PrintedNotCooking are
   // one guest-facing stage, so the screen deliberately presents four steps.
@@ -20,7 +18,6 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
   const items = order?.items ?? [];
   const table = order?.tableNumber;
   const heading = served ? 'Заказ <em>подан</em>' : ready ? 'Заказ <em>готов</em>' : active === 0 ? 'Заказ <em>принят</em>' : 'Заказ <em>готовится</em>';
-  const statusLabel = served ? 'ПРИЯТНОГО АППЕТИТА' : ready ? 'МОЖНО ПОДАВАТЬ' : active === 0 ? 'ЗАКАЗ В РЕСТОРАНЕ' : 'КУХНЯ РАБОТАЕТ';
   const message = served
     ? 'Все позиции уже у вашего стола. Если понадобится помощь, официант рядом.'
     : ready
@@ -33,18 +30,17 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
   const orderLines = items.map((item) => {
     const product = productFor(item);
     const productName = item.customName ?? product?.name ?? 'Блюдо';
+    const weight = [product?.portion, product?.unit].filter(Boolean).join(' ');
     const mainPrice = (item.customPrice ?? product?.price_rub ?? 0) * item.quantity;
-    const main = `<article class="live-status-item">
-      <img src="${escapeHtml(product?.image || fallbackImage)}" alt="${escapeHtml(productName)}">
-      <div class="live-status-item__copy"><span>БЛЮДО</span><h3>${escapeHtml(productName)}</h3></div>
+    const main = `<article class="live-status-line">
+      <h3>${escapeHtml(productName)}${weight ? `<span>, ${escapeHtml(weight)}</span>` : ''}</h3>
       <small>×${item.quantity}</small><strong>${formatPrice(mainPrice)}</strong>
     </article>`;
     const modifiers = (item.modifiers ?? []).map((modifier) => {
       const quantity = modifier.amount * item.quantity;
       const price = modifier.price * quantity;
-      return `<article class="live-status-item" data-kind="modifier">
-        <img src="${escapeHtml(modifier.image || fallbackImage)}" alt="${escapeHtml(modifier.name)}">
-        <div class="live-status-item__copy"><span>ДОПОЛНЕНИЕ К «${escapeHtml(productName)}»</span><h3>${escapeHtml(modifier.name)}</h3></div>
+      return `<article class="live-status-line" data-kind="modifier">
+        <h3>${escapeHtml(modifier.name)}</h3>
         <small>×${quantity}</small><strong>${formatPrice(price)}</strong>
       </article>`;
     }).join('');
@@ -58,12 +54,12 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
     </header>
     <div class="live-status__layout">
       <main class="live-status__stage">
-        <div class="live-status__stage-copy"><span class="eyebrow">${statusLabel}</span><div class="live-status__stage-index">0${active + 1}<small>/ 04</small></div><h1>${heading}</h1><p>${message}</p></div>
-        ${ready ? `<div class="live-status__ready-mark">${icon(served ? 'check' : 'bell')}</div>` : '<img class="live-status__mascot" src="/images/home-mascot.png" alt="" aria-hidden="true">'}
-        <section class="live-status__timeline" aria-label="Этапы заказа"><div><span>ГОТОВНОСТЬ</span><b>${Math.round((active + 1) / stages.length * 100)}%</b></div><ol>${stages.map(([name, description], index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}"><i>${index < active ? icon('check') : ''}</i><div><b>${name}</b><span>${description}</span></div></li>`).join('')}</ol></section>
+        <div class="live-status__stage-copy"><div class="live-status__stage-index">0${active + 1}<small>/ 04</small></div><h1>${heading}</h1><p>${message}</p></div>
+        ${ready ? `<div class="live-status__ready-mark">${icon(served ? 'check' : 'bell')}</div>` : ''}
+        <section class="live-status__timeline" aria-label="Этапы заказа"><div><span>ЭТАПЫ ЗАКАЗА</span></div><ol>${stages.map(([name, description], index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}"><i>${index < active ? icon('check') : ''}</i><div><b>${name}</b><span>${description}</span></div></li>`).join('')}</ol></section>
       </main>
       <aside class="live-status__receipt">
-        <header><div><span class="eyebrow">ВАШ ЗАКАЗ</span><h2>Состав заказа</h2></div><b>${positionCount} поз.</b></header>
+        <header><div><h2>Состав заказа</h2></div><b>${positionCount} поз.</b></header>
         <div class="live-status__items">${orderLines || '<div class="live-status__empty">Состав заказа загружается…</div>'}</div>
         <div class="live-status__total"><span>ИТОГО</span><strong>${formatPrice(order?.total ?? 0)}</strong></div>
         <footer><button class="button button--primary" data-action="open-service">Позвать официанта</button><button class="button button--secondary" data-action="new-order">Сделать ещё заказ</button></footer>
