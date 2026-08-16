@@ -1,6 +1,7 @@
 import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoDiscountOption, IikoRestaurantOptions, Product, ProductDisplaySettings, RestaurantTable, TableQrCode, TerminalSettings } from '../types/menu';
 import type { ImageCacheState } from '../services/image-cache-service';
 import { escapeHtml, formatPrice } from '../utils/helpers';
+import { icon } from '../components/icons';
 
 export type AdminUpdateState = {
   phase: 'idle' | 'checking' | 'available' | 'current' | 'downloading' | 'applying' | 'error';
@@ -205,7 +206,7 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
     <div class="iiko-config__actions"><button class="button button--primary" data-action="discover-iiko-config">Получить доступные рестораны</button></div>
   </section>` : '';
   const optionStep = iikoConfig && iikoDiscovery ? `<section class="iiko-config is-unlocked"><header><div><span class="eyebrow">ПОДКЛЮЧЕНИЕ IIKO</span><h3>Выберите ресторан</h3><p>Все технические идентификаторы получены автоматически. Вы выбираете только понятные названия.</p></div><span class="iiko-config__access">КЛЮЧИ ПРИНЯТЫ</span></header>
-    <ol class="iiko-setup-steps"><li class="is-complete"><b>✓</b><span>Ключи доступа</span></li><li class="is-active"><b>2</b><span>Ресторан и меню</span></li><li><b>3</b><span>Проверка</span></li></ol>
+    <ol class="iiko-setup-steps"><li class="is-complete"><b>${icon('check')}</b><span>Ключи доступа</span></li><li class="is-active"><b>2</b><span>Ресторан и меню</span></li><li><b>3</b><span>Проверка</span></li></ol>
     <div class="iiko-config__grid">
       <label class="iiko-config__wide">Ресторан<select data-iiko-organization><option value="">Выберите ресторан</option>${iikoDiscovery.organizations.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === selectedOrganizationId ? 'selected' : ''}>${escapeHtml(item.name)}${item.code && item.code !== item.name ? ` · ${escapeHtml(item.code)}` : ''}</option>`).join('')}</select></label>
       ${iikoOptions ? `<label>Касса / терминальная группа<select data-iiko-selection="terminalGroupId">${iikoOptions.terminalGroups.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === iikoOptions.recommendedTerminalGroupId ? 'selected' : ''}>${escapeHtml(item.name)}${item.address ? ` · ${escapeHtml(item.address)}` : ''}</option>`).join('')}</select></label>

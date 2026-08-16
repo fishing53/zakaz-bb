@@ -43,7 +43,7 @@ export function orderPage(lines: CartLine[], productFor: (line: CartLine) => Pro
         <label class="order-summary__comment"><span>Комментарий для кухни</span><div class="order-summary__comment-field"><textarea data-action="set-comment" placeholder="Например: без лука, пожалуйста">${escapeHtml(comment)}</textarea>${icon('edit')}</div></label>
         <section class="order-summary__promo ${promoRule ? 'is-applied' : ''}">
           <div class="order-summary__promo-title"><span>ПРОМОКОД</span>${promoRule ? `<b>${escapeHtml(promoRule.name)}</b>` : ''}</div>
-          <div class="promo-code"><div class="promo-code__field">${icon('ticket')}<input aria-label="Промокод" data-action="set-promo" value="${escapeHtml(promoCode)}" placeholder="Введите код" ${promoRule ? 'readonly' : ''}/></div>${promoRule ? '<button class="promo-code__remove" data-action="remove-promo" aria-label="Удалить промокод">×</button>' : '<button class="button button--secondary button--compact" data-action="apply-promo">Применить</button>'}</div>
+          <div class="promo-code"><div class="promo-code__field">${icon('promo')}<input aria-label="Промокод" data-action="set-promo" value="${escapeHtml(promoCode)}" placeholder="Введите код" ${promoRule ? 'readonly' : ''}/></div>${promoRule ? `<button class="promo-code__remove" data-action="remove-promo" aria-label="Удалить промокод">${icon('close')}</button>` : '<button class="button button--secondary button--compact" data-action="apply-promo">Применить</button>'}</div>
         </section>
         <div class="order-summary__receipt">
           <div class="summary-row"><span>Заказ</span><b data-order-subtotal>${formatPrice(subtotal)}</b></div>

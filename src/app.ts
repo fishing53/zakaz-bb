@@ -20,6 +20,7 @@ import { debounce, escapeHtml, formatPrice } from './utils/helpers';
 import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
 import { imageCacheService, type ImageCacheState } from './services/image-cache-service';
+import { icon } from './components/icons';
 import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoDiscountOption, IikoRestaurantOptions, Product, TableQrCode } from './types/menu';
 import type { AdminUserProfile, WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
@@ -84,7 +85,7 @@ function page() {
   }
 }
 
-const adminLogin = (open: boolean, scope: 'terminal' | 'restaurant' = 'terminal') => open ? `<div class="overlay admin-login-overlay"><section class="admin-login"><button class="modal__close" data-action="close-admin-login">${iconMarkup('close')}</button><span class="eyebrow">${scope === 'terminal' ? 'СЕРВИСНЫЙ ВХОД' : 'АДМИНИСТРИРОВАНИЕ РЕСТОРАНА'}</span><h2>Вход</h2><p>${scope === 'terminal' ? 'Настройки этого планшета.' : 'Введите персональный логин или используйте главный пароль.'}</p>${scope === 'restaurant' ? '<input data-admin-username placeholder="Логин сотрудника (необязательно)" autocomplete="username">' : ''}<input type="password" data-admin-password placeholder="Пароль" autocomplete="current-password"><button class="button button--primary button--wide" data-action="login-admin" data-admin-scope="${scope}">Войти</button></section></div>` : '';
+const adminLogin = (open: boolean, scope: 'terminal' | 'restaurant' = 'terminal') => open ? `<div class="overlay admin-login-overlay"><section class="admin-login"><button class="modal__close" data-action="close-admin-login">${icon('close')}</button><span class="eyebrow">${scope === 'terminal' ? 'СЕРВИСНЫЙ ВХОД' : 'АДМИНИСТРИРОВАНИЕ РЕСТОРАНА'}</span><h2>Вход</h2><p>${scope === 'terminal' ? 'Настройки этого планшета.' : 'Введите персональный логин или используйте главный пароль.'}</p>${scope === 'restaurant' ? '<input data-admin-username placeholder="Логин сотрудника (необязательно)" autocomplete="username">' : ''}<input type="password" data-admin-password placeholder="Пароль" autocomplete="current-password"><button class="button button--primary button--wide" data-action="login-admin" data-admin-scope="${scope}">Войти</button></section></div>` : '';
 const inactivityPrompt = (open: boolean, seconds: number) => open ? `<div class="overlay inactivity-overlay"><section class="inactivity-dialog">
   <img class="inactivity-dialog__character" src="/images/inactivity-character.png" alt="" aria-hidden="true">
   <div class="inactivity-dialog__glow"></div><div class="inactivity-dialog__brand"><img src="${brand.logo}" alt="Brooklyn Bowl"></div>
@@ -92,8 +93,6 @@ const inactivityPrompt = (open: boolean, seconds: number) => open ? `<div class=
   <span class="eyebrow">ВАШ ЗАКАЗ ПРИОСТАНОВЛЕН</span><h2>Вы ещё здесь?</h2><p>Продолжите оформление или заказ автоматически очистится для следующего гостя.</p>
   <div class="inactivity-dialog__actions"><button class="button button--primary button--wide" data-action="continue-order">Да, продолжить заказ</button><button class="button button--secondary button--wide inactivity-dialog__cancel" data-action="cancel-order">Завершить и очистить</button></div>
 </section></div>` : '';
-const iconMarkup = (name: string) => name === 'close' ? '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 6 12 12M18 6 6 18"/></svg>' : '';
-
 export function render() {
   const state = appStore.get();
   const route = router.current();

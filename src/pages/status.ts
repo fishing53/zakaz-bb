@@ -4,8 +4,8 @@ import { escapeHtml, formatPrice } from '../utils/helpers';
 
 const stages: ReadonlyArray<{ name: string; description: string; icon: IconName }> = [
   { name: 'Принят', description: 'Ресторан получил заказ', icon: 'check' },
-  { name: 'Готовится', description: 'Блюда уже на кухне', icon: 'flame' },
-  { name: 'Готов', description: 'Скоро принесём к столу', icon: 'serviceBell' },
+  { name: 'Готовится', description: 'Блюда уже на кухне', icon: 'cooking' },
+  { name: 'Готов', description: 'Скоро принесём к столу', icon: 'waiter' },
   { name: 'Подан', description: 'Приятного аппетита!', icon: 'utensils' },
 ];
 

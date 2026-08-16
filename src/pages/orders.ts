@@ -18,7 +18,7 @@ export const ordersPage = (orders: SubmittedOrder[]) => `<section class="orders-
         <span class="submitted-order__number">${escapeHtml(order.id)}</span>
         <span class="submitted-order__meta">${count} поз. · ${new Date(order.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
         <strong>${formatPrice(order.total)}</strong>
-        ${icon('arrow')}
+        ${icon('arrowRight')}
       </button>`;
     }).join('') : '<div class="empty-state">Оформленных заказов пока нет.</div>'}
   </div>

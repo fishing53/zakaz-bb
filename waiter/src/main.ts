@@ -1,6 +1,7 @@
 import './style.css';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { icon } from '../../src/components/icons';
 
 const api = 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1';
 const root = document.querySelector<HTMLDivElement>('#app')!;
@@ -144,7 +145,7 @@ function orderCard(item: Order) {
 }
 
 function emptyState(kind: WaiterView) {
-  return `<div class="empty"><span>✓</span><h2>${kind === 'calls' ? 'Новых вызовов нет' : 'Активных заказов нет'}</h2><p>${kind === 'calls' ? 'Здесь появятся просьбы гостей.' : 'Новые заказы появятся автоматически.'}</p></div>`;
+  return `<div class="empty"><span>${icon('check')}</span><h2>${kind === 'calls' ? 'Новых вызовов нет' : 'Активных заказов нет'}</h2><p>${kind === 'calls' ? 'Здесь появятся просьбы гостей.' : 'Новые заказы появятся автоматически.'}</p></div>`;
 }
 
 function incoming(item: Request) {

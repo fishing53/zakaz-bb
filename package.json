@@ -26,6 +26,7 @@
     "@capacitor/push-notifications": "^8.0.2",
     "@capgo/capacitor-updater": "^8.51.2",
     "firebase-admin": "^13.10.0",
+    "lucide-static": "^1.31.0",
     "pg": "^8.13.3",
     "qrcode": "^1.5.4"
   }

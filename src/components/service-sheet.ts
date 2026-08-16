@@ -1,10 +1,10 @@
 import { icon } from './icons';
 
 const actions = [
-  ['waiter', 'Позвать<br>официанта', 'serviceBell'],
-  ['cutlery', 'Нужны<br>приборы', 'serviceCutlery'],
-  ['bill', 'Попросить<br>счёт', 'serviceReceipt'],
-  ['help', 'Нужна<br>помощь', 'serviceHelp'],
+  ['waiter', 'Позвать<br>официанта', 'waiter'],
+  ['cutlery', 'Нужны<br>приборы', 'utensils'],
+  ['bill', 'Попросить<br>счёт', 'receipt'],
+  ['help', 'Нужна<br>помощь', 'help'],
 ] as const;
 
 export const serviceSheet = (isOpen: boolean) => isOpen ? `<div class="overlay service-overlay" data-action="close-service">
