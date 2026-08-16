@@ -23,7 +23,7 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
     : ready
       ? 'Всё готово! Официант уже несёт заказ к вашему столу.'
       : active === 0
-        ? 'Спасибо! Мы получили ваш заказ и уже передали его на кухню.'
+        ? 'Мы получили ваш заказ и уже передали его на кухню.'
         : 'Повара готовят ваши блюда. Осталось немного — сообщим, когда всё будет готово.';
 
   const positionCount = items.reduce((sum, item) => sum + item.quantity + (item.modifiers ?? []).reduce((modifierSum, modifier) => modifierSum + modifier.amount * item.quantity, 0), 0);
