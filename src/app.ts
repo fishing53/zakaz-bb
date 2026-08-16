@@ -107,6 +107,14 @@ export function render() {
   const related = root.querySelector<HTMLElement>('[data-related-for]');
   if (product && related) related.innerHTML = relatedCards(menuService.related(product), state.productDisplay);
   applyLanguage(root, state.language);
+  if (route === 'admin') {
+    const tabs = root.querySelector<HTMLElement>('.admin-tabs');
+    const activeTab = tabs?.querySelector<HTMLElement>('.is-active');
+    if (tabs && activeTab) requestAnimationFrame(() => {
+      const left = activeTab.offsetLeft - (tabs.clientWidth - activeTab.offsetWidth) / 2;
+      tabs.scrollTo({ left: Math.max(0, left), behavior: 'auto' });
+    });
+  }
   if (route === 'welcome') setupWelcomeBanners();
   else {
     if (bannerRotationTimer) { clearInterval(bannerRotationTimer); bannerRotationTimer = 0; }
