@@ -87,6 +87,7 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
       <label>Название планшета<input data-admin-terminal="label" value="${escapeHtml(terminal?.label ?? '')}" placeholder="Например: Основной зал"></label>
       <label>Таймаут бездействия<select data-admin-terminal="idleSeconds"><option value="45" ${(terminal?.idleSeconds ?? 45) === 45 ? 'selected' : ''}>45 секунд</option><option value="60" ${terminal?.idleSeconds === 60 ? 'selected' : ''}>1 минута</option><option value="90" ${terminal?.idleSeconds === 90 ? 'selected' : ''}>1,5 минуты</option><option value="120" ${terminal?.idleSeconds === 120 ? 'selected' : ''}>2 минуты</option></select></label>
       <label class="admin-switch"><input type="checkbox" data-admin-terminal="isActive" ${terminal?.isActive !== false ? 'checked' : ''}><span></span> Терминал принимает заказы</label>
+      <label class="admin-switch admin-switch--demo"><input type="checkbox" data-admin-terminal="demoMode" ${terminal?.demoMode ? 'checked' : ''}><span></span><span><b>Демо-киоск</b><small>Показывает сохранённое меню. Заказы не отправляются в iiko, статусы меняются автоматически.</small></span></label>
       ${tablePicker}
       <button class="button button--primary terminal-save" data-action="save-terminal">Сохранить настройки</button>
     </div>

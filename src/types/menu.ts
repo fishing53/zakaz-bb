@@ -191,6 +191,7 @@ export interface TerminalSettings {
   label: string;
   tableNumber: string;
   isActive: boolean;
+  demoMode: boolean;
   idleSeconds: number;
   tableSource?: 'admin' | 'guest' | 'qr' | null;
   tableId?: string | null;

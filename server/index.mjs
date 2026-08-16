@@ -801,14 +801,18 @@ const publicState = async (terminalId) => {
   const fixedTableId = String(terminal.rows[0].table_id ?? '').trim();
   const chosen = selection.rows[0];
   const effectiveTable = fixedTable || chosen?.table_number || '';
-  const products = iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
+  const demoMode = terminal.rows[0].demo_mode === true;
+  const products = !demoMode && iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
     id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, composition: item.override_composition ?? '', kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
     pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
   })) : localProducts.rows;
-  const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId]);
-  return { products, banners: banners.rows, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? (chosen.source === 'qr' ? 'qr' : 'guest') : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
+  if (demoMode) await pool.query(`update customer_orders set status_step=least(4,floor(extract(epoch from now()-created_at)/5)::int),updated_at=now()
+    where terminal_id=$1 and is_demo=true and completed_at is null and status_step<4`, [terminalId]);
+  const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and is_demo=$2 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId, demoMode]);
+  const publicBanners = demoMode ? localProducts.rows.slice(0, 3).map((item, index) => ({ id: `demo-${index}`, name: item.name, image_url: item.image, product_id: item.id, kind: 'restaurant', active: true, starts_at: null, ends_at: null, impression_limit: null, impressions: 0, sort_order: index })) : banners.rows;
+  return { products, banners: publicBanners, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? (chosen.source === 'qr' ? 'qr' : 'guest') : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
 };
 
 const serviceTypes = new Set(['waiter', 'cutlery', 'bill', 'help']);
@@ -1192,7 +1196,7 @@ const server = http.createServer(async (request, response) => {
       const waiter = requireWaiter(request);
       const [requests, orders] = await Promise.all([
         pool.query(`select id,table_number,request_type,status,created_at,accepted_by,accepted_at from service_requests where restaurant_id=$1 and status in ('new','accepted','in_progress') and (accepted_by is null or accepted_by=$2) and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
-        pool.query(`select order_number,table_number,items,total,status_step,created_at,source from customer_orders where restaurant_id=$1 and completed_at is null and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId]),
+        pool.query(`select order_number,table_number,items,total,status_step,created_at,source from customer_orders where restaurant_id=$1 and is_demo=false and completed_at is null and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId]),
       ]);
       return json(response, 200, { requests: requests.rows, orders: orders.rows, serverTime: new Date().toISOString() });
     }
@@ -1234,14 +1238,15 @@ const server = http.createServer(async (request, response) => {
       enforceRequestRate(`order:${requestIp(request)}:${String(body.terminal_id)}`, 10, 5 * 60_000);
       const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно не принимает заказы' });
+      const demoMode = terminal.rows[0].demo_mode === true;
       const orderSource = String(body.terminal_id).startsWith('qr_') ? 'qr' : 'tablet';
-      const useIiko = (await pool.query('select count(*)::int as count from iiko_menu_items')).rows[0].count > 0;
+      const useIiko = !demoMode && (await pool.query('select count(*)::int as count from iiko_menu_items')).rows[0].count > 0;
       const order = useIiko ? await normalizeIikoOrder(body) : await normalizeOrder(body);
-      const table = useIiko ? await effectiveTableForTerminal(terminal.rows[0]) : { table_number: terminal.rows[0].table_number };
+      const table = useIiko || demoMode ? await effectiveTableForTerminal(terminal.rows[0]) : { table_number: terminal.rows[0].table_number };
       const clientRequestId = String(body.client_request_id ?? '').trim();
       if (clientRequestId && !/^[a-zA-Z0-9_-]{8,100}$/.test(clientRequestId)) return json(response, 400, { error: 'Некорректный идентификатор отправки' });
       const requestHash = sha256(JSON.stringify({ terminalId: body.terminal_id, table: table.table_number, items: order.items, comment: String(body.comment ?? ''), promoCode: order.promoCode, source: orderSource }));
-      let number = clientRequestId ? `B-${sha256(`${iikoOrganizationId}:${clientRequestId}`).slice(0, 8).toUpperCase()}` : '';
+      let number = clientRequestId ? `${demoMode ? 'D' : 'B'}-${sha256(`${iikoOrganizationId}:${clientRequestId}`).slice(0, 8).toUpperCase()}` : '';
       if (clientRequestId) {
         const existing = await pool.query('select order_number,items,total,status_step,table_number,created_at from customer_orders where restaurant_id=$1 and client_request_id=$2', [iikoOrganizationId, clientRequestId]);
         if (existing.rowCount) return json(response, 200, existing.rows[0]);
@@ -1266,14 +1271,14 @@ const server = http.createServer(async (request, response) => {
       let initialIikoCreationStatus = '';
       try {
         for (let attempt = 0; attempt < (clientRequestId ? 1 : 5); attempt += 1) {
-          if (!number) number = `B-${crypto.randomInt(1000, 10000)}`;
+          if (!number) number = `${demoMode ? 'D' : 'B'}-${crypto.randomInt(1000, 10000)}`;
           if (useIiko) {
             const created = await createIikoOrder({ id: clientRequestId ? deterministicUuid(`${iikoOrganizationId}:${clientRequestId}`) : undefined, number, table, items: order.iikoItems, comment: body.comment, promotion: order.promotion });
             submittedIikoOrderId = created.id;
             initialIikoCreationStatus = String(created.response?.creationStatus ?? '');
           }
           try {
-            saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, submittedIikoOrderId, iikoOrganizationId, sessionId, orderSource, clientRequestId || null]);
+            saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id,is_demo) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, submittedIikoOrderId, iikoOrganizationId, sessionId, orderSource, clientRequestId || null, demoMode]);
             break;
           } catch (error) {
             if (error.code !== '23505' || clientRequestId || useIiko) throw error;
@@ -1288,15 +1293,17 @@ const server = http.createServer(async (request, response) => {
             throw Object.assign(new Error(`iiko не создал заказ: ${readableIikoOrderError(creation.error_info)}`), { status: 409 });
           }
         }
-        if (order.promotion?.id) await pool.query('update promotions set uses_count=uses_count+1,updated_at=now() where id=$1', [order.promotion.id]);
+        if (!demoMode && order.promotion?.id) await pool.query('update promotions set uses_count=uses_count+1,updated_at=now() where id=$1', [order.promotion.id]);
         if (clientRequestId) await pool.query(`update order_requests set status='success',order_number=$1,iiko_order_id=$2,updated_at=now() where restaurant_id=$3 and client_request_id=$4`, [saved.rows[0].order_number, submittedIikoOrderId, iikoOrganizationId, clientRequestId]);
       } catch (error) {
         if (clientRequestId) await pool.query(`update order_requests set status='failed',iiko_order_id=coalesce($1,iiko_order_id),error_message=$2,updated_at=now() where restaurant_id=$3 and client_request_id=$4`, [submittedIikoOrderId, String(error.message ?? 'Ошибка отправки').slice(0, 500), iikoOrganizationId, clientRequestId]);
         await closeGuestSessionIfIdle(sessionId, 'order_failed');
         throw error;
       }
-      await publishEvent('order_created', 'order', saved.rows[0].order_number, { tableNumber: saved.rows[0].table_number, source: orderSource, total: Number(saved.rows[0].total) });
-      void notifyWaiters(`Новый заказ · стол №${saved.rows[0].table_number}`, `Заказ ${saved.rows[0].order_number} на ${saved.rows[0].total} ₽`, { type: 'order', orderNumber: saved.rows[0].order_number, tableNumber: saved.rows[0].table_number });
+      if (!demoMode) {
+        await publishEvent('order_created', 'order', saved.rows[0].order_number, { tableNumber: saved.rows[0].table_number, source: orderSource, total: Number(saved.rows[0].total) });
+        void notifyWaiters(`Новый заказ · стол №${saved.rows[0].table_number}`, `Заказ ${saved.rows[0].order_number} на ${saved.rows[0].total} ₽`, { type: 'order', orderNumber: saved.rows[0].order_number, tableNumber: saved.rows[0].table_number });
+      }
       return json(response, 201, saved.rows[0]);
     }
     if (request.method === 'POST' && path === '/api/v1/service-requests') {
@@ -1306,6 +1313,7 @@ const server = http.createServer(async (request, response) => {
       enforceRequestRate(`service:${requestIp(request)}:${String(body.terminal_id)}`, 8, 5 * 60_000);
       const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно недоступен' });
+      if (terminal.rows[0].demo_mode === true) return json(response, 201, { ok: true, demo: true });
       const table = await effectiveTableForTerminal(terminal.rows[0]);
       const requestSource = String(body.terminal_id).startsWith('qr_') ? 'qr' : 'tablet';
       const sessionId = await getOrCreateGuestSession({ terminalId: String(body.terminal_id), source: requestSource, table });
@@ -1318,12 +1326,12 @@ const server = http.createServer(async (request, response) => {
       const orderNumber = decodeURIComponent(path.slice('/api/v1/orders/'.length, -'/complete'.length));
       const body = await readBody(request);
       if (!body.terminal_id || !orderNumber) return json(response, 400, { error: 'Некорректный заказ' });
-      const result = await pool.query('update customer_orders set completed_at = now(), updated_at = now() where order_number = $1 and terminal_id = $2 and completed_at is null returning guest_session_id,table_number,source', [orderNumber, String(body.terminal_id)]);
+      const result = await pool.query('update customer_orders set completed_at = now(), updated_at = now() where order_number = $1 and terminal_id = $2 and completed_at is null returning guest_session_id,table_number,source,is_demo', [orderNumber, String(body.terminal_id)]);
       if (!result.rowCount) return json(response, 404, { error: 'Заказ не найден или уже завершён' });
       const terminal = await pool.query('select table_number from terminals where id=$1', [String(body.terminal_id)]);
-      const remaining = await pool.query('select count(*)::int as count from customer_orders where terminal_id=$1 and completed_at is null', [String(body.terminal_id)]);
+      const remaining = await pool.query('select count(*)::int as count from customer_orders where terminal_id=$1 and is_demo=$2 and completed_at is null', [String(body.terminal_id), result.rows[0].is_demo]);
       if (!String(body.terminal_id).startsWith('qr_') && !String(terminal.rows[0]?.table_number ?? '').trim() && !remaining.rows[0].count) await pool.query('delete from terminal_table_selections where terminal_id=$1', [String(body.terminal_id)]);
-      await publishEvent('order_completed', 'order', orderNumber, { tableNumber: result.rows[0].table_number, source: result.rows[0].source });
+      if (!result.rows[0].is_demo) await publishEvent('order_completed', 'order', orderNumber, { tableNumber: result.rows[0].table_number, source: result.rows[0].source });
       await closeGuestSessionIfIdle(result.rows[0].guest_session_id, 'order_completed');
       return json(response, 204, {});
     }
@@ -1461,7 +1469,7 @@ const server = http.createServer(async (request, response) => {
         io.creation_status,o.source,o.created_at,o.updated_at,o.completed_at,
         coalesce((select jsonb_agg(jsonb_build_object('event_type',e.event_type,'payload',e.payload,'created_at',e.created_at) order by e.created_at) from app_events e where e.restaurant_id=o.restaurant_id and e.aggregate_type='order' and e.aggregate_id=o.order_number),'[]'::jsonb) as history
         from customer_orders o left join terminals t on t.id=o.terminal_id left join iiko_orders io on io.order_id=o.iiko_order_id
-        where o.restaurant_id=$1 and ($2='all' or o.completed_at is null) and o.created_at>now()-interval '30 days' order by o.created_at desc limit 250`, [iikoOrganizationId, filter]);
+        where o.restaurant_id=$1 and o.is_demo=false and ($2='all' or o.completed_at is null) and o.created_at>now()-interval '30 days' order by o.created_at desc limit 250`, [iikoOrganizationId, filter]);
       return json(response, 200, result.rows);
     }
     if (request.method === 'GET' && path === '/api/v1/admin/diagnostics') {
@@ -1564,7 +1572,7 @@ const server = http.createServer(async (request, response) => {
         if (!table.rowCount) return json(response, 409, { error: 'Стол не найден в актуальной схеме iiko' });
         selectedTable = table.rows[0];
       }
-      const result = await pool.query('insert into terminals(id, label, table_id, table_number, is_active, idle_seconds) values ($1,$2,$3,$4,$5,$6) on conflict (id) do update set label = excluded.label, table_id = excluded.table_id, table_number = excluded.table_number, is_active = excluded.is_active, idle_seconds = excluded.idle_seconds, updated_at = now() returning *', [id, String(body.label ?? ''), selectedTable?.table_id ?? null, selectedTable?.table_number ?? '', body.is_active !== false, Math.max(15, Number(body.idle_seconds ?? 45))]);
+      const result = await pool.query('insert into terminals(id, label, table_id, table_number, is_active, demo_mode, idle_seconds) values ($1,$2,$3,$4,$5,$6,$7) on conflict (id) do update set label = excluded.label, table_id = excluded.table_id, table_number = excluded.table_number, is_active = excluded.is_active, demo_mode = excluded.demo_mode, idle_seconds = excluded.idle_seconds, updated_at = now() returning *', [id, String(body.label ?? ''), selectedTable?.table_id ?? null, selectedTable?.table_number ?? '', body.is_active !== false, body.demo_mode === true, Math.max(15, Number(body.idle_seconds ?? 45))]);
       await pool.query('delete from terminal_table_selections where terminal_id=$1', [id]);
       await audit(actor, 'update', 'terminal', id, before.rows[0] ?? null, result.rows[0]);
       return json(response, 200, { ...result.rows[0], table_source: result.rows[0].table_number ? 'admin' : null });

@@ -2099,3 +2099,106 @@ button.button.product-modal__submit {
 @media (max-width: 560px) {
   .welcome-home__button { font-size: clamp(1.25rem,5.4vw,1.65rem) !important; }
 }
+
+/* Flat application palette: black canvases and one neutral surface colour. */
+:root { --app-canvas: #000; --app-surface: #191919; --app-surface-border: #191919; }
+html, body, #app,
+.app-shell, .app-shell .page,
+.menu-page, .order-page, .orders-page, .table-picker,
+.app-shell--status, .app-shell--welcome, .welcome-home { background: var(--app-canvas) !important; }
+.app-shell::before, .app-shell::after,
+.inactivity-dialog__glow,
+.live-status__hero-icon::before, .live-status__hero-icon::after { display: none !important; animation: none !important; }
+.bottom-nav-blur { display: none !important; }
+
+/* Product cards and the full dish workspace intentionally remain black. */
+.product-card,
+.product-card__content,
+.product-overlay,
+.product-overlay .product-modal,
+.product-overlay .product-modal__body,
+.product-overlay .product-modal__scroll,
+.product-overlay .nutrition-details,
+.product-overlay .nutrition-details__content { background-color: var(--app-canvas) !important; box-shadow: none !important; }
+.product-card { border-color: var(--app-surface-border) !important; }
+.product-card:hover { box-shadow: none !important; }
+.product-overlay .product-modal__visual::after {
+  background: linear-gradient(90deg,transparent 0,rgba(0,0,0,.2) 38%,rgba(0,0,0,.76) 76%,#000 100%) !important;
+}
+.product-overlay .nutrition-details { border-color: var(--app-surface-border) !important; }
+.product-overlay .nutrition-details .nutrition,
+.product-overlay .product-modal__allergens { border-color: var(--app-surface-border) !important; }
+.product-overlay .product-modal__allergens p {
+  color: #bbb;
+  font-size: .75rem;
+  line-height: 1.5;
+}
+.product-overlay .product-modal__submit,
+.product-overlay .product-modal__quantity,
+.product-overlay .product-modal__visual .product-modal__back { box-shadow: none !important; }
+@media (max-width: 699px) {
+  .product-overlay .product-modal__visual::after {
+    background: linear-gradient(0deg,#000 0%,rgba(0,0,0,.58) 43%,transparent 100%) !important;
+  }
+}
+
+/* Every secondary panel uses the same grey as the bottom navigation. */
+.app-shell--navigation .rail,
+.menu-toolbar .search-box,
+.menu-toolbar .search-box:focus-within,
+.menu-toolbar .search-box.is-open,
+.menu-toolbar .search-box:has(input:not(:placeholder-shown)),
+.option-chips button,
+.order-line,
+.order-summary .order-summary__comment,
+.order-summary__promo,
+.order-summary__promo.is-applied,
+.order-summary__receipt,
+.submitted-order,
+.live-status__identity > span,
+.live-status__stage,
+.live-status__receipt,
+.live-status__timeline li > i,
+.table-picker__table,
+.table-picker__table:hover,
+.table-picker__table:focus-visible,
+.service-sheet,
+.service-actions button,
+.inactivity-dialog,
+.admin-panel,
+.terminal-overview article,
+.terminal-overview article.is-accent,
+.terminal-table-picker,
+.terminal-table-auto,
+.terminal-table-card,
+.admin-image-cache,
+.admin-app-update,
+.banner-create,
+.banner-admin-card,
+.promotion-card,
+.monitor-card,
+.monitor-card.is-error,
+.monitor-card.is-warning,
+.qr-card,
+.iiko-config,
+.admin-order,
+.quality-grid article,
+.audit-list article { background: var(--app-surface) !important; background-image: none !important; box-shadow: none !important; }
+.app-shell--navigation .rail,
+.live-status__stage,
+.live-status__receipt,
+.submitted-order,
+.order-line,
+.service-sheet,
+.inactivity-dialog,
+.admin-panel { box-shadow: none !important; }
+.app-shell--status { background-image: none !important; }
+.live-status__stage h1,
+.live-status__stage-copy > p,
+.live-status__timeline li,
+.live-status__timeline li.is-active > i { animation: none !important; opacity: 1; transform: none; }
+
+.admin-switch--demo { min-height: 66px; }
+.admin-switch--demo > span:last-child { min-width: 0; display: grid; gap: 4px; }
+.admin-switch--demo b { color: #fff; font: 700 .78rem "Roboto Condensed",sans-serif; text-transform: uppercase; }
+.admin-switch--demo small { color: #858585; font-size: .62rem; font-weight: 400; line-height: 1.4; }

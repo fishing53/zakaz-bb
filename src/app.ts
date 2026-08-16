@@ -121,7 +121,7 @@ export function render() {
     currentBannerId = '';
   }
   resetInactivity();
-  if (route === 'status' && !statusRefreshTimer) statusRefreshTimer = window.setInterval(() => { void syncServer(); }, 15_000);
+  if (route === 'status' && !statusRefreshTimer) statusRefreshTimer = window.setInterval(() => { void syncServer(); }, state.terminal?.demoMode ? 5_000 : 15_000);
   if (route !== 'status' && statusRefreshTimer) { clearInterval(statusRefreshTimer); statusRefreshTimer = 0; }
   if (route === 'admin' && state.adminTab === 'orders' && !adminOrderRefreshTimer) adminOrderRefreshTimer = window.setInterval(() => { void loadAdminOrders(); }, 15_000);
   if ((route !== 'admin' || state.adminTab !== 'orders') && adminOrderRefreshTimer) { clearInterval(adminOrderRefreshTimer); adminOrderRefreshTimer = 0; }
@@ -620,8 +620,12 @@ async function action(element: HTMLElement) {
   if (type === 'save-terminal') {
     const input = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => root.querySelector<T>(`[data-admin-terminal="${name}"]`);
     try {
-      const terminal = await apiService.saveTerminal({ id: apiService.terminalId, label: input<HTMLInputElement>('label')?.value.trim() ?? '', tableId: input<HTMLInputElement>('tableId')?.value.trim() || null, tableNumber: input<HTMLInputElement>('tableNumber')?.value.trim() ?? '', isActive: input<HTMLInputElement>('isActive')?.checked ?? true, idleSeconds: Number(input<HTMLSelectElement>('idleSeconds')?.value ?? 45) });
-      appStore.set({ terminal }); flash('Настройка терминала сохранена');
+      const previousDemoMode = appStore.get().terminal?.demoMode ?? false;
+      const terminal = await apiService.saveTerminal({ id: apiService.terminalId, label: input<HTMLInputElement>('label')?.value.trim() ?? '', tableId: input<HTMLInputElement>('tableId')?.value.trim() || null, tableNumber: input<HTMLInputElement>('tableNumber')?.value.trim() ?? '', isActive: input<HTMLInputElement>('isActive')?.checked ?? true, demoMode: input<HTMLInputElement>('demoMode')?.checked ?? false, idleSeconds: Number(input<HTMLSelectElement>('idleSeconds')?.value ?? 45) });
+      if (terminal.demoMode !== previousDemoMode) appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, upsellId: null, orders: [], selectedOrderId: null, orderNumber: null, statusStep: 0 }, false);
+      appStore.set({ terminal }, false);
+      await syncServer();
+      flash(terminal.demoMode ? 'Демо-киоск включён' : 'Демо-киоск выключен');
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить терминал'); }
     return;
   }
