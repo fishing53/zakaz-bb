@@ -1,12 +1,13 @@
+import { icon, type IconName } from '../components/icons';
 import type { CartLine, Product, SubmittedOrder } from '../types/menu';
 import { escapeHtml, formatPrice } from '../utils/helpers';
 
-const stages = [
-  ['Принят', 'Ресторан получил заказ'],
-  ['Готовится', 'Блюда уже на кухне'],
-  ['Готов', 'Скоро принесём к столу'],
-  ['Подан', 'Приятного аппетита!'],
-] as const;
+const stages: ReadonlyArray<{ name: string; description: string; icon: IconName }> = [
+  { name: 'Принят', description: 'Ресторан получил заказ', icon: 'check' },
+  { name: 'Готовится', description: 'Блюда уже на кухне', icon: 'flame' },
+  { name: 'Готов', description: 'Скоро принесём к столу', icon: 'serviceBell' },
+  { name: 'Подан', description: 'Приятного аппетита!', icon: 'utensils' },
+];
 
 export const statusPage = (order: SubmittedOrder | undefined, number: string | null, step: number, productFor: (line: CartLine) => Product | undefined) => {
   // iiko exposes five technical item states. Added and PrintedNotCooking are
@@ -52,8 +53,11 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
     </header>
     <div class="live-status__layout">
       <main class="live-status__stage">
-        <div class="live-status__stage-copy"><h1>${heading}</h1><p>${message}</p></div>
-        <section class="live-status__timeline" aria-label="Этапы заказа"><ol>${stages.map(([name, description], index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}"><i>${index + 1}</i><div><b>${name}</b><span>${description}</span></div></li>`).join('')}</ol></section>
+        <div class="live-status__stage-copy">
+          <div class="live-status__hero-icon">${icon(stages[active].icon)}</div>
+          <h1>${heading}</h1><p>${message}</p>
+        </div>
+        <section class="live-status__timeline" aria-label="Этапы заказа"><ol>${stages.map((stage, index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}" style="--stage-index:${index}"><i>${icon(stage.icon)}</i><div><b>${stage.name}</b><span>${stage.description}</span></div></li>`).join('')}</ol></section>
       </main>
       <aside class="live-status__receipt">
         <header><div><h2>Состав заказа</h2></div><b>${positionCount} поз.</b></header>
