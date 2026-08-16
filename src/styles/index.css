@@ -2072,6 +2072,7 @@ button.button.product-modal__submit {
   align-items: center !important;
   justify-content: center !important;
   font: 700 var(--action-font-size)/1 "Roboto Condensed",sans-serif !important;
+  font-size: clamp(1.6rem,2.4vw,2.65rem) !important;
   letter-spacing: .03em !important;
   line-height: 1 !important;
   text-align: center !important;
@@ -2094,4 +2095,7 @@ button.button.product-modal__submit {
 .welcome-home__button:hover,.welcome-order-button:hover,.welcome-waiter-button:hover,.service-fab:hover,.pwa-update:hover {
   transform: none !important;
   filter: brightness(.94);
+}
+@media (max-width: 560px) {
+  .welcome-home__button { font-size: clamp(1.25rem,5.4vw,1.65rem) !important; }
 }
