@@ -1,12 +1,11 @@
-import { icon } from '../components/icons';
 import type { CartLine, Product, SubmittedOrder } from '../types/menu';
 import { escapeHtml, formatPrice } from '../utils/helpers';
 
 const stages = [
   ['Принят', 'Ресторан получил заказ'],
   ['Готовится', 'Блюда уже на кухне'],
-  ['Готов', 'Можно подавать к столу'],
-  ['Подан', 'Заказ у вашего стола'],
+  ['Готов', 'Скоро принесём к столу'],
+  ['Подан', 'Приятного аппетита!'],
 ] as const;
 
 export const statusPage = (order: SubmittedOrder | undefined, number: string | null, step: number, productFor: (line: CartLine) => Product | undefined) => {
@@ -19,12 +18,12 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
   const table = order?.tableNumber;
   const heading = served ? 'Заказ <em>подан</em>' : ready ? 'Заказ <em>готов</em>' : active === 0 ? 'Заказ <em>принят</em>' : 'Заказ <em>готовится</em>';
   const message = served
-    ? 'Все позиции уже у вашего стола. Если понадобится помощь, официант рядом.'
+    ? 'Приятного аппетита! Если что-нибудь понадобится, просто позовите официанта.'
     : ready
-      ? 'Кухня закончила готовить заказ. Официант скоро принесёт его к вашему столу.'
+      ? 'Всё готово! Официант уже несёт заказ к вашему столу.'
       : active === 0
-        ? 'Ресторан принял заказ. Следующее обновление появится здесь автоматически.'
-        : 'Повара уже готовят ваши блюда. Экран обновится сразу после смены статуса в iiko.';
+        ? 'Спасибо! Мы получили ваш заказ и уже передали его на кухню.'
+        : 'Повара готовят ваши блюда. Осталось немного — сообщим, когда всё будет готово.';
 
   const positionCount = items.reduce((sum, item) => sum + item.quantity + (item.modifiers ?? []).reduce((modifierSum, modifier) => modifierSum + modifier.amount * item.quantity, 0), 0);
   const orderLines = items.map((item) => {
@@ -53,9 +52,8 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
     </header>
     <div class="live-status__layout">
       <main class="live-status__stage">
-        <div class="live-status__stage-copy"><div class="live-status__stage-index">0${active + 1}<small>/ 04</small></div><h1>${heading}</h1><p>${message}</p></div>
-        ${ready ? `<div class="live-status__ready-mark">${icon(served ? 'check' : 'bell')}</div>` : ''}
-        <section class="live-status__timeline" aria-label="Этапы заказа"><div><span>ЭТАПЫ ЗАКАЗА</span></div><ol>${stages.map(([name, description], index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}"><i>${index < active ? icon('check') : ''}</i><div><b>${name}</b><span>${description}</span></div></li>`).join('')}</ol></section>
+        <div class="live-status__stage-copy"><h1>${heading}</h1><p>${message}</p></div>
+        <section class="live-status__timeline" aria-label="Этапы заказа"><div><span>ЭТАПЫ ЗАКАЗА</span></div><ol>${stages.map(([name, description], index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}"><i>${index + 1}</i><div><b>${name}</b><span>${description}</span></div></li>`).join('')}</ol></section>
       </main>
       <aside class="live-status__receipt">
         <header><div><h2>Состав заказа</h2></div><b>${positionCount} поз.</b></header>
