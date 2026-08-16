@@ -2197,3 +2197,31 @@ html, body, #app,
 .admin-switch--demo > span:last-child { min-width: 0; display: grid; gap: 4px; }
 .admin-switch--demo b { color: #fff; font: 700 .78rem "Roboto Condensed",sans-serif; text-transform: uppercase; }
 .admin-switch--demo small { color: #858585; font-size: .62rem; font-weight: 400; line-height: 1.4; }
+
+/* iiko and demo modifiers share one compact visual language. Selection rules
+   remain independent, so a group may still allow several active modifiers. */
+.option-group.option-group--modifiers .option-chips,
+.option-group.option-group--modifiers[data-multiple="true"] .option-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.option-group.option-group--modifiers .option-chips .option-chip,
+.option-group.option-group--modifiers[data-multiple="true"] .option-chips .option-chip {
+  width: auto;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+  text-align: left;
+}
+.option-group.option-group--modifiers[data-multiple="true"] .option-chip__check { display: none; }
+.option-group.option-group--modifiers .option-chips .option-chip small,
+.option-group.option-group--modifiers[data-multiple="true"] .option-chips .option-chip small {
+  padding: 0;
+  font: 700 .68rem/1 "Roboto Condensed",sans-serif;
+  letter-spacing: .02em;
+}
