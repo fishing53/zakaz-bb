@@ -2225,3 +2225,13 @@ html, body, #app,
   font: 700 .68rem/1 "Roboto Condensed",sans-serif;
   letter-spacing: .02em;
 }
+
+/* Configuration and recommendation headings keep one shared rhythm. */
+.product-modal .option-group__heading { margin-bottom: 15px; }
+.product-modal .option-group__heading h3 { margin-bottom: 0; }
+.product-modal .modal-related > h3 { margin-bottom: 15px; }
+@media (min-width: 1050px) and (orientation: landscape) {
+  .product-modal .option-group__heading { margin-bottom: 8px; }
+  .product-modal .option-group__heading h3 { margin-bottom: 0; }
+  .product-modal .modal-related > h3 { margin-bottom: 8px; }
+}
