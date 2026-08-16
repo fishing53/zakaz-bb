@@ -1003,9 +1003,15 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .product-overlay .nutrition-details__heading { margin-bottom: 16px; }
 
 /* “Ваш заказ” and “Мои заказы” are sibling screens and use one title scale. */
-.order-page > .page-heading h1,.orders-page .page-heading h1 { font-size: clamp(3.2rem,5.2vw,5.8rem); }
+.orders-page { width: 100%; max-width: none; padding: 0; }
+.order-page > .page-heading,.orders-page > .page-heading { max-width: none; margin: 4px 0 22px; }
+.order-page > .page-heading h1,.orders-page .page-heading h1 { margin: 6px 0 8px; font-size: clamp(3.2rem,5.2vw,5.8rem); }
+.order-page > .page-heading p,.orders-page > .page-heading p { max-width: 580px; font-size: .78rem; line-height: 1.4; }
+.orders-list { margin-top: 0; }
 @media (min-width: 681px) and (max-height: 700px) {
+  .order-page > .page-heading,.orders-page > .page-heading { margin: 0 0 11px; }
   .order-page > .page-heading h1,.orders-page .page-heading h1 { font-size: clamp(2.65rem,5vw,4.4rem); }
+  .order-page > .page-heading p,.orders-page > .page-heading p { font-size: .72rem; }
 }
 
 /* Landscape tablets leave much less vertical room once the bottom navigation
@@ -1014,9 +1020,9 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .order-layout .order-summary { height: auto; align-self: start; }
 @media (min-width: 681px) and (max-height: 820px) {
   .order-page { height: calc(100dvh - 154px); }
-  .order-page > .page-heading { margin: 0 0 14px; }
+  .order-page > .page-heading,.orders-page > .page-heading { margin: 0 0 14px; }
   .order-page > .page-heading h1,.orders-page .page-heading h1 { margin: 0 0 5px; font-size: clamp(2.8rem,4.5vw,4.25rem); }
-  .order-page > .page-heading p { font-size: .7rem; }
+  .order-page > .page-heading p,.orders-page > .page-heading p { font-size: .7rem; }
   .order-layout { gap: 18px; }
   .order-layout .order-summary { padding: 13px 14px 14px; }
   .order-summary__header { min-height: 29px; padding-bottom: 9px; }
@@ -1347,7 +1353,12 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
   }
-  .app-shell--navigation .order-page > .page-heading {
+  .app-shell--navigation .orders-page {
+    min-height: 0;
+    padding: 0 2px 92px 0;
+  }
+  .app-shell--navigation .order-page > .page-heading,
+  .app-shell--navigation .orders-page > .page-heading {
     margin: 0 0 18px;
   }
   .app-shell--navigation .order-layout {
@@ -1370,7 +1381,7 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
     overflow: visible;
   }
   .app-shell--navigation .orders-list {
-    padding-bottom: 92px;
+    padding: 0 0 8px;
   }
 }
 
@@ -1540,24 +1551,26 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   height: 2px;
   position: absolute;
   z-index: 0;
-  top: 13px;
-  left: calc(50% + 20px);
-  width: calc(100% - 40px);
+  top: 15px;
+  left: calc(50% + 22px);
+  width: calc(100% - 44px);
   content: '';
   background: #343434;
 }
 .live-status__timeline li.is-complete:not(:last-child)::after { background: var(--accent); }
 .live-status__timeline li > i {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   z-index: 1;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0 1px;
   border: 2px solid #454545;
   border-radius: 50%;
   background: #151515;
   color: #858585;
-  font: 700 .68rem/1 "Roboto Condensed",sans-serif;
+  font: 700 .82rem/1 "Roboto Condensed",sans-serif;
   font-style: normal;
 }
 .live-status__timeline li > div {
@@ -1745,8 +1758,8 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   .live-status__timeline { padding-top: 26px; }
   .live-status__timeline ol { grid-template-columns: repeat(4,minmax(0,1fr)); }
   .live-status__timeline li { gap: 7px; }
-  .live-status__timeline li > i { width: 25px; height: 25px; }
-  .live-status__timeline li:not(:last-child)::after { top: 11px; left: calc(50% + 18px); width: calc(100% - 36px); }
+  .live-status__timeline li > i { width: 29px; height: 29px; font-size: .75rem; }
+  .live-status__timeline li:not(:last-child)::after { top: 13px; left: calc(50% + 20px); width: calc(100% - 40px); }
   .live-status__timeline li b { font-size: .64rem; }
   .live-status__timeline li span { max-width: 74px; font-size: .47rem; }
   .live-status__receipt { padding: 18px; overflow: visible; }

@@ -53,7 +53,7 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
     <div class="live-status__layout">
       <main class="live-status__stage">
         <div class="live-status__stage-copy"><h1>${heading}</h1><p>${message}</p></div>
-        <section class="live-status__timeline" aria-label="Этапы заказа"><div><span>ЭТАПЫ ЗАКАЗА</span></div><ol>${stages.map(([name, description], index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}"><i>${index + 1}</i><div><b>${name}</b><span>${description}</span></div></li>`).join('')}</ol></section>
+        <section class="live-status__timeline" aria-label="Этапы заказа"><ol>${stages.map(([name, description], index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}"><i>${index + 1}</i><div><b>${name}</b><span>${description}</span></div></li>`).join('')}</ol></section>
       </main>
       <aside class="live-status__receipt">
         <header><div><h2>Состав заказа</h2></div><b>${positionCount} поз.</b></header>
