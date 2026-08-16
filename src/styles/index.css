@@ -1943,7 +1943,9 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
    cards and quantity steppers remain controls rather than CTA buttons. */
 button.button {
   min-height: var(--action-height) !important;
-  padding: 0 24px !important;
+  /* Roboto Condensed's uppercase glyphs sit optically above the line-box
+     centre. The asymmetric block padding moves the whole label down by 1px. */
+  padding: 2px 24px 0 !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
