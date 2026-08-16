@@ -90,19 +90,19 @@ const inactivityPrompt = (open: boolean, seconds: number) => open ? `<div class=
   <img class="inactivity-dialog__character" src="/images/inactivity-character.png" alt="" aria-hidden="true">
   <div class="inactivity-dialog__glow"></div><div class="inactivity-dialog__brand"><img src="${brand.logo}" alt="Brooklyn Bowl"></div>
   <div class="inactivity-dialog__timer"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="53"></circle><circle class="inactivity-dialog__progress" cx="60" cy="60" r="53"></circle></svg><strong data-inactivity-countdown>${seconds}</strong><small>СЕК</small></div>
-  <span class="eyebrow">ВАШ ЗАКАЗ ПРИОСТАНОВЛЕН</span><h2>Вы ещё здесь?</h2><p>Продолжите оформление или заказ автоматически очистится для следующего гостя.</p>
-  <div class="inactivity-dialog__actions"><button class="button button--primary button--wide" data-action="continue-order">Да, продолжить заказ</button><button class="button button--secondary button--wide inactivity-dialog__cancel" data-action="cancel-order">Завершить и очистить</button></div>
+  <h2>Вы ещё выбираете?</h2><p>Нажмите «Продолжить», чтобы сохранить выбранные блюда.</p>
+  <div class="inactivity-dialog__actions"><button class="button button--primary button--wide" data-action="continue-order">Продолжить</button><button class="button button--secondary button--wide inactivity-dialog__cancel" data-action="cancel-order">Начать заново</button></div>
 </section></div>` : '';
 export function render() {
   const state = appStore.get();
   const route = router.current();
   if (qrStartupError) {
-    root.innerHTML = `<section class="qr-entry-error"><span>QR-ЗАКАЗ</span><h1>Не удалось открыть стол</h1><p>${escapeHtml(qrStartupError)}</p><button class="button button--secondary" data-action="retry-qr-entry">Повторить</button></section>`;
+    root.innerHTML = `<section class="qr-entry-error"><h1>Не получилось открыть меню</h1><p>${escapeHtml(qrStartupError)}</p><button class="button button--secondary" data-action="retry-qr-entry">Повторить</button></section>`;
     return;
   }
   if (route === 'admin' && !state.adminAuthenticated) { root.innerHTML = adminLogin(true, 'restaurant'); return; }
   if (route === 'status' && !state.selectedOrderId && !state.orderNumber) { router.go('orders'); return; }
-  root.innerHTML = appShell(page(), route) + serviceSheet(state.serviceOpen) + productModal(state.productId ? menuService.find(state.productId) : undefined, state.productId ? state.productDisplay[state.productId] : undefined, state.productDisplay) + upsellSheet(state.upsellId ? menuService.find(state.upsellId) : undefined) + adminLogin(state.adminLoginOpen, 'terminal') + inactivityPrompt(state.inactivityWarning, state.inactivitySeconds) + (!state.isOnline ? '<div class="network-banner">Нет сети. Доступны ранее загруженные данные.</div>' : '') + (state.pwaUpdateReady ? '<button class="pwa-update" data-action="refresh-app">Доступно обновление. Обновить</button>' : '') + (state.toast ? `<div class="toast">${state.toast}</div>` : '');
+  root.innerHTML = appShell(page(), route) + serviceSheet(state.serviceOpen) + productModal(state.productId ? menuService.find(state.productId) : undefined, state.productId ? state.productDisplay[state.productId] : undefined, state.productDisplay) + upsellSheet(state.upsellId ? menuService.find(state.upsellId) : undefined) + adminLogin(state.adminLoginOpen, 'terminal') + inactivityPrompt(state.inactivityWarning, state.inactivitySeconds) + (!state.isOnline ? '<div class="network-banner">Нет подключения к интернету. Меню можно смотреть, но оформить заказ пока не получится.</div>' : '') + (state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : '');
   const product = state.productId ? menuService.find(state.productId) : undefined;
   const related = root.querySelector<HTMLElement>('[data-related-for]');
   if (product && related) related.innerHTML = relatedCards(menuService.related(product), state.productDisplay);
@@ -192,7 +192,7 @@ function updateModalTotal() {
       .map((value) => value.trim())
       .filter(Boolean);
     const uniqueAllergens = [...new Map(allergens.map((value) => [value.toLocaleLowerCase('ru-RU'), value])).values()];
-    allergenLabel.textContent = uniqueAllergens.length ? uniqueAllergens.join(', ') : 'Уточняйте у официанта.';
+    allergenLabel.textContent = uniqueAllergens.length ? uniqueAllergens.join(', ') : 'Информацию об аллергенах уточните у официанта.';
   }
   const total = root.querySelector<HTMLElement>('[data-modal-total]');
   if (total) total.textContent = formatPrice((product.price_rub + sauceTotal + iikoTotal) * quantity + relatedTotal);
@@ -247,6 +247,28 @@ function updateOrderTotals(lineElement: HTMLElement) {
 function flash(message: string) {
   appStore.set({ toast: message });
   window.setTimeout(() => { if (appStore.get().toast === message) appStore.set({ toast: null }); }, 2600);
+}
+
+type GuestErrorContext = 'general' | 'order' | 'promo' | 'qr' | 'table' | 'service';
+
+function guestErrorMessage(error: unknown, context: GuestErrorContext = 'general') {
+  const raw = error instanceof Error ? error.message.trim() : '';
+  const normalized = raw.toLocaleLowerCase('ru-RU');
+  const offline = normalized.includes('нет соединения') || normalized.includes('failed to fetch') || normalized.includes('network') || normalized.includes('сеть');
+  if (offline) return 'Нет связи с рестораном. Проверьте интернет и попробуйте ещё раз.';
+  if (context === 'promo') return 'Промокод не найден или больше не действует.';
+  if (context === 'qr') {
+    if (normalized.includes('не активен') || normalized.includes('стол') || normalized.includes('iiko')) return 'Этот QR-код больше не работает. Пожалуйста, позовите официанта.';
+    return 'Не удалось распознать QR-код. Отсканируйте его ещё раз.';
+  }
+  if (context === 'table') return 'Этот стол сейчас недоступен. Выберите другой или позовите официанта.';
+  if (context === 'service') return 'Не получилось отправить вызов. Попробуйте ещё раз или обратитесь к сотруднику ресторана.';
+  if (context === 'order') {
+    if (normalized.includes('уже отправля')) return 'Заказ уже передаётся на кухню. Пожалуйста, подождите.';
+    if (normalized.includes('измен') || normalized.includes('состав') || normalized.includes('идентификатор')) return 'Заказ изменился. Проверьте его и попробуйте оформить ещё раз.';
+    return 'Не получилось оформить заказ. Попробуйте ещё раз или позовите официанта.';
+  }
+  return 'Что-то пошло не так. Попробуйте ещё раз или позовите официанта.';
 }
 
 function selectBanner(index: number) {
@@ -366,7 +388,7 @@ async function action(element: HTMLElement) {
       const tables = await apiService.tables();
       appStore.set({ tables });
       router.go('table');
-    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось загрузить столы'); }
+    } catch (error) { flash(guestErrorMessage(error, 'table')); }
     return;
   }
   if (type === 'select-table') {
@@ -377,7 +399,7 @@ async function action(element: HTMLElement) {
       await apiService.selectTable(tableId);
       await syncServer();
       router.go('menu');
-    } catch (error) { element.removeAttribute('disabled'); flash(error instanceof Error ? error.message : 'Не удалось выбрать стол'); }
+    } catch (error) { element.removeAttribute('disabled'); flash(guestErrorMessage(error, 'table')); }
     return;
   }
   if (type === 'admin-tap') {
@@ -578,12 +600,12 @@ async function action(element: HTMLElement) {
     const related = relatedIds.map((id) => menuService.find(id)).filter((item): item is Product => Boolean(item));
     const modifiers = [...root.querySelectorAll<HTMLElement>('[data-iiko-modifier="true"].is-selected')].map((item) => ({ productId: item.dataset.productId ?? '', name: item.dataset.value ?? '', amount: 1, price: Number(item.dataset.price ?? 0), image: item.dataset.image || '/images/sauce-fallback.webp', maxQuantity: Number(item.dataset.maxQuantity ?? 20) || 20 })).filter((item) => item.productId);
     orderStore.addBundle(product, { addon: valueAt('Добавки'), flavor: valueAt('Вкус'), ...(modifiers.length ? { modifiers } : {}) }, sauces, related, quantity);
-    transientToast('Выбранные позиции добавлены в заказ');
+    transientToast('Добавили всё выбранное в заказ.');
     return;
   }
   if (type === 'accept-upsell') {
     const product = menuService.find(element.dataset.productId!);
-    if (product) { orderStore.add(product); flash(`${product.name} добавлен в заказ`); }
+    if (product) { orderStore.add(product); flash(`Добавили «${product.name}» в заказ.`); }
     return;
   }
   if (type === 'dismiss-upsell') { appStore.set({ upsellId: null }); return; }
@@ -852,7 +874,7 @@ async function action(element: HTMLElement) {
       flash(`Промокод применён: −${formatPrice(promoRule.discount)}`);
     } catch (error) {
       appStore.set({ promoCode: '', promoRule: null, pendingOrderRequestId: null });
-      flash(error instanceof Error ? error.message : 'Промокод не найден');
+      flash(guestErrorMessage(error, 'promo'));
     }
     return;
   }
@@ -896,13 +918,18 @@ async function action(element: HTMLElement) {
   if (type === 'remove-line') { orderStore.remove(element.dataset.key!); return; }
   if (type === 'change-modifier-quantity') {
     const changed = orderStore.changeModifier(element.dataset.key!, element.dataset.modifierId!, Number(element.dataset.delta));
-    if (!changed && Number(element.dataset.delta) > 0) flash('Максимальное количество задано в iiko');
+    if (!changed && Number(element.dataset.delta) > 0) flash('Больше добавить нельзя.');
     return;
   }
   if (type === 'remove-modifier') { orderStore.removeModifier(element.dataset.key!, element.dataset.modifierId!); return; }
   if (type === 'open-service') { appStore.set({ serviceOpen: true }); return; }
   if (type === 'close-service') { appStore.set({ serviceOpen: false }); return; }
-  if (type === 'request-service') { waiterService.request(element.dataset.service ?? '').then((result) => { appStore.set({ serviceOpen: false }); flash(result.message); }); return; }
+  if (type === 'request-service') {
+    waiterService.request(element.dataset.service ?? '')
+      .then((result) => { appStore.set({ serviceOpen: false }); flash(result.message); })
+      .catch((error) => flash(guestErrorMessage(error, 'service')));
+    return;
+  }
   if (type === 'open-order-status') {
     const orderId = element.dataset.orderId ?? null;
     appStore.set({ selectedOrderId: orderId, orderNumber: orderId });
@@ -915,13 +942,13 @@ async function action(element: HTMLElement) {
     return;
   }
   if (type === 'submit-order') {
-    if (!orderStore.count()) { router.go('menu'); flash('Добавьте блюда в заказ'); return; }
+    if (!orderStore.count()) { router.go('menu'); flash('Сначала выберите блюда в меню.'); return; }
     if (submittingOrder) return;
     submittingOrder = true;
     const button = element as HTMLButtonElement;
     const originalLabel = button.textContent;
     button.disabled = true;
-    button.textContent = 'ОТПРАВЛЯЕМ ЗАКАЗ…';
+    button.textContent = 'ПЕРЕДАЁМ ЗАКАЗ НА КУХНЮ…';
     try {
       await orderService.submit();
       // Keep the submitted order state intact while clearing the cart before
@@ -931,7 +958,7 @@ async function action(element: HTMLElement) {
     } catch (error) {
       button.disabled = false;
       button.textContent = originalLabel;
-      flash(error instanceof Error ? error.message : 'Не удалось отправить заказ');
+      flash(guestErrorMessage(error, 'order'));
     }
     finally { submittingOrder = false; }
     return;
@@ -948,12 +975,12 @@ async function action(element: HTMLElement) {
         statusStep: 0,
       });
       router.go('orders');
-    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось завершить заказ'); }
+    } catch (error) { flash(guestErrorMessage(error)); }
     return;
   }
   if (type === 'continue-order') { appStore.set({ inactivityWarning: false, inactivitySeconds: 15 }); resetInactivity(); return; }
   if (type === 'cancel-order') { finishInactiveSession(); return; }
-  if (type === 'toggle-language') { const language = appStore.get().language === 'en' ? 'ru' : 'en'; appStore.set({ language }); flash(language === 'en' ? 'Language: EN' : 'Язык: RU'); }
+  if (type === 'toggle-language') { const language = appStore.get().language === 'en' ? 'ru' : 'en'; appStore.set({ language }); flash(language === 'en' ? 'English selected' : 'Выбран русский язык'); }
 }
 
 function finishInactiveSession() {
@@ -1110,7 +1137,7 @@ export async function startApp() {
     suppressBannerOpenUntil = Date.now() + 450;
   }, { passive: true });
   ['pointerdown', 'touchstart', 'keydown'].forEach((event) => addEventListener(event, resetInactivity, { passive: true }));
-  addEventListener('online', () => { appStore.set({ isOnline: true }); flash('Соединение восстановлено'); });
+  addEventListener('online', () => { appStore.set({ isOnline: true }); flash('Связь восстановлена — можно продолжать.'); });
   addEventListener('offline', () => { appStore.set({ isOnline: false }); });
   document.addEventListener('contextmenu', (event) => event.preventDefault());
   appStore.subscribe(render);
@@ -1119,7 +1146,7 @@ export async function startApp() {
   void loadCurrentAppVersion(false);
   const qrToken = new URLSearchParams(location.search).get('qr');
   if (qrToken) {
-    root.innerHTML = '<section class="qr-entry-loading"><i></i><span>ОТКРЫВАЕМ МЕНЮ</span><p>Определяем ваш стол…</p></section>';
+    root.innerHTML = '<section class="qr-entry-loading"><i></i><span>ГОТОВИМ МЕНЮ</span><p>Подключаем заказ к вашему столу…</p></section>';
     try {
       const previousQr = sessionStorage.getItem('bb-qr-token');
       if (previousQr !== qrToken) {
@@ -1131,7 +1158,7 @@ export async function startApp() {
       if (router.current() === 'welcome' || router.current() === 'table' || router.current() === 'admin') router.go('menu');
       else render();
     } catch (error) {
-      qrStartupError = error instanceof Error ? error.message : 'QR-код не удалось проверить';
+      qrStartupError = guestErrorMessage(error, 'qr');
       render();
     }
   } else {

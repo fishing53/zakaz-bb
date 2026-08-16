@@ -3,6 +3,13 @@ import { guestOrderStep, orderStages, orderStatusMessage } from '../config/order
 import type { CartLine, Product, SubmittedOrder } from '../types/menu';
 import { escapeHtml, formatPrice } from '../utils/helpers';
 
+const positionLabel = (count: number) => {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  const word = lastTwo >= 11 && lastTwo <= 14 ? 'позиций' : last === 1 ? 'позиция' : last >= 2 && last <= 4 ? 'позиции' : 'позиций';
+  return `${count} ${word}`;
+};
+
 export const statusPage = (order: SubmittedOrder | undefined, number: string | null, step: number, productFor: (line: CartLine) => Product | undefined) => {
   // iiko exposes five technical item states. Added and PrintedNotCooking are
   // one guest-facing stage, so the screen deliberately presents four steps.
@@ -48,8 +55,8 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
         <section class="live-status__timeline" aria-label="Этапы заказа"><ol>${orderStages.map((stage, index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}" style="--stage-index:${index}"><i>${icon(stage.icon)}</i><div><b>${stage.name}</b><span>${stage.description}</span></div></li>`).join('')}</ol></section>
       </main>
       <aside class="live-status__receipt">
-        <header><div><h2>Состав заказа</h2></div><b>${positionCount} поз.</b></header>
-        <div class="live-status__items">${orderLines || '<div class="live-status__empty">Состав заказа загружается…</div>'}</div>
+        <header><div><h2>Состав заказа</h2></div><b>${positionLabel(positionCount)}</b></header>
+        <div class="live-status__items">${orderLines || '<div class="live-status__empty">Собираем информацию о заказе…</div>'}</div>
         <div class="live-status__total"><span>ИТОГО</span><strong>${formatPrice(order?.total ?? 0)}</strong></div>
         <footer><button class="button button--primary" data-action="open-service">Позвать официанта</button><button class="button button--secondary" data-action="new-order">Сделать ещё заказ</button></footer>
       </aside>

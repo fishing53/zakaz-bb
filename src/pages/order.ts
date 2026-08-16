@@ -33,14 +33,14 @@ export function orderPage(lines: CartLine[], productFor: (line: CartLine) => Pro
       </div>
       <button class="line-remove" data-action="remove-line" data-key="${escapeHtml(line.key)}">${icon('close')}</button>
     </article>${modifiers}`;
-  }).join('') : '<div class="empty-state">Ваш заказ пока пуст. В меню найдется много интересного.</div>';
+  }).join('') : '<div class="empty-state">Ваш заказ пока пуст. В меню найдётся много интересного.</div>';
 
   return `<section class="order-page">
     <header class="page-heading"><h1>Ваш <em>заказ</em></h1><p>Проверьте позиции перед оформлением.</p></header>
     <div class="order-layout">
       <section class="order-lines">${orderLines}</section>
       <aside class="order-summary">
-        <label class="order-summary__comment"><span>Комментарий для кухни</span><div class="order-summary__comment-field"><textarea data-action="set-comment" placeholder="Например: без лука, пожалуйста">${escapeHtml(comment)}</textarea>${icon('edit')}</div></label>
+        <label class="order-summary__comment"><span>Пожелания к заказу</span><div class="order-summary__comment-field"><textarea data-action="set-comment" placeholder="Например: без лука, пожалуйста">${escapeHtml(comment)}</textarea>${icon('edit')}</div></label>
         <section class="order-summary__promo ${promoRule ? 'is-applied' : ''}">
           <div class="order-summary__promo-title"><span>ПРОМОКОД</span>${promoRule ? `<b>${escapeHtml(promoRule.name)}</b>` : ''}</div>
           <div class="promo-code"><div class="promo-code__field">${icon('promo')}<input aria-label="Промокод" data-action="set-promo" value="${escapeHtml(promoCode)}" placeholder="Введите код" ${promoRule ? 'readonly' : ''}/></div>${promoRule ? `<button class="promo-code__remove" data-action="remove-promo" aria-label="Удалить промокод">${icon('close')}</button>` : '<button class="button button--secondary button--compact" data-action="apply-promo">Применить</button>'}</div>

@@ -2,7 +2,7 @@ import type { IconName } from '../components/icons';
 
 export const orderStages: ReadonlyArray<{ name: string; description: string; icon: IconName }> = [
   { name: 'Принят', description: 'Ресторан получил ваш заказ', icon: 'check' },
-  { name: 'Готовится', description: 'Блюда уже на кухне', icon: 'cooking' },
+  { name: 'Готовится', description: 'Повара готовят ваши блюда', icon: 'cooking' },
   { name: 'Готов', description: 'Скоро принесём к столу', icon: 'waiter' },
   { name: 'Подан', description: 'Приятного аппетита!', icon: 'utensils' },
 ];

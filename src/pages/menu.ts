@@ -6,7 +6,7 @@ import { icon } from '../components/icons';
 export function menuResults(products: Product[], selected: string, search: string, recent: Product[], display: Record<string, ProductDisplaySettings> = {}, ready = true) {
   const card = (product: Product, compact = false) => productCard(product, compact, display[product.id]);
   const recentSection = recent.length && !search && selected === 'Все блюда' ? `<div class="recent-row"><span class="eyebrow">ВЫ НЕДАВНО СМОТРЕЛИ</span><h2>Вернуться к выбору</h2><div class="recent-row__items">${recent.slice(0, 4).map((product) => card(product, true)).join('')}</div></div>` : '';
-  const empty = ready ? 'Ничего не нашли. Попробуйте другой запрос.' : 'Загружаем актуальное меню…';
+  const empty = ready ? 'Ничего не нашли. Попробуйте другой запрос.' : 'Готовим меню для вас…';
   return `${recentSection}<div class="menu-grid">${products.map((product) => card(product)).join('')}</div>${products.length ? '' : `<div class="empty-state">${empty}</div>`}`;
 }
 
