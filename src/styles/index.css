@@ -2234,3 +2234,33 @@ html, body, #app,
   .product-modal .option-group__heading h3 { margin-bottom: 0; }
   .product-modal .modal-related > h3 { margin-bottom: 8px; }
 }
+
+/* Mobile navigation uses one overlay layer. Removing the old nested safe
+   areas prevents the large black footer that appeared on short pages. */
+@media (max-width: 680px) {
+  .app-shell.app-shell--navigation { padding: 14px; }
+  .app-shell--navigation > .page {
+    height: 100%;
+    margin-bottom: 0;
+  }
+  .app-shell--navigation .menu-page,
+  .app-shell--navigation .order-page,
+  .app-shell--navigation .orders-page { height: 100%; }
+  .app-shell--navigation .bottom-nav-blur {
+    width: calc(100% - 30px);
+    height: 58px;
+    inset: auto auto 12px 50%;
+    border-radius: 999px;
+    background: rgba(0,0,0,.58);
+    transform: translateX(-50%);
+    filter: blur(18px);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .app-shell--navigation.app-shell--menu .menu-content { padding-bottom: 92px; }
+  .app-shell--navigation .order-page,
+  .app-shell--navigation .orders-page { padding-bottom: 82px; }
+  .app-shell--navigation .orders-list { padding-bottom: 8px; }
+}
