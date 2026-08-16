@@ -1944,11 +1944,17 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 button.button {
   min-height: var(--action-height) !important;
   padding: 0 24px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 12px !important;
   border: 0 !important;
   border-radius: var(--action-radius) !important;
   font: 700 var(--action-font-size)/1 "Roboto Condensed",sans-serif !important;
   letter-spacing: .03em !important;
+  text-align: center !important;
   text-transform: uppercase !important;
+  vertical-align: middle;
   box-shadow: none !important;
   transform: none !important;
   transition: filter .16s ease,opacity .16s ease !important;
@@ -1978,13 +1984,34 @@ button.button.button--secondary:focus-visible {
 button.button:hover { filter: brightness(.94); }
 button.button:active { filter: brightness(.88); }
 button.button:disabled { filter: none; }
-button.button strong,button.button span { color: inherit; font: inherit !important; }
+button.button strong,button.button span {
+  min-height: 1em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  font: inherit !important;
+  line-height: 1 !important;
+}
+button.button > .icon { align-self: center; margin: 0; }
+
+/* Price-bearing CTAs use the same vertical alignment while keeping the price
+   anchored to the opposite edge for quick scanning. */
+button.button.order-summary__checkout,
+button.button.product-modal__submit {
+  justify-content: space-between !important;
+}
 
 /* The welcome actions keep their full-width layout, but use the same two
    colours and typography as every other primary and secondary action. */
 .welcome-home__button {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   font: 700 var(--action-font-size)/1 "Roboto Condensed",sans-serif !important;
   letter-spacing: .03em !important;
+  line-height: 1 !important;
+  text-align: center !important;
   box-shadow: none !important;
 }
 .welcome-home__button--order,
