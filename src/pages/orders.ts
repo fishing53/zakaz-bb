@@ -17,7 +17,6 @@ export const ordersPage = (orders: SubmittedOrder[]) => `<section class="orders-
           <span>${escapeHtml(orderStatusMessage(order.statusStep))}</span>
         </span>
         <span class="submitted-order__timeline" aria-hidden="true">${orderStages.map((stage, index) => `<span class="${index < step ? 'is-complete' : index === step ? 'is-active' : ''}"><i>${icon(stage.icon)}</i><b>${stage.name}</b><small>${stage.description}</small></span>`).join('')}</span>
-        <span class="submitted-order__open">${icon('arrowRight')}</span>
       </button>`;
     }).join('') : '<div class="empty-state">Здесь появятся ваши заказы после оформления.</div>'}
   </div>
