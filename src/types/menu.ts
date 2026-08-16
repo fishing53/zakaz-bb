@@ -12,6 +12,7 @@ export interface Product {
   composition?: string;
   kbju: KBJU | null;
   image: string;
+  imageSource?: string;
   source_url: string;
   sauce_options?: string[];
   sauce_addon_price_rub?: string;
@@ -23,7 +24,7 @@ export interface Product {
   modifier_groups?: IikoModifierGroup[];
 }
 
-export interface IikoModifier { productId: string; name: string; price: number; image?: string; allergens?: string; defaultQuantity?: number; minQuantity?: number; maxQuantity?: number }
+export interface IikoModifier { productId: string; name: string; price: number; image?: string; imageSource?: string; allergens?: string; defaultQuantity?: number; minQuantity?: number; maxQuantity?: number }
 export interface IikoModifierGroup { name: string; minQuantity?: number; maxQuantity?: number; freeQuantity?: number; items: IikoModifier[] }
 
 export interface Catalog { menu: Product[] }
@@ -45,6 +46,7 @@ export interface Banner {
   id: string;
   name: string;
   image: string;
+  imageSource?: string;
   productId: string | null;
   kind: 'restaurant' | 'advertising';
   active: boolean;

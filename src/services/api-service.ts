@@ -1,5 +1,6 @@
 import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, CartLine, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoConnectionTest, IikoDiscountOption, IikoRestaurantOptions, Product, ProductDisplaySettings, PromoRule, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
 import { Capacitor } from '@capacitor/core';
+import { imageCacheService } from './image-cache-service';
 
 let token = sessionStorage.getItem('zakaz-admin-token') ?? '';
 let adminScope = sessionStorage.getItem('zakaz-admin-scope') as 'terminal' | 'restaurant' | null;
@@ -11,7 +12,8 @@ if (!rawTerminalId) localStorage.setItem(terminalKey, terminalId);
 const productionOrigin = 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai';
 const isNative = Capacitor.isNativePlatform();
 const apiBase = isNative ? `${productionOrigin}/api/v1` : '/api/v1';
-const assetUrl = (value: string) => isNative && value.startsWith('/uploads/') ? `${productionOrigin}${value}` : value;
+const assetSource = (value: string) => value.startsWith('/uploads/') ? `${productionOrigin}${value}` : value;
+const cachedAsset = (value: string) => imageCacheService.resolve(assetSource(value));
 
 type ServerProduct = Product & { sku?: string; is_available: boolean; badge: string; image_position: string; allergens: string; spicy: 'none' | 'mild' | 'hot'; sort_order: number };
 type ServerBanner = { id: number | string; name: string; image_url: string; product_id: string | null; kind: 'restaurant' | 'advertising'; active: boolean; starts_at: string | null; ends_at: string | null; impression_limit: number | null; impressions: number; sort_order: number };
@@ -50,12 +52,12 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
 
 const product = (item: ServerProduct): Product => ({
   id: item.id, sku: item.sku, name: item.name, category: item.category, price_rub: Number(item.price_rub), portion: item.portion, unit: item.unit, description: item.description,
-  composition: item.composition ?? '', kbju: item.kbju, image: assetUrl(item.image), source_url: item.source_url, sauce_options: item.sauce_options ?? [], sauce_addon_price_rub: item.sauce_addon_price_rub ?? undefined,
+  composition: item.composition ?? '', kbju: item.kbju, image: cachedAsset(item.image), imageSource: assetSource(item.image), source_url: item.source_url, sauce_options: item.sauce_options ?? [], sauce_addon_price_rub: item.sauce_addon_price_rub ?? undefined,
   addon_options: item.addon_options ?? [], flavor_options: item.flavor_options ?? [], size_option: item.size_option ?? undefined, pairs_with: item.pairs_with ?? [], recommendations_note: item.recommendations_note ?? undefined,
-  modifier_groups: (item.modifier_groups ?? []).map((group) => ({ ...group, items: group.items.map((modifier) => ({ ...modifier, image: assetUrl(modifier.image || '/images/sauce-fallback.webp') })) })),
+  modifier_groups: (item.modifier_groups ?? []).map((group) => ({ ...group, items: group.items.map((modifier) => { const source = assetSource(modifier.image || '/images/sauce-fallback.webp'); return { ...modifier, image: imageCacheService.resolve(source), imageSource: source }; }) })),
 });
 const display = (item: ServerProduct): ProductDisplaySettings => ({ badge: item.badge ?? '', unavailable: !item.is_available, imagePosition: item.image_position ?? 'center', allergens: item.allergens ?? '', spicy: item.spicy ?? 'none' });
-const banner = (item: ServerBanner): Banner => ({ id: String(item.id), name: item.name, image: assetUrl(item.image_url), productId: item.product_id ?? null, kind: item.kind, active: item.active, startsAt: item.starts_at, endsAt: item.ends_at, impressionLimit: item.impression_limit === null ? null : Number(item.impression_limit), impressions: Number(item.impressions), sortOrder: Number(item.sort_order) });
+const banner = (item: ServerBanner): Banner => { const source = assetSource(item.image_url); return { id: String(item.id), name: item.name, image: imageCacheService.resolve(source), imageSource: source, productId: item.product_id ?? null, kind: item.kind, active: item.active, startsAt: item.starts_at, endsAt: item.ends_at, impressionLimit: item.impression_limit === null ? null : Number(item.impression_limit), impressions: Number(item.impressions), sortOrder: Number(item.sort_order) }; };
 const terminal = (item: ServerTerminal): TerminalSettings => ({ id: item.id, label: item.label, tableNumber: item.table_number, isActive: item.is_active, idleSeconds: item.idle_seconds, tableSource: item.table_source ?? null, tableId: item.table_id ?? null });
 const order = (item: ServerOrder): SubmittedOrder => ({ id: item.order_number, items: item.items, total: Number(item.total), statusStep: item.status_step, createdAt: item.created_at, orderType: null, tableNumber: item.table_number });
 

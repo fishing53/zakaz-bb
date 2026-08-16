@@ -1,9 +1,10 @@
-const CACHE = 'brooklyn-kiosk-v58';
+const CACHE = 'brooklyn-kiosk-v59';
+const PERSISTENT_CACHES = new Set([CACHE, 'brooklyn-images-v1']);
 const UI_IMAGES = ['./images/home-mascot.png', './images/waiter-character.png', './images/inactivity-character.png', './images/stop-list-stamp.png', './images/sauce-fallback.webp'];
 const APP_SHELL = ['./', './index.html', './manifest.webmanifest', ...UI_IMAGES];
 
 self.addEventListener('install', (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())));
-self.addEventListener('activate', (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim())));
+self.addEventListener('activate', (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => !PERSISTENT_CACHES.has(key)).map((key) => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener('message', (event) => { if (event.data?.type === 'SKIP_WAITING') self.skipWaiting(); });
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;

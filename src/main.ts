@@ -1,6 +1,7 @@
 import './styles/index.css';
 import { startApp } from './app';
 import { appStore } from './store/app-store';
+import { imageCacheService } from './services/image-cache-service';
 
 if ('serviceWorker' in navigator) window.addEventListener('load', async () => {
   const registration = await navigator.serviceWorker.register('./service-worker.js', { updateViaCache: 'none' });
@@ -9,4 +10,4 @@ if ('serviceWorker' in navigator) window.addEventListener('load', async () => {
     if (registration.installing?.state === 'installed' && navigator.serviceWorker.controller) appStore.set({ pwaUpdateReady: true });
   }));
 });
-startApp();
+void imageCacheService.init().catch(() => undefined).finally(startApp);

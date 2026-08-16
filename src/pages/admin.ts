@@ -1,4 +1,5 @@
 import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoDiscountOption, IikoRestaurantOptions, Product, ProductDisplaySettings, RestaurantTable, TerminalSettings } from '../types/menu';
+import type { ImageCacheState } from '../services/image-cache-service';
 import { escapeHtml, formatPrice } from '../utils/helpers';
 
 export type AdminUpdateState = {
@@ -46,7 +47,17 @@ const updateMessage = (state: AdminUpdateState) => {
   if (state.phase === 'current') return state.browser ? 'В браузере открыта актуальная версия' : 'Установлена последняя версия';
   return 'Нажмите «Проверить», чтобы найти новую версию';
 };
-export function adminPage(products: Product[], banners: Banner[], display: Record<string, ProductDisplaySettings>, terminal: TerminalSettings | null, tab: AdminTab, selectedId: string | null, audit: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [], scope: 'terminal' | 'restaurant' | null = 'restaurant', role: 'administrator' | 'hostess' | 'terminal_manager' | null = 'administrator', waiters: Waiter[] = [], adminUsers: AdminUser[] = [], orders: AdminOrder[] = [], orderFilter: 'active' | 'all' = 'active', diagnostics: AdminDiagnostics | null = null, iikoConfig: IikoConnectionConfig | null = null, iikoDiscovery: IikoConnectionDiscovery | null = null, iikoOptions: IikoRestaurantOptions | null = null, selectedOrganizationId = '', promotions: AdminPromotion[] = [], iikoDiscounts: IikoDiscountOption[] = [], updateState: AdminUpdateState = { phase: 'idle', currentVersion: '—', latestVersion: null, progress: 0, browser: false }, tables: RestaurantTable[] = []) {
+const cacheBytes = (bytes: number) => bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} МБ` : bytes >= 1024 ? `${Math.round(bytes / 1024)} КБ` : `${bytes} Б`;
+const cacheStatus = (state: ImageCacheState) => {
+  if (state.phase === 'scanning') return 'Проверяем изображения…';
+  if (state.phase === 'downloading') return `Загружаем: ${state.cached} из ${state.total}`;
+  if (state.phase === 'clearing') return 'Очищаем хранилище…';
+  if (state.phase === 'error') return `Загрузка завершена с ошибками: ${state.failed}`;
+  if (state.total && state.cached === state.total) return 'Все изображения доступны на планшете';
+  if (!state.total) return 'В меню пока нет изображений для загрузки';
+  return `Ожидают загрузки: ${state.total - state.cached}`;
+};
+export function adminPage(products: Product[], banners: Banner[], display: Record<string, ProductDisplaySettings>, terminal: TerminalSettings | null, tab: AdminTab, selectedId: string | null, audit: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [], scope: 'terminal' | 'restaurant' | null = 'restaurant', role: 'administrator' | 'hostess' | 'terminal_manager' | null = 'administrator', waiters: Waiter[] = [], adminUsers: AdminUser[] = [], orders: AdminOrder[] = [], orderFilter: 'active' | 'all' = 'active', diagnostics: AdminDiagnostics | null = null, iikoConfig: IikoConnectionConfig | null = null, iikoDiscovery: IikoConnectionDiscovery | null = null, iikoOptions: IikoRestaurantOptions | null = null, selectedOrganizationId = '', promotions: AdminPromotion[] = [], iikoDiscounts: IikoDiscountOption[] = [], updateState: AdminUpdateState = { phase: 'idle', currentVersion: '—', latestVersion: null, progress: 0, browser: false }, tables: RestaurantTable[] = [], imageCache: ImageCacheState = { phase: 'idle', total: 0, cached: 0, bytes: 0, completed: 0, pending: 0, failed: 0, current: '', autoUpdate: false, lastSync: null, native: false }) {
   const selected = products.find((item) => item.id === selectedId) ?? products[0];
   const stats = missing(products);
   const legacyFixedTable = terminal?.tableSource === 'admin' && !terminal.tableId ? tables.find((item) => item.number === terminal.tableNumber) : undefined;
@@ -60,6 +71,14 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
     <button class="terminal-table-auto ${selectedTableId ? '' : 'is-selected'}" data-action="select-admin-terminal-table" data-table-id="" data-table-number="" aria-pressed="${selectedTableId ? 'false' : 'true'}"><span>ВЫБОР ПЕРЕД ЗАКАЗОМ</span><strong>Стол выбирает гость</strong><small>После завершения заказа выбор автоматически сбросится</small><i></i></button>
     <div class="terminal-table-groups">${tables.length ? [...tableGroups.entries()].map(([section, items]) => `<section class="terminal-table-group" data-table-section><h4>${escapeHtml(section)}</h4><div>${items.map((item) => { const active = item.id === selectedTableId; const search = `${item.number} ${item.name} ${item.section}`.toLocaleLowerCase('ru-RU'); return `<button class="terminal-table-card ${active ? 'is-selected' : ''}" data-action="select-admin-terminal-table" data-table-id="${escapeHtml(item.id)}" data-table-number="${escapeHtml(item.number)}" data-table-search="${escapeHtml(search)}" aria-pressed="${active ? 'true' : 'false'}"><span>СТОЛ</span><strong>№${escapeHtml(item.number || item.name)}</strong>${item.name && item.name !== item.number ? `<small>${escapeHtml(item.name)}</small>` : '<small>Стол iiko</small>'}<i></i></button>`; }).join('')}</div></section>`).join('') : '<div class="terminal-table-empty">Столы пока не получены из iiko. Проверьте подключение и повторите вход в админку.</div>'}</div>
   </section>`;
+  const cacheBusy = imageCache.phase === 'scanning' || imageCache.phase === 'downloading' || imageCache.phase === 'clearing';
+  const cachePercent = imageCache.total ? Math.round(imageCache.cached / imageCache.total * 100) : 0;
+  const imageCacheView = `<section class="admin-image-cache" data-cache-phase="${imageCache.phase}">
+    <header><div><span class="eyebrow">ХРАНИЛИЩЕ ПЛАНШЕТА</span><h3>Кэш изображений</h3><p>Фото блюд, модификаторов и баннеры сохраняются на устройстве и открываются без повторной загрузки.</p></div><label class="admin-switch admin-image-cache__auto"><input type="checkbox" data-action="toggle-image-cache-auto" ${imageCache.autoUpdate ? 'checked' : ''} ${cacheBusy ? 'disabled' : ''}><span></span> Обновлять автоматически</label></header>
+    <div class="admin-image-cache__metrics"><article><span>ЗАГРУЖЕНО</span><strong>${imageCache.cached} / ${imageCache.total}</strong></article><article><span>ЗАНЯТО</span><strong>${cacheBytes(imageCache.bytes)}</strong></article><article><span>ПОСЛЕДНЯЯ СИНХРОНИЗАЦИЯ</span><strong>${imageCache.lastSync ? compactDate(imageCache.lastSync) : 'Ещё не выполнялась'}</strong></article></div>
+    <div class="admin-image-cache__status"><div><span data-image-cache-status>${escapeHtml(cacheStatus(imageCache))}</span><b data-image-cache-percent>${cachePercent}%</b></div><div class="admin-image-cache__progress"><i data-image-cache-progress style="width:${cachePercent}%"></i></div></div>
+    <div class="admin-image-cache__actions"><button class="button button--primary" data-action="sync-image-cache" data-cache-force="${imageCache.cached === imageCache.total && imageCache.total > 0}" ${cacheBusy || !imageCache.total ? 'disabled' : ''}>${imageCache.cached === imageCache.total && imageCache.total > 0 ? 'Обновить весь кэш' : 'Загрузить все изображения'}</button><button class="button button--secondary" data-action="check-image-cache" ${cacheBusy || !imageCache.total ? 'disabled' : ''}>Проверить изменения</button><button class="button button--secondary admin-image-cache__clear" data-action="clear-image-cache" ${cacheBusy || !imageCache.cached ? 'disabled' : ''}>Очистить кэш</button></div>
+  </section>`;
   const terminalView = `<section class="admin-panel admin-terminal">
     <div class="admin-panel__intro"><span class="eyebrow">УПРАВЛЕНИЕ ПЛАНШЕТОМ</span><h2>Этот терминал</h2><p>Настройки сохраняются на сервере и применяются только к этому устройству.</p></div>
     <div class="terminal-overview"><article><span>ПЛАНШЕТ</span><strong>${escapeHtml(terminal?.label || 'Без названия')}</strong><small>${terminal?.isActive === false ? 'Приём заказов выключен' : 'Готов принимать заказы'}</small></article><article class="${selectedTableId ? 'is-accent' : ''}"><span>РЕЖИМ СТОЛА</span><strong data-terminal-table-summary>${selectedTable ? `Стол №${escapeHtml(selectedTable.number || selectedTable.name)}` : 'Выбирает гость'}</strong><small>${selectedTable ? escapeHtml(selectedTable.section || 'Зал iiko') : 'Стол не закреплён'}</small></article></div>
@@ -70,6 +89,7 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
       ${tablePicker}
       <button class="button button--primary terminal-save" data-action="save-terminal">Сохранить настройки</button>
     </div>
+    ${imageCacheView}
     <div class="admin-app-update" data-update-phase="${updateState.phase}">
       <div class="admin-app-update__head"><span class="eyebrow">ПРИЛОЖЕНИЕ</span><h3>Обновление</h3></div>
       <div class="admin-app-update__versions">

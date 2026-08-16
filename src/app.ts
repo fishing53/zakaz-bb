@@ -19,6 +19,7 @@ import { adminPage, type AdminUpdateState } from './pages/admin';
 import { debounce, formatPrice } from './utils/helpers';
 import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
+import { imageCacheService, type ImageCacheState } from './services/image-cache-service';
 import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoDiscountOption, IikoRestaurantOptions, Product } from './types/menu';
 import type { AdminUserProfile, WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
@@ -52,6 +53,8 @@ let iikoSelectedOrganizationId = '';
 let adminOrderFilter: 'active' | 'all' = 'active';
 let adminOrderRefreshTimer = 0;
 let adminUpdateState: AdminUpdateState = { phase: 'idle', currentVersion: otaService.bundledVersion, latestVersion: null, progress: 0, browser: false };
+let adminImageCacheState: ImageCacheState = imageCacheService.state([]);
+let lastAutomaticImageSync = 0;
 const updateSearch = debounce((value: string) => {
   const searching = Boolean(value.trim());
   appStore.set({ search: value, ...(searching ? { category: 'Все блюда' } : {}) }, false);
@@ -75,7 +78,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState, state.tables) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState, state.tables, adminImageCacheState) : '';
   }
 }
 
@@ -286,6 +289,57 @@ function updateDownloadProgress(percent: number) {
   if (status) status.textContent = `Загружаем обновление — ${percent}%`;
   if (bar) bar.style.width = `${percent}%`;
   if (button) button.textContent = `Загрузка ${percent}%`;
+}
+
+function imageSources(products = menuService.all(), banners = appStore.get().banners) {
+  const sources = [
+    ...products.flatMap((product) => [product.imageSource ?? product.image, ...(product.modifier_groups ?? []).flatMap((group) => group.items.map((item) => item.imageSource ?? item.image ?? ''))]),
+    ...banners.map((banner) => banner.imageSource ?? banner.image),
+  ];
+  return [...new Set(sources.filter((source) => /^https?:\/\//i.test(source)))];
+}
+
+function imageCacheMessage(state: ImageCacheState) {
+  if (state.phase === 'scanning') return 'Проверяем изображения…';
+  if (state.phase === 'downloading') return `Загружаем: ${state.cached} из ${state.total}`;
+  if (state.phase === 'clearing') return 'Очищаем хранилище…';
+  if (state.phase === 'error') return `Загрузка завершена с ошибками: ${state.failed}`;
+  if (state.total && state.cached === state.total) return 'Все изображения доступны на планшете';
+  return `Ожидают загрузки: ${Math.max(0, state.total - state.cached)}`;
+}
+
+function paintImageCacheState(state: ImageCacheState) {
+  const percent = state.total ? Math.round(state.cached / state.total * 100) : 0;
+  const status = root.querySelector<HTMLElement>('[data-image-cache-status]');
+  const progress = root.querySelector<HTMLElement>('[data-image-cache-progress]');
+  const label = root.querySelector<HTMLElement>('[data-image-cache-percent]');
+  if (status) status.textContent = imageCacheMessage(state);
+  if (progress) progress.style.width = `${percent}%`;
+  if (label) label.textContent = `${percent}%`;
+}
+
+function applyCachedImageUrls(notify: boolean) {
+  const products = menuService.all().map((product) => ({
+    ...product,
+    image: imageCacheService.resolve(product.imageSource ?? product.image),
+    modifier_groups: (product.modifier_groups ?? []).map((group) => ({ ...group, items: group.items.map((item) => ({ ...item, image: imageCacheService.resolve(item.imageSource ?? item.image ?? '/images/sauce-fallback.webp') })) })),
+  }));
+  setCatalog(products);
+  const banners = appStore.get().banners.map((banner) => ({ ...banner, image: imageCacheService.resolve(banner.imageSource ?? banner.image) }));
+  appStore.set({ banners }, notify);
+}
+
+async function runImageCacheSync(force: boolean, notify = true) {
+  const sources = imageSources();
+  if (!sources.length || imageCacheService.isRunning()) return;
+  adminImageCacheState = { ...imageCacheService.state(sources), phase: 'scanning' };
+  if (notify && router.current() === 'admin') render();
+  const result = await imageCacheService.sync(sources, {
+    force,
+    onState: (state) => { adminImageCacheState = state; paintImageCacheState(state); },
+  });
+  adminImageCacheState = result;
+  applyCachedImageUrls(notify);
 }
 
 async function action(element: HTMLElement) {
@@ -503,6 +557,26 @@ async function action(element: HTMLElement) {
     button.disabled = true;
     button.textContent = 'Обновляем…';
     await loadTerminalTables();
+    return;
+  }
+  if (type === 'toggle-image-cache-auto') {
+    const enabled = (element as HTMLInputElement).checked;
+    imageCacheService.setAutoUpdate(enabled);
+    adminImageCacheState = { ...adminImageCacheState, autoUpdate: enabled };
+    if (enabled) void runImageCacheSync(false);
+    return;
+  }
+  if (type === 'sync-image-cache' || type === 'check-image-cache') {
+    const force = type === 'sync-image-cache' && element.dataset.cacheForce === 'true';
+    await runImageCacheSync(force);
+    return;
+  }
+  if (type === 'clear-image-cache') {
+    const sources = imageSources();
+    adminImageCacheState = { ...adminImageCacheState, phase: 'clearing' };
+    render();
+    adminImageCacheState = await imageCacheService.clear(sources, (state) => { adminImageCacheState = state; paintImageCacheState(state); });
+    applyCachedImageUrls(true);
     return;
   }
   if (type === 'check-ota-update') {
@@ -862,6 +936,7 @@ async function syncServer(includeAudit = false) {
     const previous = appStore.get();
     const data = await apiService.bootstrap();
     setCatalog(data.products);
+    if (!imageCacheService.isRunning()) adminImageCacheState = imageCacheService.state(imageSources(data.products, data.banners));
     const selectedOrderId = previous.selectedOrderId ?? data.orders[0]?.id ?? null;
     const previousOrder = previous.orders.find((item) => item.id === selectedOrderId);
     const nextOrder = data.orders.find((item) => item.id === selectedOrderId);
@@ -870,6 +945,10 @@ async function syncServer(includeAudit = false) {
     appStore.set({ banners: data.banners, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId, orderNumber: previous.orderNumber ?? data.orders[0]?.id ?? null }, shouldRender);
     appStore.set({ isOnline: true }, false);
     if (includeAudit) auditLog = await apiService.audit();
+    if (imageCacheService.autoUpdate() && !imageCacheService.isRunning() && Date.now() - lastAutomaticImageSync > 5 * 60_000) {
+      lastAutomaticImageSync = Date.now();
+      void runImageCacheSync(false, false);
+    }
   } catch (error) {
     console.warn('Server bootstrap unavailable', error);
     appStore.set({ isOnline: false }, false);
