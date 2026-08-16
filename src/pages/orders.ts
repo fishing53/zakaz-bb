@@ -1,8 +1,7 @@
 import { icon } from '../components/icons';
+import { guestOrderStep, orderStages, orderStatusMessage } from '../config/order-stages';
 import type { SubmittedOrder } from '../types/menu';
-import { escapeHtml, formatPrice } from '../utils/helpers';
-
-const statusNames = ['Принят', 'Готовится', 'Готов', 'Подан'];
+import { escapeHtml } from '../utils/helpers';
 
 export const ordersPage = (orders: SubmittedOrder[]) => `<section class="orders-page">
   <header class="page-heading">
@@ -11,14 +10,14 @@ export const ordersPage = (orders: SubmittedOrder[]) => `<section class="orders-
   </header>
   <div class="orders-list">
     ${orders.length ? orders.map((order) => {
-      const step = order.statusStep <= 1 ? 0 : Math.min(order.statusStep - 1, statusNames.length - 1);
-      const count = order.items.reduce((sum, item) => sum + item.quantity, 0);
-      return `<button class="submitted-order" data-action="open-order-status" data-order-id="${escapeHtml(order.id)}">
-        <span class="submitted-order__state ${order.statusStep >= 3 ? 'is-ready' : ''}"><i></i>${statusNames[step]}</span>
-        <span class="submitted-order__number">${escapeHtml(order.id)}</span>
-        <span class="submitted-order__meta">${count} поз. · ${new Date(order.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
-        <strong>${formatPrice(order.total)}</strong>
-        ${icon('arrowRight')}
+      const step = guestOrderStep(order.statusStep);
+      return `<button class="submitted-order" data-action="open-order-status" data-order-id="${escapeHtml(order.id)}" aria-label="Открыть заказ ${escapeHtml(order.id)}">
+        <span class="submitted-order__summary">
+          <strong class="submitted-order__number">${escapeHtml(order.id)}</strong>
+          <span>${escapeHtml(orderStatusMessage(order.statusStep))}</span>
+        </span>
+        <span class="submitted-order__timeline" aria-hidden="true">${orderStages.map((stage, index) => `<span class="${index < step ? 'is-complete' : index === step ? 'is-active' : ''}"><i>${icon(stage.icon)}</i><b>${stage.name}</b><small>${stage.description}</small></span>`).join('')}</span>
+        <span class="submitted-order__open">${icon('arrowRight')}</span>
       </button>`;
     }).join('') : '<div class="empty-state">Оформленных заказов пока нет.</div>'}
   </div>

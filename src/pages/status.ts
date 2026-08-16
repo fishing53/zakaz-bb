@@ -1,30 +1,18 @@
-import { icon, type IconName } from '../components/icons';
+import { icon } from '../components/icons';
+import { guestOrderStep, orderStages, orderStatusMessage } from '../config/order-stages';
 import type { CartLine, Product, SubmittedOrder } from '../types/menu';
 import { escapeHtml, formatPrice } from '../utils/helpers';
-
-const stages: ReadonlyArray<{ name: string; description: string; icon: IconName }> = [
-  { name: 'Принят', description: 'Ресторан получил заказ', icon: 'check' },
-  { name: 'Готовится', description: 'Блюда уже на кухне', icon: 'cooking' },
-  { name: 'Готов', description: 'Скоро принесём к столу', icon: 'waiter' },
-  { name: 'Подан', description: 'Приятного аппетита!', icon: 'utensils' },
-];
 
 export const statusPage = (order: SubmittedOrder | undefined, number: string | null, step: number, productFor: (line: CartLine) => Product | undefined) => {
   // iiko exposes five technical item states. Added and PrintedNotCooking are
   // one guest-facing stage, so the screen deliberately presents four steps.
-  const active = step <= 1 ? 0 : Math.min(step - 1, stages.length - 1);
+  const active = guestOrderStep(step);
   const ready = step >= 3;
   const served = step >= 4;
   const items = order?.items ?? [];
   const table = order?.tableNumber;
   const heading = served ? 'Заказ <em>подан</em>' : ready ? 'Заказ <em>готов</em>' : active === 0 ? 'Заказ <em>принят</em>' : 'Заказ <em>готовится</em>';
-  const message = served
-    ? 'Приятного аппетита! Если что-нибудь понадобится, просто позовите официанта.'
-    : ready
-      ? 'Всё готово! Официант уже несёт заказ к вашему столу.'
-      : active === 0
-        ? 'Мы получили ваш заказ и уже передали его на кухню.'
-        : 'Повара готовят ваши блюда. Осталось немного — сообщим, когда всё будет готово.';
+  const message = orderStatusMessage(step);
 
   const positionCount = items.reduce((sum, item) => sum + item.quantity + (item.modifiers ?? []).reduce((modifierSum, modifier) => modifierSum + modifier.amount * item.quantity, 0), 0);
   const orderLines = items.map((item) => {
@@ -54,10 +42,10 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
     <div class="live-status__layout">
       <main class="live-status__stage">
         <div class="live-status__stage-copy">
-          <div class="live-status__hero-icon">${icon(stages[active].icon)}</div>
+          <div class="live-status__hero-icon">${icon(orderStages[active].icon)}</div>
           <h1>${heading}</h1><p>${message}</p>
         </div>
-        <section class="live-status__timeline" aria-label="Этапы заказа"><ol>${stages.map((stage, index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}" style="--stage-index:${index}"><i>${icon(stage.icon)}</i><div><b>${stage.name}</b><span>${stage.description}</span></div></li>`).join('')}</ol></section>
+        <section class="live-status__timeline" aria-label="Этапы заказа"><ol>${orderStages.map((stage, index) => `<li class="${index < active ? 'is-complete' : index === active ? 'is-active' : ''}" style="--stage-index:${index}"><i>${icon(stage.icon)}</i><div><b>${stage.name}</b><span>${stage.description}</span></div></li>`).join('')}</ol></section>
       </main>
       <aside class="live-status__receipt">
         <header><div><h2>Состав заказа</h2></div><b>${positionCount} поз.</b></header>
