@@ -4,6 +4,7 @@ import http from 'node:http';
 import pathModule from 'node:path';
 import { URL } from 'node:url';
 import pg from 'pg';
+import QRCode from 'qrcode';
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -29,6 +30,7 @@ const bannerUploadDir = process.env.BANNER_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/u
 const bannerPublicPath = process.env.BANNER_PUBLIC_PATH ?? '/uploads/banners';
 const productUploadDir = process.env.PRODUCT_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/uploads/products';
 const productPublicPath = process.env.PRODUCT_PUBLIC_PATH ?? '/uploads/products';
+const publicAppUrl = (process.env.PUBLIC_APP_URL || 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai').replace(/\/$/, '');
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
 if (!process.env.DATABASE_URL || !tokenSecret || !adminPasswordHash || !/^[a-f0-9]{64}$/i.test(iikoConfigEncryptionKeyHex)) throw new Error('DATABASE_URL, TOKEN_SECRET, ADMIN_PASSWORD_HASH and a 32-byte IIKO_CONFIG_ENCRYPTION_KEY are required');
@@ -250,6 +252,32 @@ const verify = (value) => {
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
     return payload.exp > Date.now() ? payload : null;
   } catch { return null; }
+};
+const qrToken = (row) => {
+  const value = `${row.id}.${Number(row.token_version)}`;
+  const signature = crypto.createHmac('sha256', tokenSecret).update(`table-qr:${value}`).digest('base64url');
+  return `${value}.${signature}`;
+};
+const verifyQrToken = (value) => {
+  const [id, rawVersion, signature, ...rest] = String(value ?? '').split('.');
+  if (rest.length || !/^[0-9a-f-]{36}$/i.test(id ?? '') || !/^\d{1,9}$/.test(rawVersion ?? '') || !signature) return null;
+  const unsigned = `${id}.${rawVersion}`;
+  const expected = crypto.createHmac('sha256', tokenSecret).update(`table-qr:${unsigned}`).digest('base64url');
+  const actualBytes = Buffer.from(signature);
+  const expectedBytes = Buffer.from(expected);
+  if (actualBytes.length !== expectedBytes.length || !crypto.timingSafeEqual(actualBytes, expectedBytes)) return null;
+  return { id, version: Number(rawVersion) };
+};
+const qrPublicUrl = (row) => `${publicAppUrl}/?qr=${encodeURIComponent(qrToken(row))}#/menu`;
+const publicQrCode = async (row) => {
+  const publicUrl = qrPublicUrl(row);
+  const qrSvg = await QRCode.toString(publicUrl, { type: 'svg', errorCorrectionLevel: 'M', margin: 2, color: { dark: '#000000', light: '#ffffff' } });
+  return {
+    id: row.id, table_id: row.table_id, table_number: row.table_number, table_name: row.table_name,
+    section_name: row.section_name, is_active: row.is_active, scans_count: Number(row.scans_count),
+    last_scanned_at: row.last_scanned_at, created_at: row.created_at, updated_at: row.updated_at,
+    public_url: publicUrl, qr_svg: qrSvg,
+  };
 };
 const requireAdmin = (request) => {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
@@ -780,7 +808,7 @@ const publicState = async (terminalId) => {
     pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
   })) : localProducts.rows;
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId]);
-  return { products, banners: banners.rows, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? 'guest' : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
+  return { products, banners: banners.rows, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? (chosen.source === 'qr' ? 'qr' : 'guest') : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
 };
 
 const serviceTypes = new Set(['waiter', 'cutlery', 'bill', 'help']);
@@ -901,8 +929,12 @@ const effectiveTableForTerminal = async (terminal) => {
     if (!table.rowCount) throw Object.assign(new Error('Стол из настроек терминала не найден в iiko'), { status: 409 });
     return table.rows[0];
   }
-  const selection = await pool.query('select * from terminal_table_selections where terminal_id=$1', [terminal.id]);
+  const selection = await pool.query(`select s.*,q.is_active as qr_active,q.restaurant_id as qr_restaurant_id
+    from terminal_table_selections s left join table_qr_codes q on q.id=s.qr_code_id where s.terminal_id=$1`, [terminal.id]);
   if (!selection.rowCount) throw Object.assign(new Error('Перед заказом выберите стол'), { status: 409 });
+  if (String(terminal.id).startsWith('qr_') && (selection.rows[0].source !== 'qr' || selection.rows[0].qr_active !== true || selection.rows[0].qr_restaurant_id !== iikoOrganizationId)) {
+    throw Object.assign(new Error('QR-код этого стола больше не активен'), { status: 409 });
+  }
   return selection.rows[0];
 };
 const createIikoOrder = async ({ id = crypto.randomUUID(), number, table, items, comment, promotion = null }) => {
@@ -1042,6 +1074,34 @@ const server = http.createServer(async (request, response) => {
         return json(response, 200, { version: 'builtin' });
       }
     }
+    if (request.method === 'POST' && path === '/api/v1/qr/resolve') {
+      const body = await readBody(request);
+      const parsed = verifyQrToken(body.token);
+      const deviceId = String(body.device_id ?? '');
+      if (!parsed || !/^[a-zA-Z0-9_-]{8,80}$/.test(deviceId)) return json(response, 400, { error: 'QR-код повреждён или имеет неверный формат' });
+      enforceRequestRate(`qr-resolve:${requestIp(request)}:${parsed.id}`, 30, 5 * 60_000);
+      const code = await pool.query(`select * from table_qr_codes where id=$1 and restaurant_id=$2 and token_version=$3 and is_active=true`, [parsed.id, iikoOrganizationId, parsed.version]);
+      if (!code.rowCount) return json(response, 410, { error: 'Этот QR-код больше не активен. Попросите сотрудника ресторана заменить его.' });
+      const table = await pool.query(`select * from iiko_tables where table_id=$1 and organization_id=$2 and terminal_group_id=$3`, [code.rows[0].table_id, iikoOrganizationId, iikoTerminalGroupId]);
+      if (!table.rowCount) return json(response, 409, { error: 'Стол из QR-кода не найден в актуальной схеме iiko' });
+      const selected = table.rows[0];
+      const qrTerminalId = `qr_${sha256(`${iikoOrganizationId}:${parsed.id}:${deviceId}`).slice(0, 48)}`;
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await client.query(`insert into terminals(id,label,is_active) values($1,$2,true)
+          on conflict(id) do update set label=excluded.label,is_active=true,last_seen_at=now(),updated_at=now()`, [qrTerminalId, `QR · Стол №${selected.table_number}`]);
+        await client.query(`insert into terminal_table_selections(terminal_id,table_id,table_number,table_name,source,qr_code_id) values($1,$2,$3,$4,'qr',$5)
+          on conflict(terminal_id) do update set table_id=excluded.table_id,table_number=excluded.table_number,table_name=excluded.table_name,source='qr',qr_code_id=excluded.qr_code_id,selected_at=now(),updated_at=now()`, [qrTerminalId, selected.table_id, selected.table_number, selected.table_name, parsed.id]);
+        await client.query(`update table_qr_codes set scans_count=scans_count+1,last_scanned_at=now(),table_number=$1,table_name=$2,section_name=$3,updated_at=now() where id=$4`, [selected.table_number, selected.table_name, selected.section_name, parsed.id]);
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally { client.release(); }
+      await publishEvent('qr_session_opened', 'table_qr', parsed.id, { tableNumber: selected.table_number, terminalId: qrTerminalId });
+      return json(response, 200, { terminal_id: qrTerminalId, source: 'qr', table: { table_id: selected.table_id, table_number: selected.table_number, table_name: selected.table_name, section_name: selected.section_name } });
+    }
     if (request.method === 'GET' && path === '/api/v1/bootstrap') {
       const terminalId = url.searchParams.get('terminalId');
       if (!terminalId || !/^[a-zA-Z0-9_-]{8,80}$/.test(terminalId)) return json(response, 400, { error: 'Invalid terminalId' });
@@ -1174,12 +1234,13 @@ const server = http.createServer(async (request, response) => {
       enforceRequestRate(`order:${requestIp(request)}:${String(body.terminal_id)}`, 10, 5 * 60_000);
       const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно не принимает заказы' });
+      const orderSource = String(body.terminal_id).startsWith('qr_') ? 'qr' : 'tablet';
       const useIiko = (await pool.query('select count(*)::int as count from iiko_menu_items')).rows[0].count > 0;
       const order = useIiko ? await normalizeIikoOrder(body) : await normalizeOrder(body);
       const table = useIiko ? await effectiveTableForTerminal(terminal.rows[0]) : { table_number: terminal.rows[0].table_number };
       const clientRequestId = String(body.client_request_id ?? '').trim();
       if (clientRequestId && !/^[a-zA-Z0-9_-]{8,100}$/.test(clientRequestId)) return json(response, 400, { error: 'Некорректный идентификатор отправки' });
-      const requestHash = sha256(JSON.stringify({ terminalId: body.terminal_id, table: table.table_number, items: order.items, comment: String(body.comment ?? ''), promoCode: order.promoCode, source: body.source === 'qr' ? 'qr' : 'tablet' }));
+      const requestHash = sha256(JSON.stringify({ terminalId: body.terminal_id, table: table.table_number, items: order.items, comment: String(body.comment ?? ''), promoCode: order.promoCode, source: orderSource }));
       let number = clientRequestId ? `B-${sha256(`${iikoOrganizationId}:${clientRequestId}`).slice(0, 8).toUpperCase()}` : '';
       if (clientRequestId) {
         const existing = await pool.query('select order_number,items,total,status_step,table_number,created_at from customer_orders where restaurant_id=$1 and client_request_id=$2', [iikoOrganizationId, clientRequestId]);
@@ -1199,7 +1260,7 @@ const server = http.createServer(async (request, response) => {
           number = row.order_number || number;
         }
       }
-      const sessionId = await getOrCreateGuestSession({ terminalId: String(body.terminal_id), source: body.source === 'qr' ? 'qr' : 'tablet', table, metadata: { clientRequestId: clientRequestId || null } });
+      const sessionId = await getOrCreateGuestSession({ terminalId: String(body.terminal_id), source: orderSource, table, metadata: { clientRequestId: clientRequestId || null } });
       let saved;
       let submittedIikoOrderId = null;
       let initialIikoCreationStatus = '';
@@ -1212,7 +1273,7 @@ const server = http.createServer(async (request, response) => {
             initialIikoCreationStatus = String(created.response?.creationStatus ?? '');
           }
           try {
-            saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, submittedIikoOrderId, iikoOrganizationId, sessionId, body.source === 'qr' ? 'qr' : 'tablet', clientRequestId || null]);
+            saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, submittedIikoOrderId, iikoOrganizationId, sessionId, orderSource, clientRequestId || null]);
             break;
           } catch (error) {
             if (error.code !== '23505' || clientRequestId || useIiko) throw error;
@@ -1234,7 +1295,7 @@ const server = http.createServer(async (request, response) => {
         await closeGuestSessionIfIdle(sessionId, 'order_failed');
         throw error;
       }
-      await publishEvent('order_created', 'order', saved.rows[0].order_number, { tableNumber: saved.rows[0].table_number, source: body.source === 'qr' ? 'qr' : 'tablet', total: Number(saved.rows[0].total) });
+      await publishEvent('order_created', 'order', saved.rows[0].order_number, { tableNumber: saved.rows[0].table_number, source: orderSource, total: Number(saved.rows[0].total) });
       void notifyWaiters(`Новый заказ · стол №${saved.rows[0].table_number}`, `Заказ ${saved.rows[0].order_number} на ${saved.rows[0].total} ₽`, { type: 'order', orderNumber: saved.rows[0].order_number, tableNumber: saved.rows[0].table_number });
       return json(response, 201, saved.rows[0]);
     }
@@ -1246,7 +1307,8 @@ const server = http.createServer(async (request, response) => {
       const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно недоступен' });
       const table = await effectiveTableForTerminal(terminal.rows[0]);
-      const sessionId = await getOrCreateGuestSession({ terminalId: String(body.terminal_id), table });
+      const requestSource = String(body.terminal_id).startsWith('qr_') ? 'qr' : 'tablet';
+      const sessionId = await getOrCreateGuestSession({ terminalId: String(body.terminal_id), source: requestSource, table });
       const created = await pool.query('insert into service_requests(terminal_id, table_number, request_type, restaurant_id, guest_session_id) values ($1,$2,$3,$4,$5) returning id', [String(body.terminal_id), table.table_number, type, iikoOrganizationId, sessionId]);
       await publishEvent('waiter_called', 'service_request', String(created.rows[0].id), { tableNumber: table.table_number, type });
       void notifyWaiters(`СТОЛ №${table.table_number}`, servicePushText[type] ?? 'Новый вызов за столом', { type: 'service_request', requestId: created.rows[0].id, tableNumber: table.table_number, requestType: type });
@@ -1256,12 +1318,12 @@ const server = http.createServer(async (request, response) => {
       const orderNumber = decodeURIComponent(path.slice('/api/v1/orders/'.length, -'/complete'.length));
       const body = await readBody(request);
       if (!body.terminal_id || !orderNumber) return json(response, 400, { error: 'Некорректный заказ' });
-      const result = await pool.query('update customer_orders set completed_at = now(), updated_at = now() where order_number = $1 and terminal_id = $2 and completed_at is null returning guest_session_id,table_number', [orderNumber, String(body.terminal_id)]);
+      const result = await pool.query('update customer_orders set completed_at = now(), updated_at = now() where order_number = $1 and terminal_id = $2 and completed_at is null returning guest_session_id,table_number,source', [orderNumber, String(body.terminal_id)]);
       if (!result.rowCount) return json(response, 404, { error: 'Заказ не найден или уже завершён' });
       const terminal = await pool.query('select table_number from terminals where id=$1', [String(body.terminal_id)]);
       const remaining = await pool.query('select count(*)::int as count from customer_orders where terminal_id=$1 and completed_at is null', [String(body.terminal_id)]);
-      if (!String(terminal.rows[0]?.table_number ?? '').trim() && !remaining.rows[0].count) await pool.query('delete from terminal_table_selections where terminal_id=$1', [String(body.terminal_id)]);
-      await publishEvent('order_completed', 'order', orderNumber, { tableNumber: result.rows[0].table_number, source: 'kiosk' });
+      if (!String(body.terminal_id).startsWith('qr_') && !String(terminal.rows[0]?.table_number ?? '').trim() && !remaining.rows[0].count) await pool.query('delete from terminal_table_selections where terminal_id=$1', [String(body.terminal_id)]);
+      await publishEvent('order_completed', 'order', orderNumber, { tableNumber: result.rows[0].table_number, source: result.rows[0].source });
       await closeGuestSessionIfIdle(result.rows[0].guest_session_id, 'order_completed');
       return json(response, 204, {});
     }
@@ -1272,6 +1334,51 @@ const server = http.createServer(async (request, response) => {
     const hostessAllowed = request.method === 'GET' && path === '/api/v1/admin/orders' || terminalOnly;
     if (admin.role === 'hostess' && !hostessAllowed) throw Object.assign(new Error('Недостаточно прав'), { status: 403 });
     const actor = admin.userId ? `admin-user:${admin.userId}` : admin.scope === 'terminal' ? 'terminal-admin' : 'restaurant-admin';
+    if (request.method === 'GET' && path === '/api/v1/admin/qr-codes') {
+      const rows = await pool.query(`select q.*,coalesce(t.table_number,q.table_number) as table_number,coalesce(t.table_name,q.table_name) as table_name,coalesce(t.section_name,q.section_name) as section_name
+        from table_qr_codes q left join iiko_tables t on t.table_id=q.table_id and t.organization_id=q.restaurant_id and t.terminal_group_id=$2
+        where q.restaurant_id=$1 order by coalesce(t.section_name,q.section_name),coalesce(t.table_number,q.table_number),q.created_at`, [iikoOrganizationId, iikoTerminalGroupId]);
+      return json(response, 200, await Promise.all(rows.rows.map(publicQrCode)));
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/qr-codes/generate-all') {
+      const tables = await pool.query('select * from iiko_tables where organization_id=$1 and terminal_group_id=$2 order by section_name,table_number', [iikoOrganizationId, iikoTerminalGroupId]);
+      for (const table of tables.rows) {
+        await pool.query(`insert into table_qr_codes(id,restaurant_id,table_id,table_number,table_name,section_name) values($1,$2,$3,$4,$5,$6)
+          on conflict(restaurant_id,table_id) do update set table_number=excluded.table_number,table_name=excluded.table_name,section_name=excluded.section_name,updated_at=now()`, [crypto.randomUUID(), iikoOrganizationId, table.table_id, table.table_number, table.table_name, table.section_name]);
+      }
+      await audit(actor, 'generate_all', 'table_qr', iikoOrganizationId, null, { affected: tables.rowCount });
+      const rows = await pool.query('select * from table_qr_codes where restaurant_id=$1 order by section_name,table_number', [iikoOrganizationId]);
+      return json(response, 201, await Promise.all(rows.rows.map(publicQrCode)));
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/qr-codes') {
+      const body = await readBody(request); const tableId = String(body.table_id ?? '');
+      const table = await pool.query('select * from iiko_tables where table_id=$1 and organization_id=$2 and terminal_group_id=$3', [tableId, iikoOrganizationId, iikoTerminalGroupId]);
+      if (!table.rowCount) return json(response, 409, { error: 'Выбранный стол не найден в актуальной схеме iiko' });
+      const selected = table.rows[0];
+      const existing = await pool.query('select * from table_qr_codes where restaurant_id=$1 and table_id=$2', [iikoOrganizationId, tableId]);
+      if (existing.rowCount) return json(response, 409, { error: 'Для этого стола QR-код уже создан' });
+      const result = await pool.query(`insert into table_qr_codes(id,restaurant_id,table_id,table_number,table_name,section_name) values($1,$2,$3,$4,$5,$6) returning *`, [crypto.randomUUID(), iikoOrganizationId, selected.table_id, selected.table_number, selected.table_name, selected.section_name]);
+      await audit(actor, 'create', 'table_qr', result.rows[0].id, null, result.rows[0]);
+      return json(response, 201, await publicQrCode(result.rows[0]));
+    }
+    if (request.method === 'POST' && path.startsWith('/api/v1/admin/qr-codes/') && path.endsWith('/regenerate')) {
+      const id = decodeURIComponent(path.slice('/api/v1/admin/qr-codes/'.length, -'/regenerate'.length));
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return json(response, 400, { error: 'Некорректный QR-код' });
+      const before = await pool.query('select * from table_qr_codes where id=$1 and restaurant_id=$2', [id, iikoOrganizationId]);
+      if (!before.rowCount) return json(response, 404, { error: 'QR-код не найден' });
+      const result = await pool.query('update table_qr_codes set token_version=token_version+1,is_active=true,updated_at=now() where id=$1 and restaurant_id=$2 returning *', [id, iikoOrganizationId]);
+      await audit(actor, 'regenerate', 'table_qr', id, before.rows[0], result.rows[0]);
+      return json(response, 200, await publicQrCode(result.rows[0]));
+    }
+    if (request.method === 'PUT' && path.startsWith('/api/v1/admin/qr-codes/')) {
+      const id = decodeURIComponent(path.slice('/api/v1/admin/qr-codes/'.length)); const body = await readBody(request);
+      if (!/^[0-9a-f-]{36}$/i.test(id) || typeof body.is_active !== 'boolean') return json(response, 400, { error: 'Некорректный QR-код' });
+      const before = await pool.query('select * from table_qr_codes where id=$1 and restaurant_id=$2', [id, iikoOrganizationId]);
+      if (!before.rowCount) return json(response, 404, { error: 'QR-код не найден' });
+      const result = await pool.query('update table_qr_codes set is_active=$1,updated_at=now() where id=$2 and restaurant_id=$3 returning *', [body.is_active, id, iikoOrganizationId]);
+      await audit(actor, body.is_active ? 'activate' : 'deactivate', 'table_qr', id, before.rows[0], result.rows[0]);
+      return json(response, 200, await publicQrCode(result.rows[0]));
+    }
     if (request.method === 'GET' && path === '/api/v1/admin/state') return json(response, 200, await publicState(url.searchParams.get('terminalId') ?? 'admin-preview'));
     if (request.method === 'POST' && path === '/api/v1/admin/iiko-config/unlock') {
       if (admin.role !== 'administrator') return json(response, 403, { error: 'Настройки iiko доступны только администратору' });

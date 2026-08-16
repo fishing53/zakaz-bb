@@ -192,11 +192,26 @@ export interface TerminalSettings {
   tableNumber: string;
   isActive: boolean;
   idleSeconds: number;
-  tableSource?: 'admin' | 'guest' | null;
+  tableSource?: 'admin' | 'guest' | 'qr' | null;
   tableId?: string | null;
 }
 
 export interface RestaurantTable { id: string; section: string; number: string; name: string }
+
+export interface TableQrCode {
+  id: string;
+  tableId: string;
+  tableNumber: string;
+  tableName: string;
+  sectionName: string;
+  active: boolean;
+  scans: number;
+  lastScannedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  publicUrl: string;
+  svg: string;
+}
 
 export type RouteName = 'welcome' | 'table' | 'menu' | 'order' | 'orders' | 'status' | 'admin';
 export type OrderType = 'dine-in' | 'takeaway' | 'pickup' | null;

@@ -10,4 +10,4 @@ if ('serviceWorker' in navigator) window.addEventListener('load', async () => {
     if (registration.installing?.state === 'installed' && navigator.serviceWorker.controller) appStore.set({ pwaUpdateReady: true });
   }));
 });
-void imageCacheService.init().catch(() => undefined).finally(startApp);
+void imageCacheService.init().catch(() => undefined).finally(() => { void startApp(); });

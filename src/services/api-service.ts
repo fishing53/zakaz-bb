@@ -1,4 +1,4 @@
-import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, CartLine, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoConnectionTest, IikoDiscountOption, IikoRestaurantOptions, Product, ProductDisplaySettings, PromoRule, RestaurantTable, SubmittedOrder, TerminalSettings } from '../types/menu';
+import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, CartLine, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoConnectionTest, IikoDiscountOption, IikoRestaurantOptions, Product, ProductDisplaySettings, PromoRule, RestaurantTable, SubmittedOrder, TableQrCode, TerminalSettings } from '../types/menu';
 import { Capacitor } from '@capacitor/core';
 import { imageCacheService } from './image-cache-service';
 
@@ -9,6 +9,8 @@ const terminalKey = 'zakaz-terminal-id';
 const rawTerminalId = localStorage.getItem(terminalKey);
 export const terminalId = rawTerminalId ?? crypto.randomUUID().replace(/-/g, '');
 if (!rawTerminalId) localStorage.setItem(terminalKey, terminalId);
+let activeTerminalId = terminalId;
+let source: 'tablet' | 'qr' = 'tablet';
 const productionOrigin = 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai';
 const isNative = Capacitor.isNativePlatform();
 const apiBase = isNative ? `${productionOrigin}/api/v1` : '/api/v1';
@@ -17,8 +19,9 @@ const cachedAsset = (value: string) => imageCacheService.resolve(assetSource(val
 
 type ServerProduct = Product & { sku?: string; is_available: boolean; badge: string; image_position: string; allergens: string; spicy: 'none' | 'mild' | 'hot'; sort_order: number };
 type ServerBanner = { id: number | string; name: string; image_url: string; product_id: string | null; kind: 'restaurant' | 'advertising'; active: boolean; starts_at: string | null; ends_at: string | null; impression_limit: number | null; impressions: number; sort_order: number };
-type ServerTerminal = { id: string; label: string; table_number: string; is_active: boolean; idle_seconds: number; table_source?: 'admin' | 'guest' | null; table_id?: string | null };
+type ServerTerminal = { id: string; label: string; table_number: string; is_active: boolean; idle_seconds: number; table_source?: 'admin' | 'guest' | 'qr' | null; table_id?: string | null };
 type ServerOrder = { order_number: string; items: CartLine[]; total: number; status_step: number; table_number: string; created_at: string };
+type ServerQrCode = { id: string; table_id: string; table_number: string; table_name: string; section_name: string; is_active: boolean; scans_count: number; last_scanned_at: string | null; created_at: string; updated_at: string; public_url: string; qr_svg: string };
 export type WaiterProfile = { id: string; display_name: string; is_active: boolean; created_at: string };
 export type AdminUserProfile = { id: string; username: string; display_name: string; role: 'administrator' | 'hostess'; is_active: boolean; created_at: string };
 
@@ -60,11 +63,19 @@ const display = (item: ServerProduct): ProductDisplaySettings => ({ badge: item.
 const banner = (item: ServerBanner): Banner => { const source = assetSource(item.image_url); return { id: String(item.id), name: item.name, image: imageCacheService.resolve(source), imageSource: source, productId: item.product_id ?? null, kind: item.kind, active: item.active, startsAt: item.starts_at, endsAt: item.ends_at, impressionLimit: item.impression_limit === null ? null : Number(item.impression_limit), impressions: Number(item.impressions), sortOrder: Number(item.sort_order) }; };
 const terminal = (item: ServerTerminal): TerminalSettings => ({ id: item.id, label: item.label, tableNumber: item.table_number, isActive: item.is_active, idleSeconds: item.idle_seconds, tableSource: item.table_source ?? null, tableId: item.table_id ?? null });
 const order = (item: ServerOrder): SubmittedOrder => ({ id: item.order_number, items: item.items, total: Number(item.total), statusStep: item.status_step, createdAt: item.created_at, orderType: null, tableNumber: item.table_number });
+const qrCode = (item: ServerQrCode): TableQrCode => ({ id: item.id, tableId: item.table_id, tableNumber: item.table_number, tableName: item.table_name, sectionName: item.section_name, active: item.is_active, scans: Number(item.scans_count), lastScannedAt: item.last_scanned_at, createdAt: item.created_at, updatedAt: item.updated_at, publicUrl: item.public_url, svg: item.qr_svg });
 
 export const apiService = {
-  terminalId,
+  get terminalId() { return activeTerminalId; },
+  isQrMode: () => source === 'qr',
+  async activateQr(value: string) {
+    const data = await request<{ terminal_id: string; source: 'qr'; table: { table_id: string; table_number: string; table_name: string; section_name: string } }>('/qr/resolve', { method: 'POST', body: JSON.stringify({ token: value, device_id: terminalId }) });
+    activeTerminalId = data.terminal_id;
+    source = 'qr';
+    return data.table;
+  },
   async bootstrap() {
-    const data = await request<{ products: ServerProduct[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown> }>(`/bootstrap?terminalId=${terminalId}&fresh=${Date.now()}`);
+    const data = await request<{ products: ServerProduct[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown> }>(`/bootstrap?terminalId=${activeTerminalId}&fresh=${Date.now()}`);
     return { products: data.products.map(product), display: Object.fromEntries(data.products.map((item) => [item.id, display(item)])), banners: data.banners.map(banner), terminal: terminal(data.terminal), orders: data.orders.map(order), settings: data.settings };
   },
   async login(password: string, scope: 'terminal' | 'restaurant', username = '') {
@@ -83,24 +94,24 @@ export const apiService = {
     return terminal(data);
   },
   async submitOrder(value: { items: CartLine[]; total: number; comment: string; promoCode: string; requestId: string }) {
-    const data = await request<ServerOrder>('/orders', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, items: value.items, total: value.total, comment: value.comment, promo_code: value.promoCode, client_request_id: value.requestId }) });
+    const data = await request<ServerOrder>('/orders', { method: 'POST', body: JSON.stringify({ terminal_id: activeTerminalId, source, items: value.items, total: value.total, comment: value.comment, promo_code: value.promoCode, client_request_id: value.requestId }) });
     return order(data);
   },
   validatePromotion(code: string, subtotal: number) {
     return request<PromoRule>('/promotions/validate', { method: 'POST', body: JSON.stringify({ code, subtotal }) });
   },
   async tables() {
-    const data = await request<{ tables: Array<{ table_id: string; section_name: string; table_number: string; table_name: string }> }>(`/tables?terminalId=${terminalId}`);
+    const data = await request<{ tables: Array<{ table_id: string; section_name: string; table_number: string; table_name: string }> }>(`/tables?terminalId=${activeTerminalId}`);
     return data.tables.map((item): RestaurantTable => ({ id: item.table_id, section: item.section_name, number: item.table_number, name: item.table_name }));
   },
   async selectTable(tableId: string) {
-    return request<{ table_number: string; table_id: string; source: 'guest' }>('/tables/select', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, table_id: tableId }) });
+    return request<{ table_number: string; table_id: string; source: 'guest' }>('/tables/select', { method: 'POST', body: JSON.stringify({ terminal_id: activeTerminalId, table_id: tableId }) });
   },
   async requestService(type: string) {
-    await request<{ ok: true }>('/service-requests', { method: 'POST', body: JSON.stringify({ terminal_id: terminalId, type }) });
+    await request<{ ok: true }>('/service-requests', { method: 'POST', body: JSON.stringify({ terminal_id: activeTerminalId, source, type }) });
   },
   async completeOrder(orderNumber: string) {
-    await request<void>(`/orders/${encodeURIComponent(orderNumber)}/complete`, { method: 'POST', body: JSON.stringify({ terminal_id: terminalId }) });
+    await request<void>(`/orders/${encodeURIComponent(orderNumber)}/complete`, { method: 'POST', body: JSON.stringify({ terminal_id: activeTerminalId }) });
   },
   async saveProduct(id: string, value: Partial<Product> & Partial<ProductDisplaySettings>) {
     const body = { ...value, is_available: value.unavailable === undefined ? undefined : !value.unavailable, image_position: value.imagePosition, ...('imagePosition' in value ? { imagePosition: undefined } : {}) };
@@ -115,6 +126,11 @@ export const apiService = {
     const data = await request<Array<{ order_number: string; iiko_order_id: string | null; iiko_pos_id: string | null; table_number: string; terminal_label: string; items: CartLine[]; total: number; status_step: number; status: string; creation_status: string | null; source: 'tablet' | 'qr' | 'waiter'; created_at: string; updated_at: string; completed_at: string | null; history: Array<{ event_type: string; payload: Record<string, unknown>; created_at: string }> }>>(`/admin/orders?filter=${filter}`);
     return data.map((item): AdminOrder => ({ id: item.order_number, iikoOrderId: item.iiko_order_id, iikoPosId: item.iiko_pos_id, tableNumber: item.table_number, terminalLabel: item.terminal_label, items: item.items, total: Number(item.total), statusStep: Number(item.status_step), status: item.status, creationStatus: item.creation_status, source: item.source, createdAt: item.created_at, updatedAt: item.updated_at, completedAt: item.completed_at, history: item.history.map((event) => ({ eventType: event.event_type, payload: event.payload, createdAt: event.created_at })) }));
   },
+  async qrCodes() { return (await request<ServerQrCode[]>('/admin/qr-codes')).map(qrCode); },
+  async createQrCode(tableId: string) { return qrCode(await request<ServerQrCode>('/admin/qr-codes', { method: 'POST', body: JSON.stringify({ table_id: tableId }) })); },
+  async generateAllQrCodes() { return (await request<ServerQrCode[]>('/admin/qr-codes/generate-all', { method: 'POST' })).map(qrCode); },
+  async regenerateQrCode(id: string) { return qrCode(await request<ServerQrCode>(`/admin/qr-codes/${encodeURIComponent(id)}/regenerate`, { method: 'POST' })); },
+  async setQrCodeActive(id: string, active: boolean) { return qrCode(await request<ServerQrCode>(`/admin/qr-codes/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ is_active: active }) })); },
   async diagnostics(): Promise<AdminDiagnostics> {
     const data = await request<{ generated_at: string; api: { ok: boolean; uptime_seconds: number; started_at: string }; database: { ok: boolean; latency_ms: number }; disk: { ok: boolean; usedPercent: number | null }; menu: { active_products: number; updated_at: string | null }; iiko_orders: { ok: boolean; errors_24h: number; last_error_at: string | null }; webhook: { ok: boolean; errors_24h: number; events_24h: number; last_event_at: string | null }; iiko_sync: { ok: boolean; errors_24h: number; backoff_until: string | null }; incidents: Array<{ component: string; severity: 'warning' | 'error' | 'critical'; message: string; context: Record<string, unknown>; created_at: string }> }>('/admin/diagnostics');
     return { generatedAt: data.generated_at, api: { ok: data.api.ok, uptimeSeconds: data.api.uptime_seconds, startedAt: data.api.started_at }, database: { ok: data.database.ok, latencyMs: data.database.latency_ms }, disk: data.disk, menu: { activeProducts: data.menu.active_products, updatedAt: data.menu.updated_at }, iikoOrders: { ok: data.iiko_orders.ok, errors24h: data.iiko_orders.errors_24h, lastErrorAt: data.iiko_orders.last_error_at }, webhook: { ok: data.webhook.ok, errors24h: data.webhook.errors_24h, events24h: data.webhook.events_24h, lastEventAt: data.webhook.last_event_at }, iikoSync: { ok: data.iiko_sync.ok, errors24h: data.iiko_sync.errors_24h, backoffUntil: data.iiko_sync.backoff_until }, incidents: data.incidents.map((item) => ({ component: item.component, severity: item.severity, message: item.message, context: item.context, createdAt: item.created_at })) };
@@ -155,7 +171,7 @@ export const apiService = {
   async resetBannerImpressions(id: string) { return banner(await request<ServerBanner>(`/admin/banners/${id}/reset-impressions`, { method: 'POST' })); },
   async uploadBannerImage(dataUrl: string) { return request<{ url: string }>('/admin/banners/upload', { method: 'POST', body: JSON.stringify({ data_url: dataUrl }) }); },
   async uploadProductImage(dataUrl: string) { return request<{ url: string }>('/admin/products/upload', { method: 'POST', body: JSON.stringify({ data_url: dataUrl }) }); },
-  async recordBannerImpression(id: string) { return request<{ counted: boolean; exhausted: boolean; impressions: number }>(`/banners/${id}/impression`, { method: 'POST', body: JSON.stringify({ terminal_id: terminalId }) }); },
+  async recordBannerImpression(id: string) { return request<{ counted: boolean; exhausted: boolean; impressions: number }>(`/banners/${id}/impression`, { method: 'POST', body: JSON.stringify({ terminal_id: activeTerminalId }) }); },
   waiters: () => request<WaiterProfile[]>('/admin/waiters'),
   createWaiter: (value: { name: string; pin: string }) => request<WaiterProfile>('/admin/waiters', { method: 'POST', body: JSON.stringify(value) }),
   updateWaiter: (id: string, value: { pin?: string; isActive?: boolean }) => request<WaiterProfile>(`/admin/waiters/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ pin: value.pin ?? '', is_active: value.isActive }) }),

@@ -159,6 +159,24 @@ await pool.query(`
     table_id text not null, table_number text not null default '', table_name text not null default '',
     selected_at timestamptz not null default now(), updated_at timestamptz not null default now()
   );
+  create table if not exists table_qr_codes (
+    id uuid primary key,
+    restaurant_id text not null,
+    table_id text not null,
+    table_number text not null default '',
+    table_name text not null default '',
+    section_name text not null default '',
+    token_version integer not null default 1 check(token_version > 0),
+    is_active boolean not null default true,
+    scans_count integer not null default 0 check(scans_count >= 0),
+    last_scanned_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique(restaurant_id, table_id)
+  );
+  create index if not exists table_qr_codes_restaurant_idx on table_qr_codes(restaurant_id,is_active,section_name,table_number);
+  alter table terminal_table_selections add column if not exists source text not null default 'guest';
+  alter table terminal_table_selections add column if not exists qr_code_id uuid references table_qr_codes(id) on delete set null;
   create table if not exists service_requests (
     id bigserial primary key, terminal_id text not null references terminals(id), table_number text not null default '', request_type text not null check (request_type in ('waiter','cutlery','bill','help')),
     created_at timestamptz not null default now(), handled_at timestamptz

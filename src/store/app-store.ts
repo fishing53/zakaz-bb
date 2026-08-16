@@ -13,7 +13,7 @@ export interface AppState {
   adminScope: 'terminal' | 'restaurant' | null;
   adminRole: 'administrator' | 'hostess' | 'terminal_manager' | null;
   adminProductId: string | null;
-  adminTab: 'terminal' | 'orders' | 'menu' | 'banners' | 'promotions' | 'staff' | 'quality' | 'audit';
+  adminTab: 'terminal' | 'orders' | 'menu' | 'banners' | 'qr' | 'promotions' | 'staff' | 'quality' | 'audit';
   inactivityWarning: boolean;
   inactivitySeconds: number;
   orderNumber: string | null;
