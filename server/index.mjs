@@ -802,7 +802,7 @@ const publicState = async (terminalId) => {
   const chosen = selection.rows[0];
   const effectiveTable = fixedTable || chosen?.table_number || '';
   const demoMode = terminal.rows[0].demo_mode === true;
-  const products = !demoMode && iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
+  const products = demoMode ? localProducts.rows.map((item) => ({ ...item, sauce_options: [], modifier_groups: demoModifierGroups(item) })) : iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
     id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, composition: item.override_composition ?? '', kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
@@ -824,6 +824,16 @@ const servicePushText = {
 };
 const arrayValue = (value) => Array.isArray(value) ? value : [];
 const sauceName = (value) => /^Соус «(.+)»$/u.exec(String(value ?? ''))?.[1] ?? '';
+const demoModifierId = (productId, name) => deterministicUuid(`demo-modifier:${productId}:${name}`);
+const demoModifierGroups = (product) => {
+  const sauces = arrayValue(product.sauce_options).map((name) => String(name).trim()).filter(Boolean);
+  if (!sauces.length) return [];
+  const price = Math.max(0, Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0);
+  return [{
+    name: 'Соусы', minQuantity: 0, maxQuantity: sauces.length, freeQuantity: 0,
+    items: sauces.map((name) => ({ productId: demoModifierId(product.id, name), name, price, image: '/images/sauce-fallback.webp', defaultQuantity: 0, minQuantity: 0, maxQuantity: 1 })),
+  }];
+};
 
 const normalizeOrder = async (input) => {
   if (!Array.isArray(input.items) || !input.items.length || input.items.length > 50) throw Object.assign(new Error('Некорректный состав заказа'), { status: 400 });
@@ -850,8 +860,21 @@ const normalizeOrder = async (input) => {
     const flavor = line.flavor ? String(line.flavor) : undefined;
     if (addon && !arrayValue(product.addon_options).includes(addon)) throw Object.assign(new Error('Некорректная добавка'), { status: 400 });
     if (flavor && !arrayValue(product.flavor_options).includes(flavor)) throw Object.assign(new Error('Некорректный вариант блюда'), { status: 400 });
-    subtotal += Number(product.price_rub) * quantity;
-    return { key: ['product', product.id, addon, flavor].filter(Boolean).join('|'), productId: product.id, kind: 'product', customName: product.name, customPrice: Number(product.price_rub), ...(addon ? { addon } : {}), ...(flavor ? { flavor } : {}), quantity };
+    const allowedModifiers = new Map(arrayValue(product.sauce_options).map((name) => {
+      const normalizedName = String(name).trim();
+      return [demoModifierId(product.id, normalizedName), normalizedName];
+    }));
+    const modifierPrice = Math.max(0, Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0);
+    const modifiers = arrayValue(line.modifiers).map((modifier) => {
+      const productId = String(modifier?.productId ?? '');
+      const name = allowedModifiers.get(productId);
+      const amount = Number(modifier?.amount ?? 1);
+      if (!name || !Number.isInteger(amount) || amount !== 1) throw Object.assign(new Error('Некорректная добавка'), { status: 400 });
+      return { productId, name, amount, price: modifierPrice, image: '/images/sauce-fallback.webp', maxQuantity: 1 };
+    });
+    const itemPrice = Number(product.price_rub) + modifiers.reduce((sum, modifier) => sum + modifier.price * modifier.amount, 0);
+    subtotal += itemPrice * quantity;
+    return { key: ['product', product.id, addon, flavor, ...modifiers.map((modifier) => modifier.productId)].filter(Boolean).join('|'), productId: product.id, kind: 'product', customName: product.name, customPrice: Number(product.price_rub), ...(addon ? { addon } : {}), ...(flavor ? { flavor } : {}), ...(modifiers.length ? { modifiers } : {}), quantity };
   });
   const promotion = await resolvePromotion(input.promo_code, subtotal);
   return { items, total: Math.max(0, subtotal - (promotion?.discount ?? 0)), promoCode: promotion?.code ?? '', promotion };
