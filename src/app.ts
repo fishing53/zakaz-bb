@@ -21,7 +21,7 @@ import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
 import { imageCacheService, type ImageCacheState } from './services/image-cache-service';
 import { icon } from './components/icons';
-import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoDiscountOption, IikoRestaurantOptions, Product, TableQrCode } from './types/menu';
+import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoDiscountOption, IikoRestaurantOptions, Product, SecurityOverview, TableQrCode } from './types/menu';
 import type { AdminUserProfile, WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
 
@@ -45,6 +45,7 @@ let adminIikoDiscounts: IikoDiscountOption[] = [];
 let adminOrders: AdminOrder[] = [];
 let adminQrCodes: TableQrCode[] = [];
 let adminDiagnostics: AdminDiagnostics | null = null;
+let adminSecurity: SecurityOverview | null = null;
 let iikoConfigAccessToken = '';
 let adminIikoConfig: IikoConnectionConfig | null = null;
 let iikoConfigTestToken = '';
@@ -81,7 +82,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState, state.tables, adminImageCacheState, adminQrCodes) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState, state.tables, adminImageCacheState, adminQrCodes, adminSecurity) : '';
   }
 }
 
@@ -155,6 +156,13 @@ async function loadAdminDiagnostics(notify = true) {
     adminDiagnostics = await apiService.diagnostics();
     if (notify) render();
   } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось проверить систему'); }
+}
+
+async function loadAdminSecurity(notify = true) {
+  try {
+    adminSecurity = await apiService.security();
+    if (notify) render();
+  } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось загрузить раздел безопасности'); }
 }
 
 async function loadAdminPromotions(notify = true, refresh = false) {
@@ -434,7 +442,7 @@ async function action(element: HTMLElement) {
   }
   if (type === 'logout-admin') { apiService.logout(); clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; appStore.set({ adminAuthenticated: false, adminScope: null, adminRole: null, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
-    const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'qr' | 'promotions' | 'staff' | 'quality' | 'audit';
+    const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'qr' | 'promotions' | 'staff' | 'quality' | 'security' | 'audit';
     appStore.set({ adminTab });
     if (adminTab === 'audit') apiService.audit().then((items) => { auditLog = items; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'staff') Promise.all([apiService.waiters(), apiService.adminUsers()]).then(([waiters, users]) => { waiterProfiles = waiters; adminUserProfiles = users; render(); }).catch((error) => flash(error.message));
@@ -443,6 +451,7 @@ async function action(element: HTMLElement) {
     if (adminTab === 'promotions') void loadAdminPromotions();
     if (adminTab === 'orders') void loadAdminOrders();
     if (adminTab === 'quality') void loadAdminDiagnostics();
+    if (adminTab === 'security') void loadAdminSecurity();
     if (adminTab === 'terminal') void loadTerminalTables();
     else { clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; }
     return;
@@ -496,6 +505,44 @@ async function action(element: HTMLElement) {
   if (type === 'retry-qr-entry') { location.reload(); return; }
   if (type === 'refresh-admin-orders') { await loadAdminOrders(); flash('Заказы обновлены'); return; }
   if (type === 'refresh-admin-diagnostics') { await loadAdminDiagnostics(); flash('Проверка обновлена'); return; }
+  if (type === 'run-security-checks') {
+    const button = element as HTMLButtonElement;
+    try { button.disabled = true; button.textContent = 'Проверяем…'; await apiService.runSecurityChecks(); await loadAdminSecurity(); flash('Проверка завершена'); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Не удалось выполнить проверку'); }
+    finally { button.disabled = false; }
+    return;
+  }
+  if (type === 'save-telegram-settings') {
+    const value = (name: string) => root.querySelector<HTMLInputElement>(`[data-telegram-setting="${name}"]`);
+    try {
+      await apiService.saveTelegram({ token: value('token')?.value.trim() ?? '', chatId: value('chatId')?.value.trim() ?? '', password: value('password')?.value ?? '', enabled: value('enabled')?.checked === true });
+      await loadAdminSecurity(); flash('Настройки Telegram сохранены');
+    } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить Telegram'); }
+    return;
+  }
+  if (type === 'test-telegram') {
+    try { await apiService.testTelegram(); await loadAdminSecurity(); flash('Тестовое сообщение отправлено'); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Не удалось отправить сообщение'); }
+    return;
+  }
+  if (type === 'run-load-test') {
+    const button = element as HTMLButtonElement;
+    try { button.disabled = true; button.textContent = 'Проверяем…'; await apiService.runLoadTest(); await loadAdminSecurity(); flash('Нагрузочная проверка завершена'); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Нагрузочная проверка не выполнена'); }
+    finally { button.disabled = false; }
+    return;
+  }
+  if (type === 'run-iiko-smoke') {
+    const tableId = root.querySelector<HTMLSelectElement>('[data-security-smoke="tableId"]')?.value ?? '';
+    const productId = root.querySelector<HTMLSelectElement>('[data-security-smoke="productId"]')?.value ?? '';
+    if (!tableId || !productId) { flash('Выберите тестовый стол и блюдо'); return; }
+    if (!confirm('В iiko будет создан помеченный тестовый заказ. Печать кухни отключена. Продолжить?')) return;
+    const button = element as HTMLButtonElement;
+    try { button.disabled = true; button.textContent = 'Создаём тест…'; await apiService.runIikoSmokeTest(tableId, productId); await loadAdminSecurity(); flash('Smoke-тест iiko пройден'); }
+    catch (error) { await loadAdminSecurity(false); render(); flash(error instanceof Error ? error.message : 'Smoke-тест iiko не пройден'); }
+    finally { button.disabled = false; }
+    return;
+  }
   if (type === 'refresh-promotions') { await loadAdminPromotions(true, true); flash('Скидки iiko обновлены'); return; }
   if (type === 'unlock-iiko-config') {
     const password = root.querySelector<HTMLInputElement>('[data-iiko-config-password]')?.value ?? '';

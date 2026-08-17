@@ -5,6 +5,7 @@ import pathModule from 'node:path';
 import { URL } from 'node:url';
 import pg from 'pg';
 import QRCode from 'qrcode';
+import { deterministicUuid, iikoItemStatuses, iikoStatusStep, validateMenuPublication } from './core.mjs';
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -30,6 +31,8 @@ const bannerUploadDir = process.env.BANNER_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/u
 const bannerPublicPath = process.env.BANNER_PUBLIC_PATH ?? '/uploads/banners';
 const productUploadDir = process.env.PRODUCT_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/uploads/products';
 const productPublicPath = process.env.PRODUCT_PUBLIC_PATH ?? '/uploads/products';
+const backupDir = process.env.ZAKAZ_BACKUP_DIR ?? '/var/backups/zakaz-postgres';
+const qualityReportPath = process.env.QUALITY_REPORT_PATH ?? '/opt/zakaz-api/quality-report.json';
 const publicAppUrl = (process.env.PUBLIC_APP_URL || 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai').replace(/\/$/, '');
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
 
@@ -116,13 +119,6 @@ const passwordMatches = (value, encoded) => {
   const [scheme,saltHex,keyHex] = String(encoded ?? '').split('$');
   if (scheme !== 'scrypt' || !saltHex || !keyHex) return sha256(value) === encoded;
   try { const expected=Buffer.from(keyHex,'hex'); const actual=crypto.scryptSync(value,Buffer.from(saltHex,'hex'),expected.length); return expected.length===actual.length && crypto.timingSafeEqual(expected,actual); } catch { return false; }
-};
-const deterministicUuid = (value) => {
-  const bytes = crypto.createHash('sha256').update(value).digest().subarray(0, 16);
-  bytes[6] = (bytes[6] & 0x0f) | 0x50;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = bytes.toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 const allowedIikoApiBases = new Set(['https://api-ru.iiko.services']);
 const encryptIikoCredentials = (credentials) => {
@@ -310,6 +306,47 @@ const publishEvent = (eventType, aggregateType, aggregateId, payload, restaurant
   'insert into app_events(restaurant_id,event_type,aggregate_type,aggregate_id,payload) values($1,$2,$3,$4,$5)',
   [restaurantId, eventType, aggregateType, aggregateId, JSON.stringify(payload)],
 );
+const telegramConfig = async () => {
+  const result = await pool.query("select * from notification_settings where id='active'");
+  const row = result.rows[0];
+  if (!row?.token_ciphertext) return { row, token: '' };
+  try {
+    const value = decryptIikoCredentials({ credentials_ciphertext: row.token_ciphertext, credentials_iv: row.token_iv, credentials_tag: row.token_tag });
+    return { row, token: String(value.token ?? '') };
+  } catch (error) { console.warn('Unable to decrypt Telegram token:', error.message); return { row, token: '' }; }
+};
+const sendTelegramMessage = async (text, { force = false } = {}) => {
+  const config = await telegramConfig();
+  if (!config.row?.enabled && !force) return false;
+  if (!config.token || !config.row?.chat_id) throw new Error('Telegram не настроен');
+  const result = await fetch(`https://api.telegram.org/bot${config.token}/sendMessage`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: config.row.chat_id, text: `BrooklynBowl Kiosk\n\n${text}`, disable_web_page_preview: true }),
+  });
+  const payload = await result.json().catch(() => ({}));
+  if (!result.ok || payload.ok === false) {
+    const message = String(payload.description ?? `Telegram HTTP ${result.status}`).slice(0, 500);
+    await pool.query("update notification_settings set last_error=$1,updated_at=now() where id='active'", [message]);
+    throw new Error(message);
+  }
+  await pool.query("update notification_settings set last_success_at=now(),last_error=null,updated_at=now() where id='active'");
+  return true;
+};
+const notifyTelegramAlert = async (key, message, recovered = false) => {
+  try {
+    const current = await pool.query('select * from notification_alerts where alert_key=$1', [String(key)]);
+    const row = current.rows[0];
+    if (recovered) {
+      if (!row?.is_open) return;
+      await sendTelegramMessage(`✅ Работа восстановлена\n${message}`);
+      await pool.query(`insert into notification_alerts(alert_key,is_open,last_message,recovered_at,updated_at) values($1,false,$2,now(),now()) on conflict(alert_key) do update set is_open=false,last_message=excluded.last_message,recovered_at=now(),updated_at=now()`, [String(key), String(message)]);
+      return;
+    }
+    if (row?.is_open && row.last_sent_at && Date.now() - new Date(row.last_sent_at).getTime() < 6 * 60 * 60_000) return;
+    await sendTelegramMessage(`🔴 Требуется внимание\n${message}`);
+    await pool.query(`insert into notification_alerts(alert_key,is_open,last_message,last_sent_at,updated_at) values($1,true,$2,now(),now()) on conflict(alert_key) do update set is_open=true,last_message=excluded.last_message,last_sent_at=now(),updated_at=now()`, [String(key), String(message)]);
+  } catch (error) { console.warn('Telegram alert:', error.message); }
+};
 const recordMonitoringEvent = async (component, message, context = {}, severity = 'error') => {
   try {
     await pool.query('insert into monitoring_events(component,severity,message,context) values($1,$2,$3,$4)', [component, severity, String(message).slice(0, 1000), JSON.stringify(context)]);
@@ -358,15 +395,6 @@ const closeGuestSessionIfIdle = async (sessionId, reason = 'completed') => {
   if (closed.rowCount) await publishEvent('guest_session_closed', 'guest_session', sessionId, { reason });
 };
 
-const iikoItemStatuses = new Set(['Added', 'PrintedNotCooking', 'CookingStarted', 'CookingCompleted', 'Served']);
-const iikoStatusStep = (order) => {
-  const statuses = arrayValue(order?.items).map((item) => item?.status).filter((status) => iikoItemStatuses.has(status));
-  if (order?.status === 'Closed' || (statuses.length && statuses.every((status) => status === 'Served'))) return 4;
-  if (statuses.length && statuses.every((status) => status === 'CookingCompleted' || status === 'Served')) return 3;
-  if (statuses.some((status) => status === 'CookingStarted' || status === 'CookingCompleted' || status === 'Served')) return 2;
-  if (statuses.some((status) => status === 'PrintedNotCooking')) return 1;
-  return 0;
-};
 const iikoOrderSnapshot = (eventInfo) => {
   const order = eventInfo?.order ?? {};
   return {
@@ -673,13 +701,9 @@ const syncIikoMenu = async () => {
     rows.push([String(item.itemId), sku, String(category?.id ?? ''), String(category?.name ?? 'Без категории'), String(item?.name ?? ''), item?.description ?? null, iikoPrice(size), Number(size?.portionWeightGrams ?? 0), String(size?.measureUnitType ?? ''), JSON.stringify(size?.nutritionPerHundredGrams ?? size?.nutritions?.[0] ?? null), size?.buttonImageUrl ?? null, JSON.stringify(size?.itemModifierGroups ?? []), Boolean(item?.isHidden || size?.isHidden), sortOrder++, Number(menu?.revision ?? 0), JSON.stringify({ item, size })]);
   }
   if (!rows.length) throw Object.assign(new Error('iiko вернул пустое внешнее меню; сохранён предыдущий снимок'), { status: 502 });
-  const activeRows = rows.filter((row) => !row[12]);
-  const withoutSku = activeRows.filter((row) => !row[1]);
-  const skuCounts = new Map();
-  activeRows.forEach((row) => { if (row[1]) skuCounts.set(row[1], (skuCounts.get(row[1]) ?? 0) + 1); });
-  const duplicateSkus = [...skuCounts].filter(([, count]) => count > 1).map(([sku]) => sku);
-  if (withoutSku.length || duplicateSkus.length) {
-    throw Object.assign(new Error(`Сезонное меню не опубликовано: ${withoutSku.length} блюд без SKU, ${duplicateSkus.length} повторяющихся SKU`), { status: 409 });
+  const publication = validateMenuPublication(rows.map((row) => ({ sku: row[1], isHidden: row[12] })));
+  if (!publication.ok) {
+    throw Object.assign(new Error(`Сезонное меню не опубликовано: ${publication.missingSku} блюд без SKU, ${publication.duplicateSkus.length} повторяющихся SKU`), { status: 409 });
   }
   const client = await pool.connect();
   try {
@@ -964,7 +988,7 @@ const effectiveTableForTerminal = async (terminal) => {
   }
   return selection.rows[0];
 };
-const createIikoOrder = async ({ id = crypto.randomUUID(), number, table, items, comment, promotion = null }) => {
+const createIikoOrder = async ({ id = crypto.randomUUID(), number, table, items, comment, promotion = null, servicePrint = true, sourceKey = iikoOrderSourceKey }) => {
   if (!iikoTerminalGroupId || !iikoOrderTypeId) throw Object.assign(new Error('Интеграция iiko ещё не настроена на сервере'), { status: 503 });
   const payload = await iikoRequest('/api/1/order/create', {
     organizationId: iikoOrganizationId,
@@ -976,13 +1000,13 @@ const createIikoOrder = async ({ id = crypto.randomUUID(), number, table, items,
       guests: { count: 1 },
       ...(iikoExternalMenuId ? { menuId: iikoExternalMenuId } : {}),
       orderTypeId: iikoOrderTypeId,
-      sourceKey: iikoOrderSourceKey,
+      sourceKey,
       items,
       ...(promotion ? { discountsInfo: { discounts: [{ type: 'RMS', discountTypeId: promotion.iikoDiscountTypeId }] } } : {}),
       comment: String(comment ?? '').slice(0, 1000),
     },
     createOrderSettings: {
-      servicePrint: true,
+      servicePrint,
       transportToFrontTimeout: 30,
       checkStopList: true,
     },
@@ -1017,6 +1041,101 @@ const readableIikoOrderError = (value) => {
     } catch { return nested.slice(0, 240); }
   }
   return 'iiko не смог создать заказ';
+};
+
+const backupState = async () => {
+  try {
+    const files = (await fs.readdir(backupDir)).filter((name) => /^zakaz-\d{8}T\d{6}Z\.dump$/.test(name)).sort().reverse();
+    if (!files.length) return { status: 'failed', last_at: null, age_hours: null, file: null };
+    const file = files[0]; const stat = await fs.stat(pathModule.join(backupDir, file));
+    const ageHours = Math.round((Date.now() - stat.mtimeMs) / 36_000) / 100;
+    return { status: ageHours <= 36 ? 'passed' : ageHours <= 48 ? 'warning' : 'failed', last_at: stat.mtime.toISOString(), age_hours: ageHours, file };
+  } catch { return { status: 'failed', last_at: null, age_hours: null, file: null }; }
+};
+const automatedQualityState = async () => {
+  try {
+    const report = JSON.parse(await fs.readFile(qualityReportPath, 'utf8'));
+    return { status: report.status ?? 'unknown', commit: report.commit ?? null, passed: Number(report.passed ?? 0), failed: Number(report.failed ?? 0), duration_ms: report.durationMs ?? null, created_at: report.createdAt ?? null };
+  } catch { return { status: 'unknown', commit: null, passed: 0, failed: 0, duration_ms: null, created_at: null }; }
+};
+const publicTelegramSettings = async () => {
+  const config = await telegramConfig(); const chat = String(config.row?.chat_id ?? '');
+  return { configured: Boolean(config.token && chat), enabled: config.row?.enabled === true, chat_id_masked: chat ? `${chat.slice(0, Math.min(4, chat.length))}${chat.length > 4 ? '••••' : ''}` : '', last_test_at: config.row?.last_test_at ?? null, last_success_at: config.row?.last_success_at ?? null, last_error: config.row?.last_error ?? null };
+};
+const latestSafeRun = async () => {
+  const result = await pool.query("select status,passed,failed,summary,created_at from quality_runs where kind='safe' order by created_at desc limit 1");
+  const row = result.rows[0];
+  return row ? { status: row.status, passed: Number(row.passed), failed: Number(row.failed), created_at: row.created_at, checks: row.summary?.checks ?? [] } : { status: 'unknown', passed: 0, failed: 0, created_at: null, checks: [] };
+};
+const latestExtendedRun = async (kind) => {
+  const result = await pool.query('select status,summary,created_at from quality_runs where kind=$1 order by created_at desc limit 1', [kind]); const row = result.rows[0];
+  return row ? { status: row.status, created_at: row.created_at, detail: String(row.summary?.detail ?? '') } : { status: 'unknown', created_at: null, detail: kind === 'smoke' ? 'Запускается только с явным подтверждением' : 'Ещё не запускался' };
+};
+const securityOverview = async () => {
+  const [telegram, automated, safeRun, smoke, load, backup] = await Promise.all([publicTelegramSettings(), automatedQualityState(), latestSafeRun(), latestExtendedRun('smoke'), latestExtendedRun('load'), backupState()]);
+  return { generated_at: new Date().toISOString(), telegram, automated, safe_run: { status: safeRun.status, passed: safeRun.passed, failed: safeRun.failed, created_at: safeRun.created_at }, smoke, load, checks: safeRun.checks, backup };
+};
+const runSafeChecks = async () => {
+  const started = Date.now(); const checks = [];
+  const check = async (id, name, task, warning = false) => {
+    try { const detail = await task(); checks.push({ id, name, status: 'passed', detail: String(detail) }); }
+    catch (error) { checks.push({ id, name, status: warning ? 'warning' : 'failed', detail: String(error.message ?? error) }); }
+  };
+  await check('api', 'API приложения', async () => `Процесс работает · uptime ${Math.floor(process.uptime() / 60)} мин`);
+  await check('database', 'База данных', async () => { const startedAt = Date.now(); await pool.query('select 1'); return `Ответ ${Date.now() - startedAt} мс`; });
+  await check('disk', 'Диск сервера', async () => {
+    const stat = await fs.statfs('/');
+    const usedPercent = Math.round((1 - Number(stat.bavail) / Number(stat.blocks)) * 100);
+    if (usedPercent >= 85) throw new Error(`Заполнено ${usedPercent}%`);
+    return `Заполнено ${usedPercent}%`;
+  });
+  await check('menu', 'Меню и SKU', async () => {
+    const result = await pool.query('select product_id,sku,is_hidden,updated_at from iiko_menu_items');
+    const publication = validateMenuPublication(result.rows.map((row) => ({ sku: row.sku, isHidden: row.is_hidden })));
+    if (!publication.ok || !publication.visible) throw new Error(publication.visible ? `${publication.missingSku} без SKU, ${publication.duplicateSkus.length} дублей` : 'Нет активного меню');
+    const newest = Math.max(...result.rows.map((row) => new Date(row.updated_at).getTime()).filter(Number.isFinite));
+    const ageMinutes = newest ? Math.floor((Date.now() - newest) / 60_000) : 999999;
+    if (ageMinutes >= 30) throw new Error(`Снимок меню не обновлялся ${ageMinutes} мин`);
+    return `${publication.visible} позиций, SKU корректны · обновлено ${ageMinutes} мин назад`;
+  });
+  await check('tables', 'Столы iiko', async () => { const result = await pool.query('select count(*)::int as count from iiko_tables where organization_id=$1 and terminal_group_id=$2', [iikoOrganizationId, iikoTerminalGroupId]); if (!result.rows[0].count) throw new Error('Столы не загружены'); return `${result.rows[0].count} столов`; });
+  await check('stop-list', 'Стоп-лист', async () => { const result = await pool.query('select count(*)::int as count,max(updated_at) as updated_at from iiko_stop_list_items where organization_id=$1', [iikoOrganizationId]); return `${result.rows[0].count} ограничений, снимок читается`; });
+  await check('orders', 'Заказы и повторы', async () => { const result = await pool.query("select count(*)::int as count from order_requests where status='failed' and updated_at>now()-interval '24 hours'"); if (result.rows[0].count) throw new Error(`${result.rows[0].count} ошибок за сутки`); return 'Ошибок отправки за сутки нет'; });
+  await check('webhook', 'Webhook iiko', async () => { const result = await pool.query('select max(received_at) as at from iiko_webhook_events'); return result.rows[0].at ? `Последнее событие ${new Date(result.rows[0].at).toLocaleString('ru-RU')}` : 'Webhook настроен, событий ещё не было'; }, true);
+  await check('backup', 'Резервная копия', async () => { const backup = await backupState(); if (backup.status === 'failed') throw new Error('Свежая копия не найдена'); return `${backup.file}, ${backup.age_hours} ч. назад`; });
+  await check('telegram', 'Telegram', async () => { const value = await publicTelegramSettings(); if (!value.configured || !value.enabled) throw new Error('Уведомления не подключены'); return 'Подключён и включён'; }, true);
+  const failed = checks.filter((item) => item.status === 'failed').length; const warnings = checks.filter((item) => item.status === 'warning').length; const status = failed ? 'failed' : warnings ? 'warning' : 'passed';
+  await pool.query('insert into quality_runs(kind,status,duration_ms,passed,failed,summary) values($1,$2,$3,$4,$5,$6)', ['safe', status, Date.now() - started, checks.filter((item) => item.status === 'passed').length, failed, JSON.stringify({ checks, warnings })]);
+  return securityOverview();
+};
+const runInternalLoadTest = async () => {
+  const started = Date.now(); const clients = 50; const requestsPerClient = 10; let failed = 0;
+  await Promise.all(Array.from({ length: clients }, async () => {
+    for (let index = 0; index < requestsPerClient; index += 1) {
+      try { await pool.query(index % 2 ? 'select count(*) from iiko_menu_items where not is_hidden' : 'select count(*) from terminals where is_active=true'); }
+      catch { failed += 1; }
+    }
+  }));
+  const duration = Date.now() - started; const detail = `${clients} клиентов · ${clients * requestsPerClient} запросов · ${duration} мс`;
+  const status = failed ? 'failed' : duration > 10_000 ? 'warning' : 'passed';
+  await pool.query('insert into quality_runs(kind,status,duration_ms,passed,failed,summary) values($1,$2,$3,$4,$5,$6)', ['load', status, duration, clients * requestsPerClient - failed, failed, JSON.stringify({ detail, clients, requests: clients * requestsPerClient })]);
+  if (failed) void notifyTelegramAlert('load', `Нагрузочная проверка: ${failed} ошибок из ${clients * requestsPerClient}`);
+  return securityOverview();
+};
+const runIikoSmokeTest = async (tableId, productId) => {
+  const table = await pool.query('select * from iiko_tables where table_id=$1 and organization_id=$2 and terminal_group_id=$3', [tableId, iikoOrganizationId, iikoTerminalGroupId]);
+  const product = await pool.query('select product_id,name,price_rub from iiko_menu_items where product_id=$1 and not is_hidden', [productId]);
+  if (!table.rowCount || !product.rowCount) throw Object.assign(new Error('Тестовый стол или блюдо отсутствуют в актуальных данных iiko'), { status: 409 });
+  const number = `TEST-${Date.now().toString(36).toUpperCase()}`; const started = Date.now();
+  try {
+    const result = await createIikoOrder({ number, table: table.rows[0], items: [{ type: 'Product', productId, amount: 1, price: Number(product.rows[0].price_rub) }], comment: 'АВТОТЕСТ — НЕ ГОТОВИТЬ', servicePrint: false, sourceKey: 'BrooklynBowl Smoke Test' });
+    const detail = `${number} · ${product.rows[0].name} · печать кухни отключена`;
+    await pool.query('insert into quality_runs(kind,status,duration_ms,passed,failed,summary) values($1,$2,$3,1,0,$4)', ['smoke', 'passed', Date.now() - started, JSON.stringify({ detail, iikoOrderId: result.id, tableId, productId })]);
+    return securityOverview();
+  } catch (error) {
+    await pool.query('insert into quality_runs(kind,status,duration_ms,passed,failed,summary) values($1,$2,$3,0,1,$4)', ['smoke', 'failed', Date.now() - started, JSON.stringify({ detail: String(error.message ?? error), tableId, productId })]);
+    void notifyTelegramAlert('smoke', `Smoke-тест iiko не пройден: ${error.message ?? error}`); throw error;
+  }
 };
 
 const productFields = ['name', 'category', 'price_rub', 'portion', 'unit', 'description', 'kbju', 'image', 'source_url', 'sauce_options', 'sauce_addon_price_rub', 'addon_options', 'flavor_options', 'size_option', 'pairs_with', 'recommendations_note', 'is_available', 'badge', 'image_position', 'allergens', 'spicy', 'sort_order'];
@@ -1494,6 +1613,52 @@ const server = http.createServer(async (request, response) => {
         from customer_orders o left join terminals t on t.id=o.terminal_id left join iiko_orders io on io.order_id=o.iiko_order_id
         where o.restaurant_id=$1 and o.is_demo=false and ($2='all' or o.completed_at is null) and o.created_at>now()-interval '30 days' order by o.created_at desc limit 250`, [iikoOrganizationId, filter]);
       return json(response, 200, result.rows);
+    }
+    if (request.method === 'GET' && path === '/api/v1/admin/security') {
+      if (admin.role !== 'administrator') return json(response, 403, { error: 'Раздел доступен только администратору' });
+      return json(response, 200, await securityOverview());
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/security/run') {
+      if (admin.role !== 'administrator') return json(response, 403, { error: 'Раздел доступен только администратору' });
+      enforceRequestRate(`security-run:${requestIp(request)}:${String(admin.userId ?? 'master')}`, 6, 10 * 60_000);
+      const result = await runSafeChecks(); await audit(actor, 'run', 'security_checks', 'safe', null, { status: result.safe_run.status, passed: result.safe_run.passed, failed: result.safe_run.failed });
+      return json(response, 200, result);
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/security/load') {
+      if (admin.role !== 'administrator') return json(response, 403, { error: 'Раздел доступен только администратору' });
+      enforceRequestRate(`security-load:${requestIp(request)}:${String(admin.userId ?? 'master')}`, 2, 60 * 60_000);
+      const result = await runInternalLoadTest(); await audit(actor, 'run', 'security_checks', 'load', null, { status: result.load.status, detail: result.load.detail });
+      return json(response, 200, result);
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/security/smoke') {
+      if (admin.role !== 'administrator') return json(response, 403, { error: 'Раздел доступен только администратору' });
+      const body = await readBody(request);
+      if (body.confirmation !== 'СОЗДАТЬ ТЕСТОВЫЙ ЗАКАЗ') return json(response, 400, { error: 'Требуется явное подтверждение тестового заказа' });
+      enforceRequestRate(`security-smoke:${requestIp(request)}:${String(admin.userId ?? 'master')}`, 2, 60 * 60_000);
+      const result = await runIikoSmokeTest(String(body.table_id ?? ''), String(body.product_id ?? '')); await audit(actor, 'run', 'security_checks', 'smoke', null, { status: result.smoke.status, detail: result.smoke.detail });
+      return json(response, 200, result);
+    }
+    if (request.method === 'PUT' && path === '/api/v1/admin/security/telegram') {
+      if (admin.role !== 'administrator') return json(response, 403, { error: 'Раздел доступен только администратору' });
+      const body = await readBody(request); const password = String(body.password ?? '');
+      const attemptKey = authAttemptKey(request, 'telegram-config'); await assertAuthAllowed(attemptKey);
+      if (!await verifyAdministratorPassword(admin, password)) { await recordAuthFailure(attemptKey); return json(response, 401, { error: 'Неверный пароль администратора' }); }
+      await clearAuthFailures(attemptKey);
+      const current = await telegramConfig(); const token = String(body.token ?? '').trim() || current.token; const chatId = String(body.chat_id ?? '').trim() || String(current.row?.chat_id ?? '');
+      if (!/^\d{6,12}:[A-Za-z0-9_-]{25,}$/.test(token)) return json(response, 400, { error: 'Проверьте токен бота Telegram' });
+      if (!/^-?\d{5,20}$/.test(chatId)) return json(response, 400, { error: 'Chat ID должен состоять из цифр' });
+      const encrypted = encryptIikoCredentials({ token });
+      await pool.query(`insert into notification_settings(id,enabled,chat_id,token_ciphertext,token_iv,token_tag,configured_by) values('active',$1,$2,$3,$4,$5,$6)
+        on conflict(id) do update set enabled=excluded.enabled,chat_id=excluded.chat_id,token_ciphertext=excluded.token_ciphertext,token_iv=excluded.token_iv,token_tag=excluded.token_tag,configured_by=excluded.configured_by,last_error=null,updated_at=now()`, [body.enabled !== false, chatId, encrypted.ciphertext, encrypted.iv, encrypted.tag, actor]);
+      await audit(actor, 'configure', 'telegram_notifications', 'active', { configured: Boolean(current.token), enabled: current.row?.enabled === true }, { configured: true, enabled: body.enabled !== false, chatId: `${chatId.slice(0, 4)}••••` });
+      return json(response, 200, await securityOverview());
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/security/telegram/test') {
+      if (admin.role !== 'administrator') return json(response, 403, { error: 'Раздел доступен только администратору' });
+      enforceRequestRate(`telegram-test:${requestIp(request)}:${String(admin.userId ?? 'master')}`, 5, 10 * 60_000);
+      await sendTelegramMessage('✅ Тестовое уведомление доставлено. Оповещения системы работают.', { force: true });
+      await pool.query("update notification_settings set last_test_at=now() where id='active'"); await audit(actor, 'test', 'telegram_notifications', 'active', null, { delivered: true });
+      return json(response, 200, { ok: true });
     }
     if (request.method === 'GET' && path === '/api/v1/admin/diagnostics') {
       const started = Date.now();

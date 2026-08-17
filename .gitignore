@@ -16,3 +16,7 @@ ROADMAP.md
 android/.gradle/
 android/local.properties
 android/app/build/
+test-results/
+playwright-report/
+test-output.tap
+quality-report.json

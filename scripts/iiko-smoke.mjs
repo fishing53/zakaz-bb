@@ -1,0 +1,9 @@
+if (process.env.IIKO_SMOKE_CONFIRM !== 'CREATE_TEST_ORDER') throw new Error('Для тестового заказа задайте IIKO_SMOKE_CONFIRM=CREATE_TEST_ORDER');
+const required = ['IIKO_API_BASE','IIKO_APP_ID','IIKO_API_LOGIN','IIKO_CLIENT_SECRET','IIKO_ORGANIZATION_ID','IIKO_TERMINAL_GROUP_ID','IIKO_ORDER_TYPE_ID','IIKO_TEST_TABLE_ID','IIKO_TEST_PRODUCT_ID'];
+for (const name of required) if (!process.env[name]) throw new Error(`Не задано ${name}`);
+const base = process.env.IIKO_API_BASE.replace(/\/$/, '');
+const call = async (path, body, token = '') => { const response = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) }); const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(`${path}: ${payload.errorDescription ?? response.status}`); return payload; };
+const auth = await call('/api/v2/access_token', { appId: process.env.IIKO_APP_ID, apiLogin: process.env.IIKO_API_LOGIN, clientSecret: process.env.IIKO_CLIENT_SECRET });
+const id = crypto.randomUUID(); const externalNumber = `SMOKE-${Date.now().toString(36).toUpperCase()}`;
+const result = await call('/api/1/order/create', { organizationId: process.env.IIKO_ORGANIZATION_ID, terminalGroupId: process.env.IIKO_TERMINAL_GROUP_ID, order: { id, externalNumber, tableIds: [process.env.IIKO_TEST_TABLE_ID], guests: { count: 1 }, orderTypeId: process.env.IIKO_ORDER_TYPE_ID, sourceKey: 'BrooklynBowl Smoke Test', items: [{ type: 'Product', productId: process.env.IIKO_TEST_PRODUCT_ID, amount: 1, price: 0 }], comment: 'АВТОТЕСТ — НЕ ГОТОВИТЬ' }, createOrderSettings: { servicePrint: false, transportToFrontTimeout: 15, checkStopList: true } }, auth.token);
+console.log(JSON.stringify({ id, externalNumber, correlationId: result.correlationId ?? null, creationStatus: result.orderInfo?.creationStatus ?? null }, null, 2));

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+trap 'status=$?; node /opt/zakaz-api/ops/notify-telegram.mjs alert backup "Не удалось создать резервную копию PostgreSQL" >/dev/null 2>&1 || true; exit "$status"' ERR
+
 backup_dir="${ZAKAZ_BACKUP_DIR:-/var/backups/zakaz-postgres}"
 retention_days="${ZAKAZ_BACKUP_RETENTION_DAYS:-14}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -16,3 +18,4 @@ mv "$temporary" "$target"
 sha256sum "$target" > "${target}.sha256"
 find "$backup_dir" -type f \( -name 'zakaz-*.dump' -o -name 'zakaz-*.dump.sha256' \) -mtime "+${retention_days}" -delete
 echo "PostgreSQL backup verified: $target"
+node /opt/zakaz-api/ops/notify-telegram.mjs recover backup "Резервное копирование PostgreSQL снова работает" >/dev/null 2>&1 || true

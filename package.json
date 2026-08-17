@@ -11,10 +11,15 @@
     "android:sync": "npm run build && cap sync android",
     "android:debug": "npm run android:sync && cd android && ./gradlew assembleDebug",
     "preview": "vite preview",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "test:critical": "npm run check && npm test",
+    "test:e2e": "playwright test",
+    "test:load": "node scripts/load-test.mjs"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.2",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.13.4",
     "typescript": "^5.7.3",
     "vite": "^6.1.0"

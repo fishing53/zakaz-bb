@@ -17,12 +17,24 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Install and build the kiosk web bundle
+      - name: Install dependencies
+        run: npm ci
+      - name: Run critical server and integration tests
+        run: |
+          set -o pipefail
+          npm test | tee test-output.tap
+      - name: Run browser end-to-end tests
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Record successful quality gate
+        env:
+          BROWSER_TESTS_PASSED: 4
+        run: node scripts/write-quality-report.mjs test-output.tap
+      - name: Build the kiosk web bundle
         env:
           VITE_BUILD_VERSION: 0.1.0-${{ github.run_number }}
-        run: |
-          npm ci
-          npm run build
+        run: npm run build
       - name: Package OTA bundle
         id: bundle
         run: |
@@ -46,7 +58,7 @@ jobs:
           ssh root@194.226.142.35 'chown -R www-data:www-data /var/www/zakaz-zvyak/ota /var/www/zakaz-zvyak/uploads'
       - name: Deploy API and database migrations
         run: |
-          scp server/index.mjs server/migrate.mjs root@194.226.142.35:/opt/zakaz-api/
+          scp server/index.mjs server/migrate.mjs server/core.mjs quality-report.json root@194.226.142.35:/opt/zakaz-api/
           ssh root@194.226.142.35 'mkdir -p /opt/zakaz-api/ops'
           scp ops/* root@194.226.142.35:/opt/zakaz-api/ops/
           ssh root@194.226.142.35 'bash /opt/zakaz-api/ops/deploy-api.sh'

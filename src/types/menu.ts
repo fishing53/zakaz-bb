@@ -137,6 +137,17 @@ export interface AdminDiagnostics {
   incidents: Array<{ component: string; severity: 'warning' | 'error' | 'critical'; message: string; context: Record<string, unknown>; createdAt: string }>;
 }
 
+export interface SecurityOverview {
+  generatedAt: string;
+  telegram: { configured: boolean; enabled: boolean; chatIdMasked: string; lastTestAt: string | null; lastSuccessAt: string | null; lastError: string | null };
+  automated: { status: 'passed' | 'warning' | 'failed' | 'unknown'; commit: string | null; passed: number; failed: number; durationMs: number | null; createdAt: string | null };
+  safeRun: { status: 'passed' | 'warning' | 'failed' | 'unknown'; passed: number; failed: number; createdAt: string | null };
+  smoke: { status: 'passed' | 'warning' | 'failed' | 'unknown'; createdAt: string | null; detail: string };
+  load: { status: 'passed' | 'warning' | 'failed' | 'unknown'; createdAt: string | null; detail: string };
+  checks: Array<{ id: string; name: string; status: 'passed' | 'warning' | 'failed'; detail: string }>;
+  backup: { status: 'passed' | 'warning' | 'failed'; lastAt: string | null; ageHours: number | null; file: string | null };
+}
+
 export interface IikoConnectionConfig {
   apiBase: string;
   organizationId: string;

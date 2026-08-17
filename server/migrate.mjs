@@ -258,6 +258,40 @@ await pool.query(`
   alter table monitoring_events add column if not exists alerted_at timestamptz;
   create index if not exists monitoring_events_recent_idx on monitoring_events(component,created_at desc);
   delete from monitoring_events where created_at < now()-interval '90 days';
+  create table if not exists notification_settings (
+    id text primary key default 'active' check(id='active'),
+    enabled boolean not null default false,
+    chat_id text not null default '',
+    token_ciphertext text,
+    token_iv text,
+    token_tag text,
+    configured_by text not null default '',
+    last_test_at timestamptz,
+    last_success_at timestamptz,
+    last_error text,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  create table if not exists notification_alerts (
+    alert_key text primary key,
+    is_open boolean not null default false,
+    last_message text not null default '',
+    last_sent_at timestamptz,
+    recovered_at timestamptz,
+    updated_at timestamptz not null default now()
+  );
+  create table if not exists quality_runs (
+    id bigserial primary key,
+    kind text not null check(kind in ('safe','ci','smoke','load')),
+    status text not null check(status in ('passed','warning','failed','running')),
+    commit_sha text,
+    duration_ms integer,
+    passed integer not null default 0,
+    failed integer not null default 0,
+    summary jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+  );
+  create index if not exists quality_runs_kind_created_idx on quality_runs(kind,created_at desc);
   create table if not exists iiko_connection_settings (
     id text primary key default 'active' check(id='active'),
     api_base text not null,
