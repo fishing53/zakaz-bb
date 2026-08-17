@@ -16,6 +16,11 @@ const isNative = Capacitor.isNativePlatform();
 const apiBase = isNative ? `${productionOrigin}/api/v1` : '/api/v1';
 const assetSource = (value: string) => value.startsWith('/uploads/') ? `${productionOrigin}${value}` : value;
 const cachedAsset = (value: string) => imageCacheService.resolve(assetSource(value));
+const apiErrorMessage = (path: string, status: number, message?: string) => {
+  if (status === 401 && path.startsWith('/admin/iiko-config')) return 'Доступ к настройкам iiko истёк. Подтвердите пароль администратора ещё раз.';
+  if (message) return message;
+  return status === 413 ? 'Файл слишком большой для загрузки' : 'Ошибка сервера';
+};
 
 type ServerProduct = Product & { sku?: string; is_available: boolean; badge: string; image_position: string; allergens: string; spicy: 'none' | 'mild' | 'hot'; sort_order: number };
 type ServerBanner = { id: number | string; name: string; image_url: string; product_id: string | null; kind: 'restaurant' | 'advertising'; active: boolean; starts_at: string | null; ends_at: string | null; impression_limit: number | null; impressions: number; sort_order: number };
@@ -34,11 +39,15 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
   try {
     const method = String(init.method ?? 'GET').toUpperCase();
     const hasBody = init.body !== undefined && init.body !== null;
-    const requestHeaders: Record<string, string> = {
-      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-      ...(token && path.startsWith('/admin/') ? { Authorization: `Bearer ${token}` } : {}),
-      ...Object.fromEntries(new Headers(init.headers).entries()),
-    };
+    // Build headers through the Headers API so names are compared
+    // case-insensitively. Some protected admin actions pass a short-lived
+    // token explicitly; it must replace the regular admin token instead of
+    // producing both `Authorization` and `authorization` headers.
+    const normalizedHeaders = new Headers();
+    if (hasBody) normalizedHeaders.set('Content-Type', 'application/json');
+    if (token && path.startsWith('/admin/')) normalizedHeaders.set('Authorization', `Bearer ${token}`);
+    new Headers(init.headers).forEach((value, key) => normalizedHeaders.set(key, value));
+    const requestHeaders = Object.fromEntries(normalizedHeaders.entries());
     if (isNative) {
       let data: unknown = init.body;
       if (typeof init.body === 'string') {
@@ -61,7 +70,7 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
           throw new SyntaxError('Invalid JSON response');
         }
       }
-      if (response.status < 200 || response.status >= 300) throw new Error(body?.error ?? (response.status === 413 ? 'Файл слишком большой для загрузки' : 'Ошибка сервера'));
+      if (response.status < 200 || response.status >= 300) throw new Error(apiErrorMessage(path, response.status, body?.error));
       return body;
     }
     const response = await fetch(`${apiBase}${path}`, {
@@ -82,7 +91,7 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
       }
       throw new SyntaxError('Invalid JSON response');
     }
-    if (!response.ok) throw new Error(body.error ?? (response.status === 413 ? 'Файл слишком большой для загрузки' : 'Ошибка сервера'));
+    if (!response.ok) throw new Error(apiErrorMessage(path, response.status, body.error));
     return body;
   } catch (error) {
     if (error instanceof TypeError || error instanceof SyntaxError) throw new Error('Нет соединения с сервером');
