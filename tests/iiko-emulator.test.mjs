@@ -15,7 +15,7 @@ test('iiko emulator exposes auth, menu, stop-list, order and webhook contracts',
     calls.push({ path: request.url, body: JSON.parse(Buffer.concat(chunks).toString() || '{}') });
     const payload = request.url === '/api/v2/access_token' ? { token: 'test-token' }
       : request.url === '/api/2/menu/by_id' ? { revision: 1, itemCategories: [{ id: 'pizza', name: 'Пицца', items: [{ itemId: 'p1', sku: 'P1', name: 'Маргарита', itemSizes: [{ prices: [{ price: 500 }] }] }] }] }
-        : request.url === '/api/1/stop_lists' ? { terminalGroupStopLists: [{ terminalGroupId: 'tg', items: [] }] }
+        : request.url === '/api/1/stop_lists' ? { terminalGroupStopLists: [{ organizationId: 'org', items: [{ terminalGroupId: 'tg', items: [{ productId: 'p1', sizeId: null, balance: 0 }] }] }] }
           : request.url === '/api/1/order/create' ? { correlationId: 'correlation', orderInfo: { id: 'order-id', creationStatus: 'Success' } }
             : { ok: true };
     response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(payload));
@@ -28,7 +28,7 @@ test('iiko emulator exposes auth, menu, stop-list, order and webhook contracts',
     const stopList = await post('/api/1/stop_lists', { organizationIds: ['org'], terminalGroupsIds: ['tg'] }, auth.token);
     const order = await post('/api/1/order/create', { organizationId: 'org', terminalGroupId: 'tg', order: { tableIds: ['table'], items: [{ productId: 'p1', amount: 1 }] } }, auth.token);
     assert.equal(menu.itemCategories[0].items[0].sku, 'P1');
-    assert.deepEqual(stopList.terminalGroupStopLists[0].items, []);
+    assert.equal(stopList.terminalGroupStopLists[0].items[0].items[0].productId, 'p1');
     assert.equal(order.orderInfo.creationStatus, 'Success');
     assert.deepEqual(calls.map((item) => item.path), ['/api/v2/access_token', '/api/2/menu/by_id', '/api/1/stop_lists', '/api/1/order/create']);
     assert.equal(calls[3].body.order.tableIds[0], 'table');

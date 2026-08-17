@@ -112,9 +112,10 @@ export const apiService = {
     return data.table;
   },
   async bootstrap() {
-    const data = await request<{ products: ServerProduct[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown> }>(`/bootstrap?terminalId=${activeTerminalId}`);
-    return { products: data.products.map(product), display: Object.fromEntries(data.products.map((item) => [item.id, display(item)])), banners: data.banners.map(banner), terminal: terminal(data.terminal), orders: data.orders.map(order), settings: data.settings };
+    const data = await request<{ products: ServerProduct[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown>; catalogRevision: string }>(`/bootstrap?terminalId=${activeTerminalId}`);
+    return { products: data.products.map(product), display: Object.fromEntries(data.products.map((item) => [item.id, display(item)])), banners: data.banners.map(banner), terminal: terminal(data.terminal), orders: data.orders.map(order), settings: data.settings, catalogRevision: data.catalogRevision ?? '' };
   },
+  catalogRevision: () => request<{ revision: string }>('/catalog/revision'),
   async login(password: string, scope: 'terminal' | 'restaurant', username = '') {
     const data = await request<{ token: string; scope: 'terminal' | 'restaurant'; role: 'administrator' | 'hostess' | 'terminal_manager' }>('/admin/login', { method: 'POST', body: JSON.stringify({ password, scope, username }) });
     token = data.token;

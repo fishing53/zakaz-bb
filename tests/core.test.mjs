@@ -6,6 +6,7 @@ import {
   deterministicUuid,
   idempotencyDecision,
   iikoStatusStep,
+  normalizeIikoStopListGroups,
   resolveTable,
   serviceRequestTransition,
   validateMenuPublication,
@@ -18,6 +19,16 @@ const products = [{
 
 test('publishes a complete menu with unique SKU', () => {
   assert.deepEqual(validateMenuPublication(products), { ok: true, visible: 2, missingSku: 0, duplicateSkus: [] });
+});
+
+test('normalizes the wrapped iiko Cloud stop-list response', () => {
+  const group = { terminalGroupId: 'terminal-group', items: [{ productId: 'pizza', balance: 0 }] };
+  assert.deepEqual(normalizeIikoStopListGroups({ terminalGroupStopLists: [{ organizationId: 'restaurant', items: [group] }] }), [group]);
+});
+
+test('keeps compatibility with a direct stop-list group response', () => {
+  const group = { terminalGroupId: 'terminal-group', items: [{ productId: 'pizza', balance: 0 }] };
+  assert.deepEqual(normalizeIikoStopListGroups({ terminalGroupStopLists: [group] }), [group]);
 });
 test('rejects visible products without SKU', () => assert.equal(validateMenuPublication([{ id: 'x' }]).ok, false));
 test('rejects duplicate SKU but ignores hidden seasonal items', () => {

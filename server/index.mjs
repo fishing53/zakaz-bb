@@ -6,7 +6,7 @@ import { URL } from 'node:url';
 import pg from 'pg';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
-import { deterministicUuid, iikoItemStatuses, iikoStatusStep, validateMenuPublication } from './core.mjs';
+import { deterministicUuid, iikoItemStatuses, iikoStatusStep, normalizeIikoStopListGroups, validateMenuPublication } from './core.mjs';
 import { BridgeConnectionRegistry, normalizeBridgeEmployee, validateEmployeeSnapshot } from './iiko-front-bridge.mjs';
 
 const { Pool } = pg;
@@ -783,7 +783,8 @@ const saveIikoStopLists = async (terminalGroupStopLists, organizationId = iikoOr
     throw error;
   } finally { client.release(); }
 };
-const fetchIikoStopLists = async (terminalGroupIds = []) => {
+let iikoStopListSyncTask = null;
+const loadIikoStopLists = async (terminalGroupIds = []) => {
   const requestedTerminalGroupIds = terminalGroupIds.length
     ? terminalGroupIds.map(String)
     : (iikoTerminalGroupId ? [iikoTerminalGroupId] : []);
@@ -794,10 +795,21 @@ const fetchIikoStopLists = async (terminalGroupIds = []) => {
   });
   const body = await result.json().catch(() => ({}));
   if (!result.ok) throw Object.assign(new Error(body.errorDescription ?? 'Unable to get iiko stop list'), { status: 502 });
-  const groups = arrayValue(body.terminalGroupStopLists).flatMap((wrapper) => arrayValue(wrapper?.items));
+  const groups = normalizeIikoStopListGroups(body);
   await saveIikoStopLists(groups, iikoOrganizationId, requestedTerminalGroupIds);
   return groups;
 };
+const fetchIikoStopLists = (terminalGroupIds = []) => {
+  if (!iikoStopListSyncTask) {
+    iikoStopListSyncTask = loadIikoStopLists(terminalGroupIds).finally(() => { iikoStopListSyncTask = null; });
+  }
+  return iikoStopListSyncTask;
+};
+const catalogRevision = () => pool.query(`select concat(
+  coalesce((select max(updated_at)::text from iiko_menu_items),''), ':',
+  coalesce((select md5(coalesce(string_agg(concat_ws(':',product_id,size_id,balance::text),',' order by product_id,size_id),''))
+    from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2),'')
+) as revision`, [iikoOrganizationId, iikoTerminalGroupId]);
 const publicIikoStatus = (row) => ({
   orderId: row.order_id,
   posId: row.pos_id,
@@ -811,7 +823,7 @@ const publicIikoStatus = (row) => ({
 });
 
 const publicState = async (terminalId) => {
-  const [localProducts, iikoProducts, banners, terminal, selection, settings] = await Promise.all([
+  const [localProducts, iikoProducts, banners, terminal, selection, settings, revision] = await Promise.all([
     pool.query('select * from products order by category, sort_order, name'),
     pool.query(`select m.*, p.image as override_image,
       coalesce((select jsonb_agg((select pm.product_id from iiko_menu_items pm where pm.sku=pair.sku and not pm.is_hidden order by pm.updated_at desc limit 1) order by pair.ordinality) from jsonb_array_elements_text(p.pairs_with_skus) with ordinality pair(sku,ordinality)),'[]'::jsonb) as override_pairs_with,
@@ -826,6 +838,7 @@ const publicState = async (terminalId) => {
     pool.query('insert into terminals(id) values ($1) on conflict (id) do update set last_seen_at = now() returning *', [terminalId]),
     pool.query('select * from terminal_table_selections where terminal_id=$1', [terminalId]),
     pool.query('select key, value from app_settings'),
+    catalogRevision(),
   ]);
   const fixedTable = String(terminal.rows[0].table_number ?? '').trim();
   const fixedTableId = String(terminal.rows[0].table_id ?? '').trim();
@@ -842,7 +855,7 @@ const publicState = async (terminalId) => {
     where terminal_id=$1 and is_demo=true and completed_at is null and status_step<4`, [terminalId]);
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and is_demo=$2 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId, demoMode]);
   const publicBanners = demoMode ? localProducts.rows.slice(0, 3).map((item, index) => ({ id: `demo-${index}`, name: item.name, image_url: item.image, product_id: item.id, kind: 'restaurant', active: true, starts_at: null, ends_at: null, impression_limit: null, impressions: 0, sort_order: index })) : banners.rows;
-  return { products, banners: publicBanners, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? (chosen.source === 'qr' ? 'qr' : 'guest') : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])) };
+  return { products, banners: publicBanners, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? (chosen.source === 'qr' ? 'qr' : 'guest') : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])), catalogRevision: String(revision.rows[0]?.revision ?? '') };
 };
 
 const serviceTypes = new Set(['waiter', 'cutlery', 'bill', 'help']);
@@ -1222,6 +1235,10 @@ const server = http.createServer(async (request, response) => {
       return response.end();
     }
     if (request.method === 'GET' && path === '/api/v1/health') return json(response, 200, { ok: true, service: 'brooklynbowl-kiosk-api', time: new Date().toISOString() });
+    if (request.method === 'GET' && path === '/api/v1/catalog/revision') {
+      const result = await catalogRevision();
+      return json(response, 200, { revision: String(result.rows[0]?.revision ?? '') });
+    }
     if (request.method === 'GET' && path === '/api/v1/health/ready') {
       const database = await pool.query('select now() as now');
       const cache = await pool.query(`select max(updated_at) as menu_updated_at,count(*) filter(where not is_hidden)::int as active_products,(select count(*)::int from products) as local_products from iiko_menu_items`);
@@ -1242,7 +1259,12 @@ const server = http.createServer(async (request, response) => {
         if (event?.eventInfo?.id) await saveIikoOrder(event.eventInfo, { organizationId: event.organizationId ?? iikoOrganizationId, eventType, webhook: true });
         if (eventType === 'StopListUpdate') {
           const terminalGroupIds = arrayValue(event?.eventInfo?.terminalGroupsStopListsUpdates).map((item) => String(item?.id ?? '')).filter(Boolean);
-          await fetchIikoStopLists(terminalGroupIds);
+          // Return 200 without waiting for another Cloud API round trip. Slow
+          // webhook responses are retried by iiko and can create request bursts.
+          void fetchIikoStopLists(terminalGroupIds).catch(async (error) => {
+            console.warn('iiko stop-list webhook sync:', error.message);
+            await recordMonitoringEvent('webhook', `Стоп-лист: ${error.message}`, { terminalGroupIds }, 'warning');
+          });
         }
       }
       return json(response, 200, { ok: true });
@@ -2093,5 +2115,14 @@ server.listen(port, '127.0.0.1', () => {
   // No tablet makes these calls. Menu/tables/stop-list are refreshed in one
   // controlled server task; active orders use webhooks first and this fallback.
   setInterval(() => { void backgroundSync(); }, 10 * 60 * 1_000).unref();
+  // Webhooks are primary. This isolated fallback keeps a missed notification
+  // from leaving the kiosk stale while avoiding a full menu download.
+  setInterval(() => {
+    if (!iikoTerminalGroupId || backgroundSyncRunning) return;
+    void fetchIikoStopLists([iikoTerminalGroupId]).catch(async (error) => {
+      console.warn('iiko stop-list fallback:', error.message);
+      await recordMonitoringEvent('iiko_sync', `Стоп-лист: ${error.message}`, {}, 'warning');
+    });
+  }, 2 * 60 * 1_000).unref();
   setInterval(() => { void syncActiveIikoOrders().catch((error) => console.warn('iiko order sync:', error.message)); }, 2 * 60 * 1_000).unref();
 });

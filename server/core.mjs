@@ -37,6 +37,14 @@ export const applyStopList = (items, stopList) => {
   return (Array.isArray(items) ? items : []).map((item) => ({ ...item, available: !balance.has(String(item.id)) || Number(balance.get(String(item.id))) > 0 }));
 };
 
+export const normalizeIikoStopListGroups = (payload) => {
+  const wrappers = Array.isArray(payload?.terminalGroupStopLists) ? payload.terminalGroupStopLists : [];
+  return wrappers.flatMap((wrapper) => {
+    if (wrapper?.terminalGroupId) return [wrapper];
+    return Array.isArray(wrapper?.items) ? wrapper.items.filter((item) => item?.terminalGroupId) : [];
+  });
+};
+
 export const calculateOrder = ({ lines, products, promotion = null }) => {
   const catalog = new Map((Array.isArray(products) ? products : []).map((item) => [String(item.id), item]));
   let subtotal = 0;

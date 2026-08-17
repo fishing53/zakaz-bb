@@ -35,6 +35,7 @@ let bannerRotationTimer = 0;
 let currentBannerId = '';
 let suppressBannerOpenUntil = 0;
 let statusRefreshTimer = 0;
+let catalogRefreshTimer = 0;
 let auditLog: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [];
 let waiterProfiles: WaiterProfile[] = [];
 let adminUserProfiles: AdminUserProfile[] = [];
@@ -62,6 +63,7 @@ let qrStartupError = '';
 let syncServerTask: Promise<void> | null = null;
 let auditSyncTask: Promise<void> | null = null;
 let catalogSnapshot = '';
+let currentCatalogRevision = '';
 let bootstrapSnapshot = '';
 let consecutiveBootstrapFailures = 0;
 let offlineTimer = 0;
@@ -131,6 +133,9 @@ export function render() {
   resetInactivity();
   if (route === 'status' && !statusRefreshTimer) statusRefreshTimer = window.setInterval(() => { void syncServer(); }, state.terminal?.demoMode ? 5_000 : 15_000);
   if (route !== 'status' && statusRefreshTimer) { clearInterval(statusRefreshTimer); statusRefreshTimer = 0; }
+  const needsCatalogUpdates = route === 'welcome' || route === 'menu' || route === 'order';
+  if (needsCatalogUpdates && !catalogRefreshTimer) catalogRefreshTimer = window.setInterval(() => { void refreshCatalogRevision(); }, 10_000);
+  if (!needsCatalogUpdates && catalogRefreshTimer) { clearInterval(catalogRefreshTimer); catalogRefreshTimer = 0; }
   if (route === 'admin' && state.adminTab === 'orders' && !adminOrderRefreshTimer) adminOrderRefreshTimer = window.setInterval(() => { void loadAdminOrders(); }, 15_000);
   if ((route !== 'admin' || state.adminTab !== 'orders') && adminOrderRefreshTimer) { clearInterval(adminOrderRefreshTimer); adminOrderRefreshTimer = 0; }
 }
@@ -1099,6 +1104,7 @@ async function performServerSync() {
   try {
     const previous = appStore.get();
     const data = await apiService.bootstrap();
+    currentCatalogRevision = data.catalogRevision;
     consecutiveBootstrapFailures = 0;
     const nextCatalogSnapshot = JSON.stringify(data.products);
     const catalogChanged = nextCatalogSnapshot !== catalogSnapshot;
@@ -1123,6 +1129,17 @@ async function performServerSync() {
     console.warn('Server bootstrap unavailable', error);
     consecutiveBootstrapFailures += 1;
     if (consecutiveBootstrapFailures >= 2 && appStore.get().isOnline) appStore.set({ isOnline: false });
+  }
+}
+
+async function refreshCatalogRevision() {
+  try {
+    const { revision } = await apiService.catalogRevision();
+    if (!currentCatalogRevision) { currentCatalogRevision = revision; return; }
+    if (revision !== currentCatalogRevision) await syncServer();
+  } catch {
+    // The normal bootstrap retry owns the offline banner. A failed lightweight
+    // check is retried silently and must never redraw the guest interface.
   }
 }
 
