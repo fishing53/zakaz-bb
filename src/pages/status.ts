@@ -10,6 +10,8 @@ const positionLabel = (count: number) => {
   return `${count} ${word}`;
 };
 
+let lastAnimatedStatusKey = '';
+
 export const statusPage = (order: SubmittedOrder | undefined, number: string | null, step: number, productFor: (line: CartLine) => Product | undefined) => {
   // iiko exposes five technical item states. Added and PrintedNotCooking are
   // one guest-facing stage, so the screen deliberately presents four steps.
@@ -20,6 +22,9 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
   const table = order?.tableNumber;
   const heading = served ? 'Заказ <em>подан</em>' : ready ? 'Заказ <em>готов</em>' : active === 0 ? 'Заказ <em>принят</em>' : 'Заказ <em>готовится</em>';
   const message = orderStatusMessage(step);
+  const statusKey = `${order?.id ?? number ?? 'current'}:${active}`;
+  const shouldAnimate = statusKey !== lastAnimatedStatusKey;
+  lastAnimatedStatusKey = statusKey;
 
   const positionCount = items.reduce((sum, item) => sum + item.quantity + (item.modifiers ?? []).reduce((modifierSum, modifier) => modifierSum + modifier.amount * item.quantity, 0), 0);
   const orderLines = items.map((item) => {
@@ -42,7 +47,7 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
     return main + modifiers;
   }).join('');
 
-  return `<section class="live-status ${ready ? 'is-ready' : ''} ${served ? 'is-served' : ''}">
+  return `<section class="live-status ${ready ? 'is-ready' : ''} ${served ? 'is-served' : ''} ${shouldAnimate ? 'is-entering' : ''}">
     <header class="live-status__header">
       <div class="live-status__identity"><span>ЗАКАЗ <b>${escapeHtml(number ?? 'B-0000')}</b></span>${table ? `<span>СТОЛ <b>№${escapeHtml(table)}</b></span>` : ''}</div>
     </header>

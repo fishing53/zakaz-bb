@@ -1538,7 +1538,6 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   color: var(--accent);
   border: 1.5px solid var(--accent);
   border-radius: 50%;
-  animation: status-hero-enter .52s cubic-bezier(.22,1,.36,1) both,status-hero-breathe 3.8s .65s ease-in-out infinite;
 }
 .live-status__hero-icon::before,
 .live-status__hero-icon::after {
@@ -1562,7 +1561,6 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   font: 700 clamp(3.2rem,5vw,6.15rem)/.8 "Roboto Condensed",sans-serif;
   letter-spacing: -.035em;
   text-transform: uppercase;
-  animation: status-copy-enter .48s .09s cubic-bezier(.22,1,.36,1) both;
 }
 .live-status__stage h1 em {
   display: block;
@@ -1575,7 +1573,6 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   color: #c3c3c3;
   font-size: .82rem;
   line-height: 1.6;
-  animation: status-copy-enter .48s .16s cubic-bezier(.22,1,.36,1) both;
 }
 .live-status__timeline {
   margin-top: clamp(34px,5vh,58px);
@@ -1599,10 +1596,6 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   gap: 9px;
   color: #656565;
   text-align: center;
-  opacity: 0;
-  transform: translateY(5px);
-  animation: status-step-enter .42s cubic-bezier(.22,1,.36,1) forwards;
-  animation-delay: calc(.16s + var(--stage-index) * .075s);
 }
 .live-status__timeline li:not(:last-child)::after {
   height: 2px;
@@ -1627,8 +1620,7 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
   transform-origin: left;
 }
 .live-status__timeline li.is-complete:not(:last-child)::before {
-  animation: status-line-fill .62s cubic-bezier(.22,1,.36,1) forwards;
-  animation-delay: calc(.3s + var(--stage-index) * .1s);
+  transform: scaleX(1);
 }
 .live-status__timeline li > i {
   width: 32px;
@@ -1666,16 +1658,45 @@ input, textarea, select, p, .product-modal__description, .welcome-promo__content
 .live-status__timeline li.is-active { color: #fff; }
 .live-status__timeline li.is-complete > i,
 .live-status__timeline li.is-active > i { color: #fff; border-color: var(--accent); background: var(--accent); }
-.live-status__timeline li.is-active > i { animation: status-active-step 3.2s .55s ease-in-out infinite; }
+.live-status__timeline li.is-active > i { box-shadow: 0 0 0 4px rgba(243,52,48,.035); }
 .live-status__timeline li.is-complete span,
 .live-status__timeline li.is-active span { color: #aaa; }
-@keyframes status-hero-enter { from { opacity: 0; transform: translateY(5px) scale(.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
-@keyframes status-hero-breathe { 0%,100% { box-shadow: 0 0 0 0 rgba(243,52,48,0); } 50% { box-shadow: 0 0 0 7px rgba(243,52,48,.055); } }
-@keyframes status-hero-ring { 0% { opacity: 0; transform: scale(.78); } 28% { opacity: .65; } 100% { opacity: 0; transform: scale(1.18); } }
-@keyframes status-copy-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes status-step-enter { to { opacity: 1; transform: translateY(0); } }
-@keyframes status-line-fill { to { transform: scaleX(1); } }
-@keyframes status-active-step { 0%,100% { box-shadow: 0 0 0 0 rgba(243,52,48,0); transform: scale(1); } 50% { box-shadow: 0 0 0 5px rgba(243,52,48,.065); transform: scale(1.025); } }
+.live-status.is-entering .live-status__hero-icon {
+  animation: status-hero-soft-in .5s cubic-bezier(.22,1,.36,1) both;
+}
+.live-status.is-entering .live-status__stage h1 {
+  animation: status-copy-soft-in .42s .045s cubic-bezier(.22,1,.36,1) both;
+}
+.live-status.is-entering .live-status__stage-copy > p {
+  animation: status-copy-soft-in .42s .085s cubic-bezier(.22,1,.36,1) both;
+}
+.live-status.is-entering .live-status__timeline {
+  animation: status-timeline-soft-in .48s .12s cubic-bezier(.22,1,.36,1) both;
+}
+.live-status.is-entering .live-status__timeline li.is-complete:not(:last-child)::before {
+  transform: scaleX(0);
+  animation: status-line-soft-fill .68s .16s cubic-bezier(.22,1,.36,1) forwards;
+}
+.live-status.is-entering .live-status__timeline li.is-active > i {
+  animation: status-active-soft-arrive .5s .16s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes status-hero-soft-in {
+  from { opacity: 0; transform: scale(.975); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes status-copy-soft-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes status-timeline-soft-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes status-line-soft-fill { to { transform: scaleX(1); } }
+@keyframes status-active-soft-arrive {
+  from { box-shadow: 0 0 0 0 rgba(243,52,48,0); transform: scale(.975); }
+  to { box-shadow: 0 0 0 4px rgba(243,52,48,.035); transform: scale(1); }
+}
 .live-status__receipt {
   padding: clamp(18px,2.2vw,28px);
   display: grid;
