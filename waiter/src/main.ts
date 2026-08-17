@@ -30,6 +30,7 @@ let activeAlertId: number | null = null;
 let loginRendered = false;
 let otaCheckedAt = 0;
 let otaState: { phase: 'hidden' | 'available' | 'downloading' | 'error'; version: string; progress: number } = { phase: 'hidden', version: '', progress: 0 };
+const bundledVersion = import.meta.env.VITE_BUILD_VERSION || '0.1.0';
 
 function paintOtaBanner() {
   root.querySelector('.waiter-update')?.remove();
@@ -49,7 +50,8 @@ async function checkWaiterUpdate(force = false) {
   otaCheckedAt = Date.now();
   try {
     const [current, latest] = await Promise.all([CapacitorUpdater.current(), CapacitorUpdater.getLatest()]);
-    const available = Boolean(latest.version && latest.version !== 'builtin' && latest.url && latest.error !== 'no_new_version_available' && current.bundle.version !== latest.version);
+    const currentVersion = !current.bundle.version || current.bundle.version === 'builtin' ? bundledVersion : current.bundle.version;
+    const available = Boolean(latest.version && latest.version !== 'builtin' && latest.url && latest.error !== 'no_new_version_available' && currentVersion !== latest.version);
     otaState = available ? { phase: 'available', version: latest.version, progress: 0 } : { phase: 'hidden', version: '', progress: 0 };
     paintOtaBanner();
   } catch {

@@ -17,6 +17,8 @@ jobs:
         with: { distribution: temurin, java-version: '21' }
       - run: npm ci
       - run: npm run build:waiter
+        env:
+          VITE_BUILD_VERSION: 0.1.0-${{ github.sha }}
       - name: Create and sync Android wrapper
         working-directory: waiter
         run: |
