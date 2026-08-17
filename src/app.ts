@@ -59,6 +59,13 @@ let adminUpdateState: AdminUpdateState = { phase: 'idle', currentVersion: otaSer
 let adminImageCacheState: ImageCacheState = imageCacheService.state([]);
 let lastAutomaticImageSync = 0;
 let qrStartupError = '';
+let syncServerTask: Promise<void> | null = null;
+let auditSyncTask: Promise<void> | null = null;
+let catalogSnapshot = '';
+let bootstrapSnapshot = '';
+let consecutiveBootstrapFailures = 0;
+let offlineTimer = 0;
+const pendingServiceRequests = new Set<string>();
 const updateSearch = debounce((value: string) => {
   const searching = Boolean(value.trim());
   appStore.set({ search: value, ...(searching ? { category: 'Все блюда' } : {}) }, false);
@@ -261,8 +268,11 @@ function updateOrderTotals(lineElement: HTMLElement) {
 }
 
 function flash(message: string) {
-  appStore.set({ toast: message });
-  window.setTimeout(() => { if (appStore.get().toast === message) appStore.set({ toast: null }); }, 2600);
+  // Notifications are transient UI, not application state. Rebuilding the
+  // entire page for a toast caused visible flashes and reset scroll positions.
+  appStore.set({ toast: null }, false);
+  root.querySelector('.toast')?.remove();
+  transientToast(message);
 }
 
 type GuestErrorContext = 'general' | 'order' | 'promo' | 'qr' | 'table' | 'service';
@@ -294,7 +304,7 @@ function selectBanner(index: number) {
   banners.forEach((item, itemIndex) => item.classList.toggle('is-active', itemIndex === next));
   root.querySelectorAll<HTMLElement>('.welcome-banner-dots button').forEach((dot, itemIndex) => dot.classList.toggle('is-active', itemIndex === next));
   const id = banners[next].dataset.bannerId ?? '';
-  if (id && id !== currentBannerId) {
+  if (/^\d+$/.test(id) && id !== currentBannerId) {
     currentBannerId = id;
     void apiService.recordBannerImpression(id).then((result) => { if (result.exhausted) void syncServer(); }).catch(() => undefined);
   }
@@ -984,9 +994,22 @@ async function action(element: HTMLElement) {
   if (type === 'open-service') { appStore.set({ serviceOpen: true }); return; }
   if (type === 'close-service') { appStore.set({ serviceOpen: false }); return; }
   if (type === 'request-service') {
-    waiterService.request(element.dataset.service ?? '')
-      .then((result) => { appStore.set({ serviceOpen: false }); flash(result.message); })
-      .catch((error) => flash(guestErrorMessage(error, 'service')));
+    const serviceType = element.dataset.service ?? '';
+    if (!serviceType || pendingServiceRequests.has(serviceType)) return;
+    pendingServiceRequests.add(serviceType);
+    const button = element.closest<HTMLButtonElement>('button');
+    if (button) button.disabled = true;
+    waiterService.request(serviceType)
+      .then((result) => {
+        appStore.set({ serviceOpen: false }, false);
+        root.querySelector('.service-overlay')?.remove();
+        flash(result.message);
+      })
+      .catch((error) => {
+        if (button) button.disabled = false;
+        flash(guestErrorMessage(error, 'service'));
+      })
+      .finally(() => pendingServiceRequests.delete(serviceType));
     return;
   }
   if (type === 'open-order-status') {
@@ -1077,27 +1100,45 @@ function refreshMenuResults() {
   target.innerHTML = menuResults(menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay, menuService.ready());
 }
 
-async function syncServer(includeAudit = false) {
+async function performServerSync() {
   try {
     const previous = appStore.get();
     const data = await apiService.bootstrap();
-    setCatalog(data.products);
+    consecutiveBootstrapFailures = 0;
+    const nextCatalogSnapshot = JSON.stringify(data.products);
+    const catalogChanged = nextCatalogSnapshot !== catalogSnapshot;
+    if (catalogChanged) {
+      setCatalog(data.products);
+      catalogSnapshot = nextCatalogSnapshot;
+    }
     if (!imageCacheService.isRunning()) adminImageCacheState = imageCacheService.state(imageSources(data.products, data.banners));
     const selectedOrderId = previous.selectedOrderId ?? data.orders[0]?.id ?? null;
-    const previousOrder = previous.orders.find((item) => item.id === selectedOrderId);
-    const nextOrder = data.orders.find((item) => item.id === selectedOrderId);
-    const statusChanged = previousOrder?.statusStep !== nextOrder?.statusStep || Boolean(previousOrder) !== Boolean(nextOrder);
-    const shouldRender = router.current() !== 'status' || statusChanged;
-    appStore.set({ banners: data.banners, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId, orderNumber: previous.orderNumber ?? data.orders[0]?.id ?? null }, shouldRender);
-    appStore.set({ isOnline: true }, false);
-    if (includeAudit) auditLog = await apiService.audit();
+    const nextBootstrapSnapshot = JSON.stringify({ banners: data.banners, display: data.display, terminal: data.terminal, orders: data.orders, selectedOrderId });
+    const stateChanged = nextBootstrapSnapshot !== bootstrapSnapshot;
+    const connectionRestored = !previous.isOnline;
+    if (stateChanged || connectionRestored || catalogChanged) {
+      bootstrapSnapshot = nextBootstrapSnapshot;
+      appStore.set({ banners: data.banners, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId, orderNumber: previous.orderNumber ?? data.orders[0]?.id ?? null, isOnline: true });
+    }
     if (imageCacheService.autoUpdate() && !imageCacheService.isRunning() && Date.now() - lastAutomaticImageSync > 5 * 60_000) {
       lastAutomaticImageSync = Date.now();
       void runImageCacheSync(false, false);
     }
   } catch (error) {
     console.warn('Server bootstrap unavailable', error);
-    appStore.set({ isOnline: false }, false);
+    consecutiveBootstrapFailures += 1;
+    if (consecutiveBootstrapFailures >= 2 && appStore.get().isOnline) appStore.set({ isOnline: false });
+  }
+}
+
+async function syncServer(includeAudit = false) {
+  if (!syncServerTask) {
+    syncServerTask = performServerSync().finally(() => { syncServerTask = null; });
+  }
+  await syncServerTask;
+  if (includeAudit) {
+    if (!auditSyncTask) auditSyncTask = apiService.audit().then((items) => { auditLog = items; }).finally(() => { auditSyncTask = null; });
+    await auditSyncTask;
   }
 }
 
@@ -1196,8 +1237,18 @@ export async function startApp() {
     suppressBannerOpenUntil = Date.now() + 450;
   }, { passive: true });
   ['pointerdown', 'touchstart', 'keydown'].forEach((event) => addEventListener(event, resetInactivity, { passive: true }));
-  addEventListener('online', () => { appStore.set({ isOnline: true }); flash('Связь восстановлена — можно продолжать.'); });
-  addEventListener('offline', () => { appStore.set({ isOnline: false }); });
+  addEventListener('online', () => {
+    clearTimeout(offlineTimer);
+    consecutiveBootstrapFailures = 0;
+    if (!appStore.get().isOnline) appStore.set({ isOnline: true });
+    flash('Связь восстановлена — можно продолжать.');
+  });
+  addEventListener('offline', () => {
+    clearTimeout(offlineTimer);
+    offlineTimer = window.setTimeout(() => {
+      if (!navigator.onLine && appStore.get().isOnline) appStore.set({ isOnline: false });
+    }, 4_000);
+  });
   document.addEventListener('contextmenu', (event) => event.preventDefault());
   appStore.subscribe(render);
   router.start(render);

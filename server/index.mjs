@@ -1452,13 +1452,19 @@ const server = http.createServer(async (request, response) => {
       const body = await readBody(request);
       const type = String(body.type ?? '');
       if (!body.terminal_id || !serviceTypes.has(type)) return json(response, 400, { error: 'Некорректный запрос' });
-      enforceRequestRate(`service:${requestIp(request)}:${String(body.terminal_id)}`, 8, 5 * 60_000);
+      // Each request type has its own small anti-spam bucket. Asking for a
+      // waiter must not block a later request for cutlery or the bill.
+      enforceRequestRate(`service:${requestIp(request)}:${String(body.terminal_id)}:${type}`, 3, 5 * 60_000);
       const terminal = await pool.query('select * from terminals where id = $1 and is_active = true', [String(body.terminal_id)]);
       if (!terminal.rowCount) return json(response, 409, { error: 'Терминал временно недоступен' });
       if (terminal.rows[0].demo_mode === true) return json(response, 201, { ok: true, demo: true });
       const table = await effectiveTableForTerminal(terminal.rows[0]);
       const requestSource = String(body.terminal_id).startsWith('qr_') ? 'qr' : 'tablet';
       const sessionId = await getOrCreateGuestSession({ terminalId: String(body.terminal_id), source: requestSource, table });
+      const duplicate = await pool.query(`select id from service_requests
+        where terminal_id=$1 and request_type=$2 and status in ('new','accepted','in_progress')
+          and created_at > now()-interval '30 seconds' order by created_at desc limit 1`, [String(body.terminal_id), type]);
+      if (duplicate.rowCount) return json(response, 200, { ok: true, duplicate: true });
       const created = await pool.query('insert into service_requests(terminal_id, table_number, request_type, restaurant_id, guest_session_id) values ($1,$2,$3,$4,$5) returning id', [String(body.terminal_id), table.table_number, type, iikoOrganizationId, sessionId]);
       await publishEvent('waiter_called', 'service_request', String(created.rows[0].id), { tableNumber: table.table_number, type });
       void notifyWaiters(`СТОЛ №${table.table_number}`, servicePushText[type] ?? 'Новый вызов за столом', { type: 'service_request', requestId: created.rows[0].id, tableNumber: table.table_number, requestType: type });
@@ -1870,7 +1876,11 @@ const server = http.createServer(async (request, response) => {
 
 let backgroundSyncRunning = false;
 const syncActiveIikoOrders = async () => {
-  const active = await pool.query(`select iiko_order_id from customer_orders where iiko_order_id is not null and completed_at is null and status_step < 4 and updated_at > now() - interval '8 hours' limit 30`);
+  const active = await pool.query(`select o.iiko_order_id from customer_orders o
+    left join iiko_orders io on io.order_id=o.iiko_order_id
+    where o.iiko_order_id is not null and o.completed_at is null and o.status_step < 4
+      and o.updated_at > now() - interval '8 hours' and coalesce(io.creation_status,'') <> 'Error'
+    limit 30`);
   for (const row of active.rows) await fetchIikoOrder(row.iiko_order_id);
 };
 const backgroundSync = async () => {

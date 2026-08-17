@@ -1,5 +1,5 @@
 import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, CartLine, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoConnectionTest, IikoDiscountOption, IikoRestaurantOptions, Product, ProductDisplaySettings, PromoRule, RestaurantTable, SecurityOverview, SubmittedOrder, TableQrCode, TerminalSettings } from '../types/menu';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { imageCacheService } from './image-cache-service';
 
 let token = sessionStorage.getItem('zakaz-admin-token') ?? '';
@@ -27,10 +27,42 @@ export type AdminUserProfile = { id: string; username: string; display_name: str
 
 const request = async <T>(path: string, init: RequestInit = {}) => {
   try {
+    const method = String(init.method ?? 'GET').toUpperCase();
+    const hasBody = init.body !== undefined && init.body !== null;
+    const requestHeaders: Record<string, string> = {
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(token && path.startsWith('/admin/') ? { Authorization: `Bearer ${token}` } : {}),
+      ...Object.fromEntries(new Headers(init.headers).entries()),
+    };
+    if (isNative) {
+      let data: unknown = init.body;
+      if (typeof init.body === 'string') {
+        try { data = JSON.parse(init.body); } catch { data = init.body; }
+      }
+      const response = await CapacitorHttp.request({
+        url: `${apiBase}${path}`,
+        method,
+        headers: requestHeaders,
+        ...(hasBody ? { data } : {}),
+        connectTimeout: 10_000,
+        readTimeout: 25_000,
+      });
+      if (response.status === 204) return undefined as T;
+      let body = response.data as T & { error?: string };
+      if (typeof response.data === 'string') {
+        try { body = JSON.parse(response.data) as T & { error?: string }; }
+        catch {
+          if (response.status < 200 || response.status >= 300) throw new Error(`Ошибка сервера (${response.status})`);
+          throw new SyntaxError('Invalid JSON response');
+        }
+      }
+      if (response.status < 200 || response.status >= 300) throw new Error(body?.error ?? (response.status === 413 ? 'Файл слишком большой для загрузки' : 'Ошибка сервера'));
+      return body;
+    }
     const response = await fetch(`${apiBase}${path}`, {
       ...init,
       cache: 'no-store',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
+      headers: requestHeaders,
     });
     if (response.status === 204) return undefined as T;
     const text = await response.text();
@@ -75,7 +107,7 @@ export const apiService = {
     return data.table;
   },
   async bootstrap() {
-    const data = await request<{ products: ServerProduct[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown> }>(`/bootstrap?terminalId=${activeTerminalId}&fresh=${Date.now()}`);
+    const data = await request<{ products: ServerProduct[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown> }>(`/bootstrap?terminalId=${activeTerminalId}`);
     return { products: data.products.map(product), display: Object.fromEntries(data.products.map((item) => [item.id, display(item)])), banners: data.banners.map(banner), terminal: terminal(data.terminal), orders: data.orders.map(order), settings: data.settings };
   },
   async login(password: string, scope: 'terminal' | 'restaurant', username = '') {

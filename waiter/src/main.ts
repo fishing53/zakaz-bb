@@ -1,5 +1,5 @@
 import './style.css';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { icon } from '../../src/components/icons';
 
@@ -24,23 +24,31 @@ let activeView: WaiterView = 'calls';
 let currentRequests: Request[] = [];
 let currentOrders: Order[] = [];
 let lastRenderKey = '';
+let queueTask: Promise<void> | null = null;
+let activeAlertId: number | null = null;
+let loginRendered = false;
 
 const request = async <T>(path: string, init: RequestInit = {}) => {
-  let response: Response;
   try {
-    response = await fetch(`${api}${path}`, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
-  } catch {
+    const method = String(init.method ?? 'GET').toUpperCase();
+    const hasBody = init.body !== undefined && init.body !== null;
+    const headers = { ...(hasBody ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+    if (Capacitor.isNativePlatform()) {
+      let data: unknown = init.body;
+      if (typeof init.body === 'string') { try { data = JSON.parse(init.body); } catch { data = init.body; } }
+      const response = await CapacitorHttp.request({ url: `${api}${path}`, method, headers, ...(hasBody ? { data } : {}), connectTimeout: 10_000, readTimeout: 20_000 });
+      const body = typeof response.data === 'string' ? JSON.parse(response.data || '{}') : (response.data ?? {});
+      if (response.status < 200 || response.status >= 300) throw new ApiError(body?.error ?? 'Ошибка сервера', response.status);
+      return body as T;
+    }
+    const response = await fetch(`${api}${path}`, { ...init, headers });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new ApiError(body.error ?? 'Ошибка сервера', response.status);
+    return body as T;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new ApiError('Нет соединения с сервером', 0);
   }
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(body.error ?? 'Ошибка сервера', response.status);
-  return body as T;
 };
 
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (symbol) => ({
@@ -104,6 +112,8 @@ async function enablePush() {
 }
 
 function login() {
+  if (loginRendered) return;
+  loginRendered = true;
   root.innerHTML = `<section class="login"><div class="login__mark">BB</div><span>ПРИЛОЖЕНИЕ ДЛЯ КОМАНДЫ</span><h1>Официант</h1><p>Введите персональный PIN-код</p><input inputmode="numeric" type="password" maxlength="8" placeholder="PIN" autocomplete="current-password" autofocus><button>Войти</button></section>`;
   const input = root.querySelector<HTMLInputElement>('input')!;
   const submit = async () => {
@@ -113,6 +123,7 @@ function login() {
         body: JSON.stringify({ pin: input.value }),
       });
       token = response.token;
+      loginRendered = false;
       localStorage.setItem('bb-waiter-token', token);
       initialized = false;
       lastRenderKey = '';
@@ -179,6 +190,7 @@ function render(requests: Request[], orders: Order[], alertItem?: Request, force
 async function accept(id: number) {
   try {
     await request(`/waiter/requests/${id}/accept`, { method: 'POST' });
+    if (activeAlertId === id) activeAlertId = null;
     lastRenderKey = '';
     await queue();
   } catch (error) {
@@ -196,7 +208,7 @@ async function changeRequest(id: number, action: 'start' | 'complete') {
   }
 }
 
-async function queue() {
+async function performQueue() {
   if (!token) return login();
   try {
     await enablePush();
@@ -207,9 +219,12 @@ async function queue() {
       initialized = true;
     } else if (fresh) {
       known.add(String(fresh.id));
+      activeAlertId = fresh.id;
       sound();
     }
-    render(data.requests, data.orders, fresh);
+    const alertItem = data.requests.find((item) => item.id === activeAlertId && item.status === 'new');
+    if (!alertItem) activeAlertId = null;
+    render(data.requests, data.orders, alertItem);
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
       localStorage.removeItem('bb-waiter-token');
@@ -220,5 +235,11 @@ async function queue() {
   }
 }
 
+async function queue() {
+  if (queueTask) return queueTask;
+  queueTask = performQueue().finally(() => { queueTask = null; });
+  return queueTask;
+}
+
 void queue();
-setInterval(() => { void queue(); }, 5000);
+setInterval(() => { if (!document.hidden) void queue(); }, 5000);

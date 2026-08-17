@@ -84,6 +84,7 @@ let state: AppState = {
   productDisplay: persisted.productDisplay ?? {},
 };
 const subscribers = new Set<(value: AppState) => void>();
+const persistedKeys = new Set<keyof AppState>(['cart', 'language', 'orderNumber', 'orders', 'selectedOrderId', 'statusStep', 'orderType', 'recentProductIds', 'banners', 'productDisplay', 'pendingOrderRequestId']);
 
 function persist() {
   storage.set('bb-kiosk', { cart: state.cart, language: state.language, orderNumber: state.orderNumber, orders: state.orders, selectedOrderId: state.selectedOrderId, statusStep: state.statusStep, orderType: state.orderType, recentProductIds: state.recentProductIds, banners: state.banners, productDisplay: state.productDisplay, pendingOrderRequestId: state.pendingOrderRequestId });
@@ -92,8 +93,10 @@ function persist() {
 export const appStore = {
   get: () => state,
   set(patch: Partial<AppState>, notify = true) {
+    const entries = Object.entries(patch) as Array<[keyof AppState, AppState[keyof AppState]]>;
+    if (!entries.some(([key, value]) => state[key] !== value)) return;
     state = { ...state, ...patch };
-    persist();
+    if (entries.some(([key]) => persistedKeys.has(key))) persist();
     if (notify) subscribers.forEach((subscriber) => subscriber(state));
   },
   subscribe(subscriber: (value: AppState) => void) { subscribers.add(subscriber); return () => subscribers.delete(subscriber); },

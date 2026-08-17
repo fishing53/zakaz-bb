@@ -115,15 +115,21 @@ function stateFor(sources: string[], patch: Partial<ImageCacheState> = {}): Imag
 
 export const imageCacheService = {
   async init() {
-    await Promise.all(Object.values(manifest.entries).filter((entry) => !entry.fileUri).map(async (entry) => {
-      const available = await loadRuntimeUrl(entry.source).catch(() => false);
+    await Promise.all(Object.values(manifest.entries).map(async (entry) => {
+      const available = entry.fileUri && Capacitor.isNativePlatform()
+        ? await Filesystem.stat({ path: entry.path, directory: Directory.Data }).then((file) => Number(file.size || 0) > 0).catch(() => false)
+        : await loadRuntimeUrl(entry.source).catch(() => false);
       if (!available) delete manifest.entries[entry.source];
     }));
     persist();
   },
   resolve(source: string) {
     const entry = manifest.entries[source];
-    if (entry?.fileUri && Capacitor.isNativePlatform()) return Capacitor.convertFileSrc(entry.fileUri);
+    if (entry?.fileUri && Capacitor.isNativePlatform()) {
+      // Build the URL from the current sandbox path. Persisted absolute file
+      // URIs may become stale after an Android app/OTA update.
+      return Capacitor.convertFileSrc(entry.fileUri);
+    }
     return runtimeUrls.get(source) ?? source;
   },
   state: stateFor,
