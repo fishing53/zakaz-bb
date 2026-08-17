@@ -1,0 +1,45 @@
+name: Publish waiter OTA update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'waiter/**'
+      - 'src/components/icons.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/publish-waiter-ota.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish-waiter-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+      - name: Build waiter bundle
+        env:
+          VITE_BUILD_VERSION: 0.1.0-${{ github.run_number }}
+        run: npm run build:waiter
+      - name: Package waiter OTA bundle
+        run: |
+          version="0.1.0-${GITHUB_RUN_NUMBER}"
+          (cd dist-waiter && zip -qr "../brooklynbowl-waiter-${version}.zip" .)
+          printf '{"version":"%s","url":"https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/ota/waiter/brooklynbowl-waiter-%s.zip","publishedAt":"%s"}\n' "$version" "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > waiter-ota-manifest.json
+      - name: Publish waiter bundle
+        env:
+          DEPLOY_KEY: ${{ secrets.ZAKAZ_OTA_DEPLOY_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 194.226.142.35 >> ~/.ssh/known_hosts
+          ssh root@194.226.142.35 'mkdir -p /var/www/zakaz-zvyak/ota/waiter'
+          scp brooklynbowl-waiter-*.zip root@194.226.142.35:/var/www/zakaz-zvyak/ota/waiter/
+          scp waiter-ota-manifest.json root@194.226.142.35:/var/www/zakaz-zvyak/ota/waiter/manifest.json
+          ssh root@194.226.142.35 'chown -R www-data:www-data /var/www/zakaz-zvyak/ota/waiter && find /var/www/zakaz-zvyak/ota/waiter -maxdepth 1 -type f -name "brooklynbowl-waiter-*.zip" -printf "%T@ %p\0" | sort -zrn | tail -zn +11 | cut -zd" " -f2- | xargs -0r rm --'

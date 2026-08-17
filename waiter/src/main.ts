@@ -1,6 +1,7 @@
 import './style.css';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { icon } from '../../src/components/icons';
 
 const api = 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1';
@@ -27,6 +28,55 @@ let lastRenderKey = '';
 let queueTask: Promise<void> | null = null;
 let activeAlertId: number | null = null;
 let loginRendered = false;
+let otaCheckedAt = 0;
+let otaState: { phase: 'hidden' | 'available' | 'downloading' | 'error'; version: string; progress: number } = { phase: 'hidden', version: '', progress: 0 };
+
+function paintOtaBanner() {
+  root.querySelector('.waiter-update')?.remove();
+  if (otaState.phase === 'hidden') return;
+  const downloading = otaState.phase === 'downloading';
+  const failed = otaState.phase === 'error';
+  const banner = document.createElement('aside');
+  banner.className = 'waiter-update';
+  banner.innerHTML = `<div><strong>${failed ? 'Не удалось загрузить обновление' : downloading ? `Загружаем обновление — ${otaState.progress}%` : 'Доступно обновление приложения'}</strong><span>${failed ? 'Проверьте интернет и попробуйте ещё раз' : downloading ? 'Не закрывайте приложение' : `Версия ${escapeHtml(otaState.version)}`}</span></div><button ${downloading ? 'disabled' : ''}>${failed ? 'Повторить' : downloading ? `${otaState.progress}%` : 'Обновить'}</button>`;
+  banner.querySelector('button')!.onclick = () => { void installWaiterUpdate(); };
+  root.append(banner);
+}
+
+async function checkWaiterUpdate(force = false) {
+  if (!token || !Capacitor.isNativePlatform()) return;
+  if (!force && Date.now() - otaCheckedAt < 15 * 60_000) return;
+  otaCheckedAt = Date.now();
+  try {
+    const [current, latest] = await Promise.all([CapacitorUpdater.current(), CapacitorUpdater.getLatest()]);
+    const available = Boolean(latest.version && latest.version !== 'builtin' && latest.url && latest.error !== 'no_new_version_available' && current.bundle.version !== latest.version);
+    otaState = available ? { phase: 'available', version: latest.version, progress: 0 } : { phase: 'hidden', version: '', progress: 0 };
+    paintOtaBanner();
+  } catch {
+    // A failed background check must not interrupt the waiter workflow.
+  }
+}
+
+async function installWaiterUpdate() {
+  if (!Capacitor.isNativePlatform() || otaState.phase === 'downloading') return;
+  otaState = { ...otaState, phase: 'downloading', progress: 0 };
+  paintOtaBanner();
+  const listener = await CapacitorUpdater.addListener('download', ({ percent }) => {
+    otaState.progress = Math.max(0, Math.min(100, Math.round(percent)));
+    paintOtaBanner();
+  });
+  try {
+    const latest = await CapacitorUpdater.getLatest();
+    if (!latest.version || !latest.url) throw new Error('No update');
+    const bundle = await CapacitorUpdater.download({ url: latest.url, version: latest.version, sessionKey: latest.sessionKey, checksum: latest.checksum, manifest: latest.manifest });
+    await CapacitorUpdater.set({ id: bundle.id });
+  } catch {
+    otaState = { ...otaState, phase: 'error' };
+    paintOtaBanner();
+  } finally {
+    await listener.remove();
+  }
+}
 
 const request = async <T>(path: string, init: RequestInit = {}) => {
   try {
@@ -185,6 +235,7 @@ function render(requests: Request[], orders: Order[], alertItem?: Request, force
   root.querySelectorAll<HTMLButtonElement>('[data-accept-id]').forEach((button) => { button.onclick = () => void accept(Number(button.dataset.acceptId)); });
   root.querySelectorAll<HTMLButtonElement>('[data-start-id]').forEach((button) => { button.onclick = () => void changeRequest(Number(button.dataset.startId), 'start'); });
   root.querySelectorAll<HTMLButtonElement>('[data-complete-id]').forEach((button) => { button.onclick = () => void changeRequest(Number(button.dataset.completeId), 'complete'); });
+  paintOtaBanner();
 }
 
 async function accept(id: number) {
@@ -225,6 +276,7 @@ async function performQueue() {
     const alertItem = data.requests.find((item) => item.id === activeAlertId && item.status === 'new');
     if (!alertItem) activeAlertId = null;
     render(data.requests, data.orders, alertItem);
+    void checkWaiterUpdate();
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
       localStorage.removeItem('bb-waiter-token');
@@ -243,3 +295,5 @@ async function queue() {
 
 void queue();
 setInterval(() => { if (!document.hidden) void queue(); }, 5000);
+if (Capacitor.isNativePlatform()) void CapacitorUpdater.notifyAppReady().catch(() => undefined);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void checkWaiterUpdate(true); });

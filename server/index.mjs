@@ -27,6 +27,7 @@ let iikoApiLogin = process.env.IIKO_API_LOGIN ?? '';
 let iikoClientSecret = process.env.IIKO_CLIENT_SECRET ?? '';
 const iikoConfigEncryptionKeyHex = process.env.IIKO_CONFIG_ENCRYPTION_KEY ?? '';
 const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/manifest.json';
+const waiterOtaManifestPath = process.env.WAITER_OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/waiter/manifest.json';
 const bannerUploadDir = process.env.BANNER_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/uploads/banners';
 const bannerPublicPath = process.env.BANNER_PUBLIC_PATH ?? '/uploads/banners';
 const productUploadDir = process.env.PRODUCT_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/uploads/products';
@@ -1214,6 +1215,15 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && path === '/api/v1/ota/update') {
       try {
         const manifest = JSON.parse(await fs.readFile(otaManifestPath, 'utf8'));
+        if (typeof manifest.version !== 'string' || typeof manifest.url !== 'string') throw new Error('Invalid manifest');
+        return json(response, 200, manifest);
+      } catch {
+        return json(response, 200, { version: 'builtin' });
+      }
+    }
+    if (request.method === 'POST' && path === '/api/v1/ota/waiter/update') {
+      try {
+        const manifest = JSON.parse(await fs.readFile(waiterOtaManifestPath, 'utf8'));
         if (typeof manifest.version !== 'string' || typeof manifest.url !== 'string') throw new Error('Invalid manifest');
         return json(response, 200, manifest);
       } catch {
