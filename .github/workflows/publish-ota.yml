@@ -55,7 +55,7 @@ jobs:
           rsync -az --delete --exclude='ota/' --exclude='uploads/' dist/ root@194.226.142.35:/var/www/zakaz-zvyak/
           scp "zakaz-bb-${VERSION}.zip" root@194.226.142.35:"/var/www/zakaz-zvyak/ota/zakaz-bb-${VERSION}.zip"
           scp ota-manifest.json root@194.226.142.35:/var/www/zakaz-zvyak/ota/manifest.json
-          ssh root@194.226.142.35 'chown -R www-data:www-data /var/www/zakaz-zvyak/ota /var/www/zakaz-zvyak/uploads'
+          ssh root@194.226.142.35 'chown -R www-data:www-data /var/www/zakaz-zvyak/ota /var/www/zakaz-zvyak/uploads && find /var/www/zakaz-zvyak/ota -maxdepth 1 -type f -name "zakaz-bb-*.zip" -printf "%T@ %p\0" | sort -zrn | tail -zn +11 | cut -zd" " -f2- | xargs -0r rm --'
       - name: Deploy API and database migrations
         run: |
           scp server/index.mjs server/migrate.mjs server/core.mjs quality-report.json root@194.226.142.35:/opt/zakaz-api/
