@@ -15,7 +15,6 @@ export const orderService = {
       selectedOrderId: order.id,
       orderNumber: order.id,
       statusStep: 0,
-      upsellId: null,
       pendingOrderRequestId: null,
     }, false);
     return order.id;

@@ -44,7 +44,7 @@ export const orderStore = {
     const next = { productId: product.id, kind: 'product' as const, ...options };
     const cart = appStore.get().cart.map((line) => ({ ...line }));
     append(cart, next);
-    appStore.set({ cart, upsellId: null, pendingOrderRequestId: null });
+    appStore.set({ cart, pendingOrderRequestId: null });
   },
   addSauce(product: Product, name: string) {
     const price = Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0;
@@ -59,7 +59,7 @@ export const orderStore = {
     const saucePrice = Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0;
     sauces.forEach((name) => append(cart, { productId: product.id, kind: 'sauce', customName: `Соус «${name}»`, customPrice: saucePrice }));
     related.forEach((item) => append(cart, { productId: item.id, kind: 'product' }));
-    appStore.set({ cart, productId: null, upsellId: null, pendingOrderRequestId: null });
+    appStore.set({ cart, productId: null, pendingOrderRequestId: null });
   },
   change(key: string, delta: number, notify = true) {
     const cart = appStore.get().cart.map((line) => line.key === key ? { ...line, quantity: line.quantity + delta } : line).filter((line) => line.quantity > 0);

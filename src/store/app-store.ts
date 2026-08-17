@@ -24,16 +24,13 @@ export interface AppState {
   promoRule: PromoRule | null;
   pendingOrderRequestId: string | null;
   productId: string | null;
-  pwaUpdateReady: boolean;
   banners: Banner[];
   recentProductIds: string[];
   search: string;
   serviceOpen: boolean;
   statusStep: number;
-  toast: string | null;
   terminal: TerminalSettings | null;
   tables: RestaurantTable[];
-  upsellId: string | null;
 }
 
 const persisted = storage.get<Pick<AppState, 'cart' | 'language' | 'orderNumber' | 'orders' | 'selectedOrderId' | 'statusStep' | 'orderType' | 'recentProductIds' | 'banners' | 'productDisplay' | 'pendingOrderRequestId'>>('bb-kiosk', {
@@ -63,13 +60,10 @@ let state: AppState = {
   productId: null,
   promoCode: '',
   promoRule: null,
-  pwaUpdateReady: false,
   search: '',
   serviceOpen: false,
-  toast: null,
   terminal: null,
   tables: [],
-  upsellId: null,
   ...persisted,
   pendingOrderRequestId: persisted.pendingOrderRequestId ?? null,
   cart: persisted.cart ?? [],
@@ -100,5 +94,5 @@ export const appStore = {
     if (notify) subscribers.forEach((subscriber) => subscriber(state));
   },
   subscribe(subscriber: (value: AppState) => void) { subscribers.add(subscriber); return () => subscribers.delete(subscriber); },
-  resetOrder() { this.set({ cart: [], comment: '', orderNumber: null, orderType: null, promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, serviceOpen: false, statusStep: 0, upsellId: null, inactivityWarning: false, inactivitySeconds: 15 }); },
+  resetOrder() { this.set({ cart: [], comment: '', orderNumber: null, orderType: null, promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, serviceOpen: false, statusStep: 0, inactivityWarning: false, inactivitySeconds: 15 }); },
 };

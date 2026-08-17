@@ -1,7 +1,6 @@
 import { appShell } from './components/app-shell';
 import { productModal, relatedCards } from './components/product-modal';
 import { serviceSheet } from './components/service-sheet';
-import { upsellSheet } from './components/upsell-sheet';
 import { menuService, setCatalog } from './services/menu-service';
 import { apiService } from './services/api-service';
 import { orderService } from './services/order-service';
@@ -110,7 +109,7 @@ export function render() {
   }
   if (route === 'admin' && !state.adminAuthenticated) { root.innerHTML = adminLogin(true, 'restaurant'); return; }
   if (route === 'status' && !state.selectedOrderId && !state.orderNumber) { router.go('orders'); return; }
-  root.innerHTML = appShell(page(), route) + serviceSheet(state.serviceOpen) + productModal(state.productId ? menuService.find(state.productId) : undefined, state.productId ? state.productDisplay[state.productId] : undefined, state.productDisplay) + upsellSheet(state.upsellId ? menuService.find(state.upsellId) : undefined) + adminLogin(state.adminLoginOpen, 'terminal') + inactivityPrompt(state.inactivityWarning, state.inactivitySeconds) + (!state.isOnline ? '<div class="network-banner">Нет подключения к интернету. Меню можно смотреть, но оформить заказ пока не получится.</div>' : '') + (state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : '');
+  root.innerHTML = appShell(page(), route) + serviceSheet(state.serviceOpen) + productModal(state.productId ? menuService.find(state.productId) : undefined, state.productId ? state.productDisplay[state.productId] : undefined, state.productDisplay) + adminLogin(state.adminLoginOpen, 'terminal') + inactivityPrompt(state.inactivityWarning, state.inactivitySeconds) + (!state.isOnline ? '<div class="network-banner">Нет подключения к интернету. Меню можно смотреть, но оформить заказ пока не получится.</div>' : '');
   const product = state.productId ? menuService.find(state.productId) : undefined;
   const related = root.querySelector<HTMLElement>('[data-related-for]');
   if (product && related) related.innerHTML = relatedCards(menuService.related(product), state.productDisplay);
@@ -270,7 +269,6 @@ function updateOrderTotals(lineElement: HTMLElement) {
 function flash(message: string) {
   // Notifications are transient UI, not application state. Rebuilding the
   // entire page for a toast caused visible flashes and reset scroll positions.
-  appStore.set({ toast: null }, false);
   root.querySelector('.toast')?.remove();
   transientToast(message);
 }
@@ -617,7 +615,7 @@ async function action(element: HTMLElement) {
     const id = element.dataset.productId ?? null;
     const recentProductIds = id ? [id, ...appStore.get().recentProductIds.filter((item) => item !== id)].slice(0, 8) : appStore.get().recentProductIds;
     const fromWelcome = router.current() === 'welcome';
-    appStore.set({ productId: id, upsellId: null, recentProductIds, ...(fromWelcome ? { category: 'Все блюда', search: '' } : {}) });
+    appStore.set({ productId: id, recentProductIds, ...(fromWelcome ? { category: 'Все блюда', search: '' } : {}) });
     if (fromWelcome) router.go('menu');
     return;
   }
@@ -668,18 +666,12 @@ async function action(element: HTMLElement) {
     transientToast('Добавили всё выбранное в заказ.');
     return;
   }
-  if (type === 'accept-upsell') {
-    const product = menuService.find(element.dataset.productId!);
-    if (product) { orderStore.add(product); flash(`Добавили «${product.name}» в заказ.`); }
-    return;
-  }
-  if (type === 'dismiss-upsell') { appStore.set({ upsellId: null }); return; }
   if (type === 'save-terminal') {
     const input = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => root.querySelector<T>(`[data-admin-terminal="${name}"]`);
     try {
       const previousDemoMode = appStore.get().terminal?.demoMode ?? false;
       const terminal = await apiService.saveTerminal({ id: apiService.terminalId, label: input<HTMLInputElement>('label')?.value.trim() ?? '', tableId: input<HTMLInputElement>('tableId')?.value.trim() || null, tableNumber: input<HTMLInputElement>('tableNumber')?.value.trim() ?? '', isActive: input<HTMLInputElement>('isActive')?.checked ?? true, demoMode: input<HTMLInputElement>('demoMode')?.checked ?? false, idleSeconds: Number(input<HTMLSelectElement>('idleSeconds')?.value ?? 45) });
-      if (terminal.demoMode !== previousDemoMode) appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, upsellId: null, orders: [], selectedOrderId: null, orderNumber: null, statusStep: 0 }, false);
+      if (terminal.demoMode !== previousDemoMode) appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, orders: [], selectedOrderId: null, orderNumber: null, statusStep: 0 }, false);
       appStore.set({ terminal }, false);
       await syncServer();
       flash(terminal.demoMode ? 'Демо-киоск включён' : 'Демо-киоск выключен');
@@ -1019,7 +1011,7 @@ async function action(element: HTMLElement) {
     return;
   }
   if (type === 'new-order') {
-    appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, upsellId: null });
+    appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null });
     router.go('menu');
     return;
   }
@@ -1077,7 +1069,6 @@ function finishInactiveSession() {
       promoRule: null,
       productId: null,
       serviceOpen: false,
-      upsellId: null,
       inactivityWarning: false,
       inactivitySeconds: 15,
     });
@@ -1153,12 +1144,12 @@ function resetInactivity() {
   // already owned by the table, while the welcome and order-status screens are
   // safe to leave open indefinitely.
   if (route === 'welcome' || route === 'status' || route === 'orders' || route === 'admin') return;
-  const hasDraft = orderStore.count() > 0 || Boolean(state.productId || state.upsellId);
+  const hasDraft = orderStore.count() > 0 || Boolean(state.productId);
   const shouldWarn = hasDraft;
   inactivityTimer = window.setTimeout(() => {
     const currentRoute = router.current();
     const currentState = appStore.get();
-    const currentDraft = orderStore.count() > 0 || Boolean(currentState.productId || currentState.upsellId);
+    const currentDraft = orderStore.count() > 0 || Boolean(currentState.productId);
     if (currentRoute === 'welcome' || currentRoute === 'status' || currentRoute === 'orders' || currentRoute === 'admin') return;
     // Browsing an empty menu (or an empty checkout) does not warrant a warning:
     // simply return the tablet to the welcome screen for the next guest.
@@ -1260,7 +1251,7 @@ export async function startApp() {
     try {
       const previousQr = sessionStorage.getItem('bb-qr-token');
       if (previousQr !== qrToken) {
-        appStore.set({ cart: [], comment: '', orders: [], selectedOrderId: null, orderNumber: null, promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, upsellId: null }, false);
+        appStore.set({ cart: [], comment: '', orders: [], selectedOrderId: null, orderNumber: null, promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null }, false);
       }
       await apiService.activateQr(qrToken);
       sessionStorage.setItem('bb-qr-token', qrToken);
