@@ -18,6 +18,7 @@ set -a
 set +a
 
 cd "$api_dir"
+npm ci --omit=dev --no-audit --no-fund
 node --check index.mjs
 node migrate.mjs
 chmod 755 ops/*.sh

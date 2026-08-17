@@ -22,8 +22,13 @@ type ServerBanner = { id: number | string; name: string; image_url: string; prod
 type ServerTerminal = { id: string; label: string; table_number: string; is_active: boolean; demo_mode: boolean; idle_seconds: number; table_source?: 'admin' | 'guest' | 'qr' | null; table_id?: string | null };
 type ServerOrder = { order_number: string; items: CartLine[]; total: number; status_step: number; table_number: string; created_at: string };
 type ServerQrCode = { id: string; table_id: string; table_number: string; table_name: string; section_name: string; is_active: boolean; scans_count: number; last_scanned_at: string | null; created_at: string; updated_at: string; public_url: string; qr_svg: string };
-export type WaiterProfile = { id: string; display_name: string; is_active: boolean; created_at: string };
+export type WaiterProfile = { id: string; display_name: string; is_active: boolean; auth_source: 'local' | 'iiko'; iiko_employee_id: string | null; created_at: string };
 export type AdminUserProfile = { id: string; username: string; display_name: string; role: 'administrator' | 'hostess'; is_active: boolean; created_at: string };
+export type IikoFrontOverview = {
+  bridges: Array<{ id: string; installation_id: string; display_name: string; connected: boolean; is_active: boolean; version: string; api_version: string; module_id: number | null; terminal_id: string; last_seen_at: string | null; last_sync_at: string | null; created_at: string }>;
+  employees: Array<{ employee_id: string; display_name: string; first_name: string; middle_name: string; last_name: string; role_ids: string[]; role_names: string[]; is_active: boolean; app_access_enabled: boolean; last_synced_at: string }>;
+  pairing?: { code: string; expiresAt: string };
+};
 
 const request = async <T>(path: string, init: RequestInit = {}) => {
   try {
@@ -216,6 +221,10 @@ export const apiService = {
   waiters: () => request<WaiterProfile[]>('/admin/waiters'),
   createWaiter: (value: { name: string; pin: string }) => request<WaiterProfile>('/admin/waiters', { method: 'POST', body: JSON.stringify(value) }),
   updateWaiter: (id: string, value: { pin?: string; isActive?: boolean }) => request<WaiterProfile>(`/admin/waiters/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ pin: value.pin ?? '', is_active: value.isActive }) }),
+  iikoFront: () => request<IikoFrontOverview>('/admin/iiko-front'),
+  createIikoFrontPairingCode: () => request<{ code: string; expiresAt: string }>('/admin/iiko-front/pairing-code', { method: 'POST' }),
+  revokeIikoFrontBridge: (id: string) => request<void>(`/admin/iiko-front/bridges/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setIikoEmployeeAccess: (id: string, enabled: boolean) => request(`/admin/iiko-employees/${encodeURIComponent(id)}/access`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
   adminUsers: () => request<AdminUserProfile[]>('/admin/users'),
   createAdminUser: (value: { username: string; name: string; password: string; role: 'administrator' | 'hostess' }) => request<AdminUserProfile>('/admin/users', { method: 'POST', body: JSON.stringify(value) }),
   updateAdminUser: (id: string, value: { password?: string; role: 'administrator' | 'hostess'; isActive: boolean }) => request<AdminUserProfile>(`/admin/users/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ password: value.password ?? '', role: value.role, is_active: value.isActive }) }),

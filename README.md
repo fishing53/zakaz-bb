@@ -47,6 +47,7 @@
 | Клиент | Vanilla TypeScript, Vite, HTML/CSS, touch-first адаптивная вёрстка |
 | Состояние и маршруты | Собственный store и hash-router без тяжёлого UI-фреймворка |
 | Сервер | Node.js HTTP API, PostgreSQL (`pg`) |
+| iikoFront Bridge | C# / .NET Framework 4.7.2, iikoFront API V8, исходящий WSS |
 | Изображения и offline | Локальные WebP/PNG-ассеты, service worker, PWA manifest |
 | Android | Capacitor 8, нативный fullscreen, Lock Task для Device Owner |
 | Обновления | GitHub Actions + Capgo Capacitor Updater (OTA) |
@@ -60,6 +61,10 @@
        ├─ снимок меню и стоп-листа iiko, терминалы и баннеры
        ├─ заказы и запросы официанта
        └─ служебная авторизация и аудит
+
+iikoFront 9.4 → локальный Bridge-плагин → защищённый WSS → сервер
+  ├─ сотрудники и роли без передачи PIN
+  └─ проверка PIN непосредственно средствами iikoFront
 
 GitHub Actions → production web bundle + OTA-архив → Android-приложение
 ```
@@ -96,6 +101,8 @@ IIKO_CONFIG_ENCRYPTION_KEY=64-hex-characters
 ## iiko Cloud API
 
 Интеграция с iiko Cloud API подготовлена на сервере: внешнее меню, столы, создание заказа, статусы кухни, webhook-и и стоп-лист. Подключение ресторана выполняется в защищённом блоке «Проверка iiko» после повторного ввода пароля администратора. В мастер вводятся только App ID, API Login и Client Secret; организации, кассы, меню, тип заказа, технические ID и webhook настраиваются автоматически. Полная инструкция по запросам, rate limit и проверке — [docs/IIKO_CLOUD_API.md](docs/IIKO_CLOUD_API.md).
+
+Для сотрудников используется отдельный локальный **iikoFront Bridge**: веб-админка создаёт одноразовый код подключения, плагин синхронизирует сотрудников и роли, а PIN проверяется внутри iikoFront и не сохраняется на сервере. Исходящий Bridge не требует открывать входящие порты ресторана. Исходники и инструкция сборки находятся в [integrations/iiko-front-bridge](integrations/iiko-front-bridge/README.md). Рабочая сборка требует выданный iiko `Module ID`; он передаётся параметром сборки и автоматически попадает в DLL и `Manifest.xml`.
 
 ## Android и kiosk-режим
 

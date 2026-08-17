@@ -1,0 +1,44 @@
+name: iikoFront Bridge
+
+on:
+  workflow_dispatch:
+    inputs:
+      module_id:
+        description: 'Выданный iiko Module ID (0 — только проверка сборки)'
+        required: true
+        default: '0'
+  push:
+    paths:
+      - 'integrations/iiko-front-bridge/**'
+      - '.github/workflows/iiko-front-plugin.yml'
+  pull_request:
+    paths:
+      - 'integrations/iiko-front-bridge/**'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build API V8 plugin
+        shell: pwsh
+        env:
+          MODULE_ID: ${{ github.event.inputs.module_id || '0' }}
+        run: dotnet build .\integrations\iiko-front-bridge\BrooklynBowl.IikoFrontBridge\BrooklynBowl.IikoFrontBridge.csproj -c Release -p:IikoLicenseModuleId=$env:MODULE_ID
+      - name: Create plugin package
+        shell: pwsh
+        run: |
+          $source = '.\integrations\iiko-front-bridge\BrooklynBowl.IikoFrontBridge\bin\Release\net472'
+          $package = '.\artifacts\BrooklynBowl-IikoFrontBridge'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item "$source\BrooklynBowl.IikoFrontBridge.dll", "$source\Newtonsoft.Json.dll", "$source\Manifest.xml" -Destination $package
+          Copy-Item '.\integrations\iiko-front-bridge\BridgeConfig.example.json' -Destination "$package\BridgeConfig.json"
+      - name: Upload plugin build
+        uses: actions/upload-artifact@v4
+        with:
+          name: iiko-front-bridge
+          path: artifacts/BrooklynBowl-IikoFrontBridge/
+          retention-days: 7

@@ -7,6 +7,10 @@ dist-waiter/
 .DS_Store
 waiter/android/
 waiter/firebase-admin*.json
+integrations/**/bin/
+integrations/**/obj/
+integrations/**/BridgeConfig.json
+integrations/**/artifacts/
 .env
 .env.*
 !.env.example

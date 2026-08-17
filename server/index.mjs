@@ -5,7 +5,9 @@ import pathModule from 'node:path';
 import { URL } from 'node:url';
 import pg from 'pg';
 import QRCode from 'qrcode';
+import { WebSocketServer } from 'ws';
 import { deterministicUuid, iikoItemStatuses, iikoStatusStep, validateMenuPublication } from './core.mjs';
+import { BridgeConnectionRegistry, normalizeBridgeEmployee, validateEmployeeSnapshot } from './iiko-front-bridge.mjs';
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -36,6 +38,7 @@ const backupDir = process.env.ZAKAZ_BACKUP_DIR ?? '/var/backups/zakaz-postgres';
 const qualityReportPath = process.env.QUALITY_REPORT_PATH ?? '/opt/zakaz-api/quality-report.json';
 const publicAppUrl = (process.env.PUBLIC_APP_URL || 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai').replace(/\/$/, '');
 const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
+const bridgeConnections = new BridgeConnectionRegistry();
 
 if (!process.env.DATABASE_URL || !tokenSecret || !adminPasswordHash || !/^[a-f0-9]{64}$/i.test(iikoConfigEncryptionKeyHex)) throw new Error('DATABASE_URL, TOKEN_SECRET, ADMIN_PASSWORD_HASH and a 32-byte IIKO_CONFIG_ENCRYPTION_KEY are required');
 if (!/^https:\/\/[^\s]+$/i.test(publicIikoWebhookUrl)) throw new Error('IIKO_WEBHOOK_URL must be a public HTTPS URL');
@@ -293,10 +296,12 @@ const verifyAdministratorPassword = async (admin, password) => {
   const result = await pool.query('select password_hash from admin_users where id=$1 and is_active=true', [admin.userId]);
   return Boolean(result.rowCount && passwordMatches(password, result.rows[0].password_hash));
 };
-const requireWaiter = (request) => {
+const requireWaiter = async (request) => {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
   const payload = verify(token);
   if (!payload?.waiterId) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+  const active = await pool.query('select 1 from waiter_profiles where id=$1 and restaurant_id=$2 and is_active=true', [payload.waiterId, iikoOrganizationId]);
+  if (!active.rowCount) throw Object.assign(new Error('Доступ сотрудника отключён'), { status: 403 });
   return payload;
 };
 const audit = (actor, action, entity, entityId, before, after) => pool.query(
@@ -1156,6 +1161,51 @@ const updateProduct = async (id, input, actor) => {
   return result.rows[0];
 };
 
+const iikoFrontOverview = async () => {
+  const [bridges, employees] = await Promise.all([
+    pool.query(`select id,installation_id,display_name,is_active,version,api_version,module_id,terminal_id,last_seen_at,last_sync_at,created_at
+      from iiko_front_bridges where restaurant_id=$1 order by created_at desc`, [iikoOrganizationId]),
+    pool.query(`select employee_id,display_name,first_name,middle_name,last_name,role_ids,role_names,is_active,app_access_enabled,last_synced_at
+      from iiko_employees where restaurant_id=$1 order by is_active desc,display_name`, [iikoOrganizationId]),
+  ]);
+  return {
+    bridges: bridges.rows.map((bridge) => ({ ...bridge, connected: bridgeConnections.connectedForRestaurant(iikoOrganizationId).some((connection) => connection.bridgeId === bridge.id) })),
+    employees: employees.rows,
+  };
+};
+
+const saveIikoEmployee = async (employee, appAccessEnabled = null) => {
+  const normalized = normalizeBridgeEmployee(employee);
+  const result = await pool.query(`insert into iiko_employees(restaurant_id,employee_id,display_name,first_name,middle_name,last_name,role_ids,role_names,is_active,app_access_enabled)
+    values($1,$2,$3,$4,$5,$6,$7,$8,$9,coalesce($10,false))
+    on conflict(restaurant_id,employee_id) do update set display_name=excluded.display_name,first_name=excluded.first_name,middle_name=excluded.middle_name,last_name=excluded.last_name,
+      role_ids=excluded.role_ids,role_names=excluded.role_names,is_active=excluded.is_active,last_synced_at=now(),updated_at=now()
+    returning *`, [iikoOrganizationId, normalized.id, normalized.displayName, normalized.firstName, normalized.middleName, normalized.lastName, JSON.stringify(normalized.roleIds), JSON.stringify(normalized.roleNames), normalized.isActive, appAccessEnabled]);
+  return result.rows[0];
+};
+
+const syncIikoEmployees = async (bridgeId, values) => {
+  const employees = validateEmployeeSnapshot(values);
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    for (const employee of employees) {
+      await client.query(`insert into iiko_employees(restaurant_id,employee_id,display_name,first_name,middle_name,last_name,role_ids,role_names,is_active)
+        values($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        on conflict(restaurant_id,employee_id) do update set display_name=excluded.display_name,first_name=excluded.first_name,middle_name=excluded.middle_name,last_name=excluded.last_name,
+          role_ids=excluded.role_ids,role_names=excluded.role_names,is_active=excluded.is_active,last_synced_at=now(),updated_at=now()`, [iikoOrganizationId, employee.id, employee.displayName, employee.firstName, employee.middleName, employee.lastName, JSON.stringify(employee.roleIds), JSON.stringify(employee.roleNames), employee.isActive]);
+    }
+    const ids = employees.map((employee) => employee.id);
+    await client.query(`update iiko_employees set is_active=false,updated_at=now() where restaurant_id=$1 and not(employee_id=any($2::text[]))`, [iikoOrganizationId, ids]);
+    await client.query(`update waiter_profiles w set is_active=e.is_active and e.app_access_enabled,display_name=e.display_name,updated_at=now()
+      from iiko_employees e where w.restaurant_id=e.restaurant_id and w.iiko_employee_id=e.employee_id and e.restaurant_id=$1`, [iikoOrganizationId]);
+    await client.query('update iiko_front_bridges set last_sync_at=now(),last_seen_at=now(),updated_at=now() where id=$1 and restaurant_id=$2', [bridgeId, iikoOrganizationId]);
+    await client.query('commit');
+  } catch (error) { await client.query('rollback'); throw error; }
+  finally { client.release(); }
+  return employees.length;
+};
+
 const server = http.createServer(async (request, response) => {
   let requestPath = '';
   try {
@@ -1334,18 +1384,57 @@ const server = http.createServer(async (request, response) => {
       await clearAuthFailures(attemptKey);
       return json(response, 200, { token: sign({ admin: true, scope: requestedScope, role, userId, exp: Date.now() + 8 * 60 * 60 * 1000 }), scope: requestedScope, role });
     }
+    if (request.method === 'POST' && path === '/api/v1/iiko-front/pair') {
+      enforceRequestRate(`iiko-front-pair:${requestIp(request)}`, 10, 10 * 60_000);
+      const body = await readBody(request);
+      const code = String(body.code ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const installationId = String(body.installationId ?? '').trim();
+      if (!/^[A-Z0-9]{8}$/.test(code) || !/^[a-zA-Z0-9._-]{8,160}$/.test(installationId)) return json(response, 400, { error: 'Проверьте код сопряжения и ID установки' });
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const pairing = await client.query(`select * from iiko_front_pairing_codes where code_hash=$1 and used_at is null and expires_at>now() for update`, [sha256(code)]);
+        if (!pairing.rowCount) { await client.query('rollback'); return json(response, 401, { error: 'Код сопряжения неверен или истёк' }); }
+        const token = crypto.randomBytes(32).toString('base64url');
+        const id = crypto.randomUUID();
+        const bridge = await client.query(`insert into iiko_front_bridges(id,restaurant_id,installation_id,display_name,token_hash,version,api_version,module_id,terminal_id)
+          values($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          on conflict(restaurant_id,installation_id) do update set display_name=excluded.display_name,token_hash=excluded.token_hash,version=excluded.version,
+            api_version=excluded.api_version,module_id=excluded.module_id,terminal_id=excluded.terminal_id,is_active=true,updated_at=now()
+          returning id`, [id, pairing.rows[0].restaurant_id, installationId, String(body.displayName ?? 'iikoFront').trim().slice(0, 160) || 'iikoFront', sha256(token), String(body.version ?? '').slice(0, 40), String(body.apiVersion ?? 'V8').slice(0, 20), Number.isInteger(Number(body.moduleId)) ? Number(body.moduleId) : null, String(body.terminalId ?? '').slice(0, 160)]);
+        await client.query('update iiko_front_pairing_codes set used_at=now() where id=$1', [pairing.rows[0].id]);
+        await client.query('commit');
+        return json(response, 201, { bridgeId: bridge.rows[0].id, token, websocketUrl: `${publicAppUrl.replace(/^http/, 'ws')}/api/v1/iiko-front/connect` });
+      } catch (error) { await client.query('rollback').catch(() => undefined); throw error; }
+      finally { client.release(); }
+    }
     if (request.method === 'POST' && path === '/api/v1/waiter/login') {
       const body = await readBody(request); const pin = String(body.pin ?? '');
       const attemptKey = authAttemptKey(request, 'waiter');
       await assertAuthAllowed(attemptKey);
-      const waiterCandidates = await pool.query('select id,display_name,pin_hash from waiter_profiles where restaurant_id=$1 and is_active=true', [iikoOrganizationId]);
-      const waiter = waiterCandidates.rows.find((profile) => passwordMatches(pin, profile.pin_hash));
+      if (!/^\d{4,12}$/.test(pin)) { await recordAuthFailure(attemptKey); return json(response, 401, { error: 'Неверный PIN-код' }); }
+      const paired = await pool.query('select exists(select 1 from iiko_front_bridges where restaurant_id=$1 and is_active=true) as configured', [iikoOrganizationId]);
+      let waiter;
+      if (paired.rows[0].configured) {
+        const auth = await bridgeConnections.requestAuthentication(iikoOrganizationId, pin);
+        if (!auth.ok) { await recordAuthFailure(attemptKey); return json(response, 401, { error: 'Неверный PIN-код' }); }
+        const employee = await saveIikoEmployee(auth.employee);
+        if (!employee.is_active || !employee.app_access_enabled) { await recordAuthFailure(attemptKey); return json(response, 403, { error: 'Доступ к приложению не выдан. Обратитесь к администратору' }); }
+        const waiterResult = await pool.query(`insert into waiter_profiles(id,restaurant_id,display_name,iiko_employee_id,auth_source,is_active,pin_hash)
+          values($1,$2,$3,$4,'iiko',$5,null) on conflict(restaurant_id,iiko_employee_id) where iiko_employee_id is not null
+          do update set display_name=excluded.display_name,is_active=excluded.is_active,pin_hash=null,auth_source='iiko',updated_at=now()
+          returning id,display_name`, [crypto.randomUUID(), iikoOrganizationId, employee.display_name, employee.employee_id, employee.app_access_enabled && employee.is_active]);
+        waiter = waiterResult.rows[0];
+      } else {
+        const waiterCandidates = await pool.query("select id,display_name,pin_hash from waiter_profiles where restaurant_id=$1 and is_active=true and auth_source='local'", [iikoOrganizationId]);
+        waiter = waiterCandidates.rows.find((profile) => passwordMatches(pin, profile.pin_hash));
+      }
       if (!waiter) { await recordAuthFailure(attemptKey); return json(response, 401, { error: 'Неверный PIN-код' }); }
       await clearAuthFailures(attemptKey);
       return json(response, 200, { token: sign({ waiterId: waiter.id, role: 'waiter', exp: Date.now() + 12 * 60 * 60 * 1000 }), waiter: { id: waiter.id, name: waiter.display_name } });
     }
     if (request.method === 'GET' && path === '/api/v1/waiter/queue') {
-      const waiter = requireWaiter(request);
+      const waiter = await requireWaiter(request);
       const [requests, orders] = await Promise.all([
         pool.query(`select id,table_number,request_type,status,created_at,accepted_by,accepted_at from service_requests where restaurant_id=$1 and status in ('new','accepted','in_progress') and (accepted_by is null or accepted_by=$2) and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
         pool.query(`select order_number,table_number,items,total,status_step,created_at,source from customer_orders where restaurant_id=$1 and is_demo=false and completed_at is null and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId]),
@@ -1353,13 +1442,13 @@ const server = http.createServer(async (request, response) => {
       return json(response, 200, { requests: requests.rows, orders: orders.rows, serverTime: new Date().toISOString() });
     }
     if (request.method === 'POST' && path === '/api/v1/waiter/devices') {
-      const waiter = requireWaiter(request); const body = await readBody(request); const deviceToken = String(body.token ?? '');
+      const waiter = await requireWaiter(request); const body = await readBody(request); const deviceToken = String(body.token ?? '');
       if (deviceToken.length < 32 || deviceToken.length > 4096) return json(response, 400, { error: 'Некорректный токен устройства' });
       await pool.query(`insert into waiter_devices(waiter_id,token,platform) values($1,$2,$3) on conflict(token) do update set waiter_id=excluded.waiter_id,platform=excluded.platform,is_active=true,last_seen_at=now()`, [waiter.waiterId, deviceToken, String(body.platform ?? 'android')]);
       return json(response, 204, {});
     }
     if (request.method === 'POST' && path.startsWith('/api/v1/waiter/requests/') && path.endsWith('/accept')) {
-      const waiter = requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/accept'.length));
+      const waiter = await requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/accept'.length));
       if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный вызов' });
       const result = await pool.query(`update service_requests set status='accepted',accepted_by=$1,accepted_at=now() where id=$2 and restaurant_id=$3 and status='new' returning *`, [waiter.waiterId, id, iikoOrganizationId]);
       if (!result.rowCount) return json(response, 409, { error: 'Этот вызов уже принял другой официант' });
@@ -1367,7 +1456,7 @@ const server = http.createServer(async (request, response) => {
       return json(response, 200, result.rows[0]);
     }
     if (request.method === 'POST' && path.startsWith('/api/v1/waiter/requests/') && path.endsWith('/complete')) {
-      const waiter = requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/complete'.length));
+      const waiter = await requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/complete'.length));
       if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный вызов' });
       const result = await pool.query(`update service_requests set status='completed',handled_at=now(),completed_at=now(),completed_by=$1 where id=$2 and restaurant_id=$3 and status in ('accepted','in_progress') and accepted_by=$1 returning *`, [waiter.waiterId, id, iikoOrganizationId]);
       if (!result.rowCount) return json(response, 409, { error: 'Вызов не найден или назначен другому официанту' });
@@ -1376,7 +1465,7 @@ const server = http.createServer(async (request, response) => {
       return json(response, 200, result.rows[0]);
     }
     if (request.method === 'POST' && path.startsWith('/api/v1/waiter/requests/') && path.endsWith('/start')) {
-      const waiter = requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/start'.length));
+      const waiter = await requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/start'.length));
       if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный вызов' });
       const result = await pool.query(`update service_requests set status='in_progress' where id=$1 and restaurant_id=$2 and status='accepted' and accepted_by=$3 returning *`, [id, iikoOrganizationId, waiter.waiterId]);
       if (!result.rowCount) return json(response, 409, { error: 'Вызов не найден или назначен другому официанту' });
@@ -1709,7 +1798,38 @@ const server = http.createServer(async (request, response) => {
       });
     }
     if (request.method === 'GET' && path === '/api/v1/admin/waiters') {
-      const result = await pool.query('select id,display_name,is_active,created_at from waiter_profiles where restaurant_id=$1 order by display_name', [iikoOrganizationId]); return json(response, 200, result.rows);
+      const result = await pool.query('select id,display_name,is_active,auth_source,iiko_employee_id,created_at from waiter_profiles where restaurant_id=$1 order by display_name', [iikoOrganizationId]); return json(response, 200, result.rows);
+    }
+    if (request.method === 'GET' && path === '/api/v1/admin/iiko-front') return json(response, 200, await iikoFrontOverview());
+    if (request.method === 'POST' && path === '/api/v1/admin/iiko-front/pairing-code') {
+      if (admin.role !== 'administrator') return json(response, 403, { error: 'Раздел доступен только администратору' });
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      const raw = Array.from(crypto.randomBytes(8), (byte) => alphabet[byte % alphabet.length]).join('');
+      await pool.query('delete from iiko_front_pairing_codes where restaurant_id=$1 and (used_at is not null or expires_at<=now())', [iikoOrganizationId]);
+      await pool.query('insert into iiko_front_pairing_codes(id,restaurant_id,code_hash,expires_at,created_by) values($1,$2,$3,now()+interval \'15 minutes\',$4)', [crypto.randomUUID(), iikoOrganizationId, sha256(raw), actor]);
+      await audit(actor, 'create', 'iiko_front_pairing_code', 'one-time', null, { expiresInMinutes: 15 });
+      return json(response, 201, { code: `${raw.slice(0, 4)}-${raw.slice(4)}`, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() });
+    }
+    if (request.method === 'DELETE' && path.startsWith('/api/v1/admin/iiko-front/bridges/')) {
+      if (admin.role !== 'administrator') return json(response, 403, { error: 'Раздел доступен только администратору' });
+      const id = decodeURIComponent(path.slice('/api/v1/admin/iiko-front/bridges/'.length));
+      const result = await pool.query('update iiko_front_bridges set is_active=false,updated_at=now() where id=$1 and restaurant_id=$2 returning id', [id, iikoOrganizationId]);
+      if (!result.rowCount) return json(response, 404, { error: 'Подключение не найдено' });
+      await pool.query(`update waiter_profiles set is_active=false,updated_at=now() where restaurant_id=$1 and auth_source='iiko'
+        and not exists(select 1 from iiko_front_bridges where restaurant_id=$1 and is_active=true)`, [iikoOrganizationId]);
+      bridgeConnections.disconnect(id);
+      await audit(actor, 'revoke', 'iiko_front_bridge', id, null, { active: false });
+      return json(response, 204, {});
+    }
+    if (request.method === 'PUT' && path.startsWith('/api/v1/admin/iiko-employees/') && path.endsWith('/access')) {
+      if (admin.role !== 'administrator') return json(response, 403, { error: 'Раздел доступен только администратору' });
+      const employeeId = decodeURIComponent(path.slice('/api/v1/admin/iiko-employees/'.length, -'/access'.length));
+      const body = await readBody(request);
+      const result = await pool.query(`update iiko_employees set app_access_enabled=$1,updated_at=now() where restaurant_id=$2 and employee_id=$3 returning *`, [body.enabled === true, iikoOrganizationId, employeeId]);
+      if (!result.rowCount) return json(response, 404, { error: 'Сотрудник iiko не найден' });
+      await pool.query(`update waiter_profiles set is_active=$1,updated_at=now() where restaurant_id=$2 and iiko_employee_id=$3`, [body.enabled === true && result.rows[0].is_active, iikoOrganizationId, employeeId]);
+      await audit(actor, 'update', 'iiko_employee_access', employeeId, null, { enabled: body.enabled === true });
+      return json(response, 200, result.rows[0]);
     }
     if (request.method === 'GET' && path === '/api/v1/admin/users') {
       const result = await pool.query('select id,username,display_name,role,is_active,created_at from admin_users where restaurant_id=$1 order by display_name', [iikoOrganizationId]);
@@ -1730,13 +1850,13 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && path === '/api/v1/admin/waiters') {
       const body = await readBody(request); const name=String(body.name??'').trim(); const pin=String(body.pin??'');
       if (!name || !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'Укажите имя и PIN из 4–8 цифр'});
-      const id=crypto.randomUUID(); const result=await pool.query('insert into waiter_profiles(id,restaurant_id,display_name,pin_hash) values($1,$2,$3,$4) returning id,display_name,is_active,created_at',[id,iikoOrganizationId,name,passwordHash(pin)]);
+      const id=crypto.randomUUID(); const result=await pool.query("insert into waiter_profiles(id,restaurant_id,display_name,pin_hash,auth_source) values($1,$2,$3,$4,'local') returning id,display_name,is_active,auth_source,iiko_employee_id,created_at",[id,iikoOrganizationId,name,passwordHash(pin)]);
       await audit(actor,'create','waiter',id,null,result.rows[0]); return json(response,201,result.rows[0]);
     }
     if (request.method === 'PUT' && path.startsWith('/api/v1/admin/waiters/')) {
       const id=decodeURIComponent(path.slice('/api/v1/admin/waiters/'.length)); const body=await readBody(request); const pin=String(body.pin ?? '');
       if (pin && !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'PIN должен содержать 4–8 цифр'});
-      const result=await pool.query(`update waiter_profiles set is_active=$1,pin_hash=case when $2='' then pin_hash else $3 end,updated_at=now() where id=$4 and restaurant_id=$5 returning id,display_name,is_active,created_at`,[body.is_active !== false,pin,pin ? passwordHash(pin) : '',id,iikoOrganizationId]);
+      const result=await pool.query(`update waiter_profiles set is_active=$1,pin_hash=case when $2='' then pin_hash else $3 end,updated_at=now() where id=$4 and restaurant_id=$5 and auth_source='local' returning id,display_name,is_active,auth_source,iiko_employee_id,created_at`,[body.is_active !== false,pin,pin ? passwordHash(pin) : '',id,iikoOrganizationId]);
       if (!result.rowCount) return json(response,404,{error:'Официант не найден'}); return json(response,200,result.rows[0]);
     }
     if (request.method === 'PUT' && path.startsWith('/api/v1/admin/iiko-products/')) {
@@ -1908,6 +2028,56 @@ const backgroundSync = async () => {
   } catch (error) { console.warn('iiko background sync:', error.message); await recordMonitoringEvent('iiko_sync', error.message, {}, 'warning'); }
   finally { backgroundSyncRunning = false; }
 };
+
+const bridgeWebSockets = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
+bridgeWebSockets.on('connection', (socket, _request, bridge) => {
+  const connection = { bridgeId: bridge.id, restaurantId: bridge.restaurant_id, socket, connectedAt: Date.now() };
+  bridgeConnections.register(connection);
+  let messageQueue = Promise.resolve();
+  socket.on('message', (payload) => {
+    messageQueue = messageQueue.then(async () => {
+      let message;
+      try { message = JSON.parse(payload.toString('utf8')); }
+      catch { return socket.close(1007, 'Invalid JSON'); }
+      if (message.type === 'heartbeat') {
+        await pool.query('update iiko_front_bridges set last_seen_at=now(),updated_at=now() where id=$1', [bridge.id]);
+        socket.send(JSON.stringify({ type: 'heartbeat_ack', serverTime: new Date().toISOString() }));
+        return;
+      }
+      if (message.type === 'hello') {
+        await pool.query(`update iiko_front_bridges set display_name=$1,version=$2,api_version=$3,module_id=$4,terminal_id=$5,last_seen_at=now(),updated_at=now() where id=$6`, [String(message.displayName ?? bridge.display_name).slice(0, 160), String(message.version ?? '').slice(0, 40), String(message.apiVersion ?? '').slice(0, 20), Number.isInteger(Number(message.moduleId)) ? Number(message.moduleId) : null, String(message.terminalId ?? '').slice(0, 160), bridge.id]);
+        socket.send(JSON.stringify({ type: 'sync_employees' }));
+        return;
+      }
+      if (message.type === 'employees_snapshot') {
+        const count = await syncIikoEmployees(bridge.id, message.employees);
+        socket.send(JSON.stringify({ type: 'employees_ack', snapshotId: String(message.snapshotId ?? '').slice(0, 100), count }));
+        return;
+      }
+      if (message.type === 'auth_result') bridgeConnections.resolveAuthentication(message, bridge.id);
+    }).catch((error) => {
+      console.warn('iikoFront Bridge message:', error.message);
+      if (socket.readyState === 1) socket.send(JSON.stringify({ type: 'error', message: 'Не удалось обработать сообщение' }));
+    });
+  });
+  socket.on('close', () => bridgeConnections.unregister(bridge.id, socket));
+  socket.on('error', () => bridgeConnections.unregister(bridge.id, socket));
+});
+
+server.on('upgrade', async (request, socket, head) => {
+  try {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    if (url.pathname !== '/api/v1/iiko-front/connect') return socket.destroy();
+    const token = String(request.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    if (token.length < 32) throw new Error('Unauthorized');
+    const result = await pool.query('select * from iiko_front_bridges where token_hash=$1 and is_active=true', [sha256(token)]);
+    if (!result.rowCount) throw new Error('Unauthorized');
+    bridgeWebSockets.handleUpgrade(request, socket, head, (webSocket) => bridgeWebSockets.emit('connection', webSocket, request, result.rows[0]));
+  } catch {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+  }
+});
 
 await loadStoredIikoConfig();
 server.listen(port, '127.0.0.1', () => {

@@ -21,7 +21,7 @@ import { otaService } from './services/ota-service';
 import { imageCacheService, type ImageCacheState } from './services/image-cache-service';
 import { icon } from './components/icons';
 import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoDiscountOption, IikoRestaurantOptions, Product, SecurityOverview, TableQrCode } from './types/menu';
-import type { AdminUserProfile, WaiterProfile } from './services/api-service';
+import type { AdminUserProfile, IikoFrontOverview, WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
@@ -38,6 +38,7 @@ let statusRefreshTimer = 0;
 let auditLog: Array<{ action: string; entity: string; entity_id: string; created_at: string }> = [];
 let waiterProfiles: WaiterProfile[] = [];
 let adminUserProfiles: AdminUserProfile[] = [];
+let adminIikoFront: IikoFrontOverview | null = null;
 let adminBanners: Banner[] = [];
 let adminPromotions: AdminPromotion[] = [];
 let adminIikoDiscounts: IikoDiscountOption[] = [];
@@ -88,7 +89,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState, state.tables, adminImageCacheState, adminQrCodes, adminSecurity) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState, state.tables, adminImageCacheState, adminQrCodes, adminSecurity, adminIikoFront) : '';
   }
 }
 
@@ -453,7 +454,7 @@ async function action(element: HTMLElement) {
     const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'qr' | 'promotions' | 'staff' | 'quality' | 'security' | 'audit';
     appStore.set({ adminTab });
     if (adminTab === 'audit') apiService.audit().then((items) => { auditLog = items; render(); }).catch((error) => flash(error.message));
-    if (adminTab === 'staff') Promise.all([apiService.waiters(), apiService.adminUsers()]).then(([waiters, users]) => { waiterProfiles = waiters; adminUserProfiles = users; render(); }).catch((error) => flash(error.message));
+    if (adminTab === 'staff') Promise.all([apiService.waiters(), apiService.adminUsers(), apiService.iikoFront()]).then(([waiters, users, iikoFront]) => { waiterProfiles = waiters; adminUserProfiles = users; adminIikoFront = iikoFront; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'banners') apiService.banners().then((items) => { adminBanners = items; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'qr') Promise.all([loadTerminalTables(), loadAdminQrCodes(false)]).then(render).catch((error) => flash(error.message));
     if (adminTab === 'promotions') void loadAdminPromotions();
@@ -598,6 +599,9 @@ async function action(element: HTMLElement) {
   }
   if (type === 'create-waiter') { try { const name = root.querySelector<HTMLInputElement>('[data-admin-waiter="name"]')?.value.trim() ?? ''; const pin = root.querySelector<HTMLInputElement>('[data-admin-waiter="pin"]')?.value ?? ''; await apiService.createWaiter({ name, pin }); waiterProfiles = await apiService.waiters(); flash('Официант добавлен'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить официанта'); } return; }
   if (type === 'save-waiter' || type === 'toggle-waiter') { try { const id = element.dataset.waiterId ?? ''; const pin = root.querySelector<HTMLInputElement>(`[data-waiter-pin="${CSS.escape(id)}"]`)?.value ?? ''; const isActive = type === 'toggle-waiter' ? element.dataset.waiterActive === 'true' : undefined; await apiService.updateWaiter(id, { pin, isActive }); waiterProfiles = await apiService.waiters(); flash('Доступ обновлён'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось обновить доступ'); } return; }
+  if (type === 'create-iiko-front-pairing') { try { const pairing = await apiService.createIikoFrontPairingCode(); adminIikoFront = { ...(adminIikoFront ?? { bridges: [], employees: [] }), pairing }; render(); flash('Код подключения создан на 15 минут'); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось создать код подключения'); } return; }
+  if (type === 'revoke-iiko-front-bridge') { try { await apiService.revokeIikoFrontBridge(element.dataset.bridgeId ?? ''); adminIikoFront = await apiService.iikoFront(); waiterProfiles = await apiService.waiters(); render(); flash('Bridge отключён'); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось отключить Bridge'); } return; }
+  if (type === 'toggle-iiko-employee') { try { const id = element.dataset.employeeId ?? ''; await apiService.setIikoEmployeeAccess(id, element.dataset.employeeEnabled === 'true'); adminIikoFront = await apiService.iikoFront(); render(); flash('Доступ официанта обновлён'); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось обновить доступ официанта'); } return; }
   if (type === 'create-admin-user') { try { const field = (name: string) => root.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-admin-user="${name}"]`); await apiService.createAdminUser({ name: field('name')?.value.trim() ?? '', username: field('username')?.value.trim() ?? '', password: field('password')?.value ?? '', role: field('role')?.value === 'administrator' ? 'administrator' : 'hostess' }); adminUserProfiles = await apiService.adminUsers(); flash('Сотрудник добавлен'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось добавить сотрудника'); } return; }
   if (type === 'save-admin-user' || type === 'toggle-admin-user') { try { const id = element.dataset.userId ?? ''; const card = root.querySelector<HTMLElement>(`[data-admin-user-card="${CSS.escape(id)}"]`); const role = card?.querySelector<HTMLSelectElement>('[data-admin-user-role]')?.value === 'administrator' ? 'administrator' : 'hostess'; const password = card?.querySelector<HTMLInputElement>('[data-admin-user-password]')?.value ?? ''; const isActive = type === 'toggle-admin-user' ? element.dataset.userActive === 'true' : element.dataset.userActive !== 'false'; await apiService.updateAdminUser(id, { password, role, isActive }); adminUserProfiles = await apiService.adminUsers(); flash('Доступ сотрудника обновлён'); render(); } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось обновить сотрудника'); } return; }
   if (type === 'toggle-fullscreen') {

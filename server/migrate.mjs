@@ -221,6 +221,30 @@ await pool.query(`
     id text primary key, restaurant_id text not null, display_name text not null, pin_hash text, is_active boolean not null default true,
     created_at timestamptz not null default now(), updated_at timestamptz not null default now()
   );
+  alter table waiter_profiles add column if not exists iiko_employee_id text;
+  alter table waiter_profiles add column if not exists auth_source text not null default 'local';
+  create unique index if not exists waiter_profiles_iiko_employee_idx on waiter_profiles(restaurant_id,iiko_employee_id) where iiko_employee_id is not null;
+  create table if not exists iiko_front_bridges (
+    id uuid primary key, restaurant_id text not null, installation_id text not null, display_name text not null,
+    token_hash text not null unique, is_active boolean not null default true, version text not null default '',
+    api_version text not null default '', module_id integer, terminal_id text not null default '',
+    last_seen_at timestamptz, last_sync_at timestamptz,
+    created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+    unique(restaurant_id,installation_id)
+  );
+  create table if not exists iiko_front_pairing_codes (
+    id uuid primary key, restaurant_id text not null, code_hash text not null unique,
+    expires_at timestamptz not null, used_at timestamptz, created_by text not null,
+    created_at timestamptz not null default now()
+  );
+  create table if not exists iiko_employees (
+    restaurant_id text not null, employee_id text not null, display_name text not null,
+    first_name text not null default '', middle_name text not null default '', last_name text not null default '',
+    role_ids jsonb not null default '[]'::jsonb, role_names jsonb not null default '[]'::jsonb,
+    is_active boolean not null default true, app_access_enabled boolean not null default false,
+    last_synced_at timestamptz not null default now(), created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+    primary key(restaurant_id,employee_id)
+  );
   create table if not exists admin_users (
     id uuid primary key, restaurant_id text not null, username text not null, display_name text not null,
     role text not null check(role in ('administrator','hostess')), password_hash text not null,

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>BrooklynBowl.IikoFrontBridge</AssemblyName>
+    <RootNamespace>BrooklynBowl.IikoFrontBridge</RootNamespace>
+    <Version>0.1.0</Version>
+    <IikoLicenseModuleId Condition="'$(IikoLicenseModuleId)' == ''">0</IikoLicenseModuleId>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Security" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Resto.Front.Api.V8" Version="8.7.6032" PrivateAssets="all" />
+  </ItemGroup>
+  <Target Name="GenerateIikoModuleId" BeforeTargets="CoreCompile">
+    <WriteLinesToFile File="$(IntermediateOutputPath)GeneratedModuleId.cs" Overwrite="true" Lines="namespace BrooklynBowl.IikoFrontBridge { internal static class BuildInfo { public const int LicenseModuleId = $(IikoLicenseModuleId)%3B } }" />
+    <ItemGroup><Compile Include="$(IntermediateOutputPath)GeneratedModuleId.cs" /></ItemGroup>
+  </Target>
+  <Target Name="GenerateIikoManifest" AfterTargets="Build">
+    <ItemGroup>
+      <ManifestLine Include="&lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&gt;" />
+      <ManifestLine Include="&lt;Manifest xmlns:xsi=&quot;http://www.w3.org/2001/XMLSchema-instance&quot; xsi:schemaLocation=&quot;http://www.w3.org/2001/XMLSchema ../Binaries/iiko/Manifest.xsd&quot;&gt;" />
+      <ManifestLine Include="  &lt;FileName&gt;BrooklynBowl.IikoFrontBridge.dll&lt;/FileName&gt;" />
+      <ManifestLine Include="  &lt;TypeName&gt;BrooklynBowl.IikoFrontBridge.BridgePlugin&lt;/TypeName&gt;" />
+      <ManifestLine Include="  &lt;ApiVersion&gt;V8&lt;/ApiVersion&gt;" />
+      <ManifestLine Include="  &lt;LicenseModuleId&gt;$(IikoLicenseModuleId)&lt;/LicenseModuleId&gt;" />
+      <ManifestLine Include="  &lt;IsSingleInstance&gt;true&lt;/IsSingleInstance&gt;" />
+      <ManifestLine Include="&lt;/Manifest&gt;" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(TargetDir)Manifest.xml" Lines="@(ManifestLine)" Overwrite="true" Encoding="UTF-8" />
+  </Target>
+</Project>
