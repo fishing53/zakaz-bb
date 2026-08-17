@@ -27,6 +27,17 @@ test('guest completes the critical order path', async ({ page }) => {
   await page.getByRole('button', { name: /Оформить заказ/i }).click();
   await expect(page.getByRole('heading', { name: /Заказ принят/i })).toBeVisible();
   await expect(page.getByText('Пицца Маргарита')).toBeVisible();
+  const stage = await page.locator('.live-status__stage').boundingBox();
+  const receipt = await page.locator('.live-status__receipt').boundingBox();
+  const actions = await page.locator('.live-status__actions').boundingBox();
+  expect(stage).not.toBeNull(); expect(receipt).not.toBeNull(); expect(actions).not.toBeNull();
+  expect(await page.locator('.live-status__actions .icon').count()).toBe(0);
+  if ((page.viewportSize()?.width ?? 0) < 700) {
+    expect(actions!.y).toBeGreaterThanOrEqual(stage!.y + stage!.height - 1);
+    expect(receipt!.y).toBeGreaterThanOrEqual(actions!.y + actions!.height - 1);
+  } else {
+    expect(actions!.y).toBeGreaterThanOrEqual(Math.max(stage!.y + stage!.height, receipt!.y + receipt!.height) - 1);
+  }
 });
 
 test('administrator sees security checks and protected Telegram settings', async ({ page }) => {

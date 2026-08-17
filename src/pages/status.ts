@@ -63,8 +63,8 @@ export const statusPage = (order: SubmittedOrder | undefined, number: string | n
         <header><div><h2>Состав заказа</h2></div><b>${positionLabel(positionCount)}</b></header>
         <div class="live-status__items">${orderLines || '<div class="live-status__empty">Собираем информацию о заказе…</div>'}</div>
         <div class="live-status__total"><span>ИТОГО</span><strong>${formatPrice(order?.total ?? 0)}</strong></div>
-        <footer><button class="button button--primary" data-action="open-service">Позвать официанта</button><button class="button button--secondary" data-action="new-order">Сделать ещё заказ</button></footer>
       </aside>
+      <footer class="live-status__actions"><button class="button button--primary" data-action="open-service">Позвать официанта</button><button class="button button--secondary" data-action="new-order">Сделать ещё заказ</button></footer>
     </div>
   </section>`;
 };
