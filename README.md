@@ -99,11 +99,14 @@ IIKO_CONFIG_ENCRYPTION_KEY=64-hex-characters
 
 ## Android и kiosk-режим
 
-Скачать актуальную сборку: **[BrooklynBowl-Kiosk.apk](https://github.com/fishing53/zakaz-bb/releases/download/android-latest/BrooklynBowl-Kiosk.apk)**.
+Скачать актуальные сборки:
+
+- **[BrooklynBowl-Kiosk.apk](https://github.com/fishing53/zakaz-bb/releases/download/android-latest/BrooklynBowl-Kiosk.apk)**
+- **[BrooklynBowl-Waiter.apk](https://github.com/fishing53/zakaz-bb/releases/download/waiter-latest/BrooklynBowl-Waiter.apk)**
 
 APK собирается из GitHub Actions **Build BrooklynBowl Kiosk APK**. В него входят интерфейс и изображения меню, поэтому первый запуск не зависит от загрузки фотографий из сети. При запуске показывается нативный фирменный splash-экран Brooklyn Bowl с мягкой анимацией логотипа.
 
-При запуске приложение проверяет OTA-обновление. Обычные изменения интерфейса, сделанные в `main`, публикуются workflow **Publish kiosk OTA update** и приходят на планшет при следующем запуске с интернетом. Новая APK требуется только для нативных изменений: Capacitor-плагинов, разрешений, иконки, версии Android или kiosk-логики.
+OTA работает только вручную: администратор открывает настройки конкретного планшета, нажимает «Проверить обновление», а затем «Скачать и применить». При запуске, возврате из фона и во время заказа приложение ничего не скачивает. Новая APK требуется только для нативных изменений: Capacitor-плагинов, разрешений, иконки, версии Android или kiosk-логики.
 
 Полный запрет выхода из приложения возможен только при настройке планшета как **Device Owner** через MDM или Android provisioning. Без этого приложение остаётся полноэкранным; для теста можно использовать системное «Закрепление экрана». Детали: [docs/ANDROID_KIOSK.md](docs/ANDROID_KIOSK.md).
 
