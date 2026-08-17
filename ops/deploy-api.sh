@@ -12,6 +12,21 @@ if ! grep -q '^IIKO_CONFIG_ENCRYPTION_KEY=' "$env_file"; then
 fi
 chmod 600 "$env_file"
 
+# iikoFront Bridge keeps one outbound WebSocket open. Update the active site
+# once without replacing Certbot-managed TLS settings or symlinks.
+nginx_changed=false
+while IFS= read -r enabled_site; do
+  site_config="$(readlink -f "$enabled_site")"
+  if grep -q 'server_name xn--80aatcn.xn--b1ajk7f.xn--p1ai' "$site_config" \
+    && grep -q 'proxy_pass http://127.0.0.1:3107' "$site_config" \
+    && ! grep -q 'proxy_set_header Upgrade' "$site_config"; then
+    sed -i '/proxy_http_version 1.1;/a\        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";' "$site_config"
+    sed -i 's/proxy_read_timeout 20s;/proxy_read_timeout 75s;/' "$site_config"
+    nginx_changed=true
+  fi
+done < <(find /etc/nginx/sites-enabled -maxdepth 1 \( -type f -o -type l \) -print)
+if "$nginx_changed"; then nginx -t; systemctl reload nginx; fi
+
 set -a
 # shellcheck disable=SC1090
 . "$env_file"
