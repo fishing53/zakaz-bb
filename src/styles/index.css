@@ -2270,10 +2270,12 @@ html, body, #app,
 @media (max-width: 680px) {
   .app-shell.app-shell--navigation { padding: 14px; }
   .app-shell--navigation .bottom-nav-blur {
-    height: 150px;
-    background: linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,.24) 22%,rgba(0,0,0,.7) 58%,rgba(0,0,0,.94) 100%);
-    -webkit-backdrop-filter: blur(20px) saturate(1.04);
-    backdrop-filter: blur(20px) saturate(1.04);
+    height: 78px;
+    background: linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,.32) 38%,rgba(0,0,0,.76) 72%,rgba(0,0,0,.94) 100%);
+    -webkit-backdrop-filter: blur(15px) saturate(1.04);
+    backdrop-filter: blur(15px) saturate(1.04);
+    -webkit-mask-image: linear-gradient(to bottom,transparent 0%,rgba(0,0,0,.72) 34%,#000 66%,#000 100%);
+    mask-image: linear-gradient(to bottom,transparent 0%,rgba(0,0,0,.72) 34%,#000 66%,#000 100%);
   }
   .app-shell--navigation.app-shell--menu .menu-content { padding-bottom: 96px; }
   .app-shell--navigation .order-page,
