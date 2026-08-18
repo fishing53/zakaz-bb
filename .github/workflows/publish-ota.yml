@@ -39,8 +39,8 @@ jobs:
         id: bundle
         run: |
           version="0.1.0-${GITHUB_RUN_NUMBER}"
-          (cd dist && zip -qr "../zakaz-bb-${version}.zip" .)
-          printf '{"version":"%s","url":"https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/ota/zakaz-bb-%s.zip","publishedAt":"%s"}\n' "$version" "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ota-manifest.json
+          (cd dist && zip -qr "../BB-Kiosk-${version}.zip" .)
+          printf '{"version":"%s","url":"https://order.brooklynbowl.ru/ota/BB-Kiosk-%s.zip","publishedAt":"%s"}\n' "$version" "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ota-manifest.json
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Publish bundle to the kiosk update server
         env:
@@ -50,15 +50,16 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H 194.226.142.35 >> ~/.ssh/known_hosts
-          ssh root@194.226.142.35 'mkdir -p /var/www/zakaz-zvyak/ota /var/www/zakaz-zvyak/uploads/banners /var/www/zakaz-zvyak/uploads/products && chown -R www-data:www-data /var/www/zakaz-zvyak/uploads'
-          rsync -az --delete --exclude='ota/' --exclude='uploads/' dist/ root@194.226.142.35:/var/www/zakaz-zvyak/
-          scp "zakaz-bb-${VERSION}.zip" root@194.226.142.35:"/var/www/zakaz-zvyak/ota/zakaz-bb-${VERSION}.zip"
-          scp ota-manifest.json root@194.226.142.35:/var/www/zakaz-zvyak/ota/manifest.json
-          ssh root@194.226.142.35 'chown -R www-data:www-data /var/www/zakaz-zvyak/ota /var/www/zakaz-zvyak/uploads && find /var/www/zakaz-zvyak/ota -maxdepth 1 -type f -name "zakaz-bb-*.zip" -printf "%T@ %p\0" | sort -zrn | tail -zn +11 | cut -zd" " -f2- | xargs -0r rm --'
+          ssh-keyscan -H 201.24.51.231 >> ~/.ssh/known_hosts
+          ssh root@201.24.51.231 'mkdir -p /var/www/bb-kiosk/ota /var/www/bb-kiosk/uploads/banners /var/www/bb-kiosk/uploads/products && chown -R www-data:www-data /var/www/bb-kiosk/uploads'
+          rsync -az --delete --exclude='ota/' --exclude='uploads/' dist/ root@201.24.51.231:/var/www/bb-kiosk/
+          scp "BB-Kiosk-${VERSION}.zip" root@201.24.51.231:"/var/www/bb-kiosk/ota/BB-Kiosk-${VERSION}.zip"
+          scp ota-manifest.json root@201.24.51.231:/var/www/bb-kiosk/ota/manifest.json
+          ssh root@201.24.51.231 'chown -R www-data:www-data /var/www/bb-kiosk/ota /var/www/bb-kiosk/uploads && find /var/www/bb-kiosk/ota -maxdepth 1 -type f -name "BB-Kiosk-*.zip" -printf "%T@ %p\0" | sort -zrn | tail -zn +11 | cut -zd" " -f2- | xargs -0r rm --'
       - name: Deploy API and database migrations
         run: |
-          scp server/index.mjs server/migrate.mjs server/core.mjs server/iiko-front-bridge.mjs package.json package-lock.json quality-report.json root@194.226.142.35:/opt/zakaz-api/
-          ssh root@194.226.142.35 'mkdir -p /opt/zakaz-api/ops'
-          scp ops/* root@194.226.142.35:/opt/zakaz-api/ops/
-          ssh root@194.226.142.35 'bash /opt/zakaz-api/ops/deploy-api.sh'
+          scp server/index.mjs server/migrate.mjs server/core.mjs server/iiko-front-bridge.mjs menu.json package.json package-lock.json quality-report.json root@201.24.51.231:/opt/bb-kiosk-api/
+          ssh root@201.24.51.231 'mkdir -p /opt/bb-kiosk-api/ops /opt/bb-kiosk-api/server'
+          scp ops/* root@201.24.51.231:/opt/bb-kiosk-api/ops/
+          scp server/bb-kiosk-api.service root@201.24.51.231:/opt/bb-kiosk-api/server/
+          ssh root@201.24.51.231 'bash /opt/bb-kiosk-api/ops/deploy-api.sh'

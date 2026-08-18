@@ -19,7 +19,7 @@ let iikoApiBase = process.env.IIKO_API_BASE || 'https://api-ru.iiko.services';
 let iikoOrganizationId = process.env.IIKO_ORGANIZATION_ID ?? '';
 let iikoWebhookToken = process.env.IIKO_WEBHOOK_TOKEN ?? '';
 const firebaseServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-const publicIikoWebhookUrl = process.env.IIKO_WEBHOOK_URL || 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1/iiko/webhook';
+const publicIikoWebhookUrl = process.env.IIKO_WEBHOOK_URL || 'https://order.brooklynbowl.ru/api/v1/iiko/webhook';
 let iikoTerminalGroupId = process.env.IIKO_TERMINAL_GROUP_ID ?? '';
 let iikoExternalMenuId = process.env.IIKO_EXTERNAL_MENU_ID ?? '';
 let iikoOrderTypeId = process.env.IIKO_ORDER_TYPE_ID ?? '';
@@ -28,16 +28,23 @@ let iikoAppId = process.env.IIKO_APP_ID ?? '';
 let iikoApiLogin = process.env.IIKO_API_LOGIN ?? '';
 let iikoClientSecret = process.env.IIKO_CLIENT_SECRET ?? '';
 const iikoConfigEncryptionKeyHex = process.env.IIKO_CONFIG_ENCRYPTION_KEY ?? '';
-const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/manifest.json';
-const waiterOtaManifestPath = process.env.WAITER_OTA_MANIFEST_PATH ?? '/var/www/zakaz-zvyak/ota/waiter/manifest.json';
-const bannerUploadDir = process.env.BANNER_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/uploads/banners';
+const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/bb-kiosk/ota/manifest.json';
+const waiterOtaManifestPath = process.env.WAITER_OTA_MANIFEST_PATH ?? '/var/www/bb-kiosk/ota/waiter/manifest.json';
+const bannerUploadDir = process.env.BANNER_UPLOAD_DIR ?? '/var/www/bb-kiosk/uploads/banners';
 const bannerPublicPath = process.env.BANNER_PUBLIC_PATH ?? '/uploads/banners';
-const productUploadDir = process.env.PRODUCT_UPLOAD_DIR ?? '/var/www/zakaz-zvyak/uploads/products';
+const productUploadDir = process.env.PRODUCT_UPLOAD_DIR ?? '/var/www/bb-kiosk/uploads/products';
 const productPublicPath = process.env.PRODUCT_PUBLIC_PATH ?? '/uploads/products';
-const backupDir = process.env.ZAKAZ_BACKUP_DIR ?? '/var/backups/zakaz-postgres';
-const qualityReportPath = process.env.QUALITY_REPORT_PATH ?? '/opt/zakaz-api/quality-report.json';
-const publicAppUrl = (process.env.PUBLIC_APP_URL || 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai').replace(/\/$/, '');
-const allowedOrigins = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost', 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai']);
+const backupDir = process.env.BB_KIOSK_BACKUP_DIR ?? process.env.ZAKAZ_BACKUP_DIR ?? '/var/backups/bb-kiosk-postgres';
+const qualityReportPath = process.env.QUALITY_REPORT_PATH ?? '/opt/bb-kiosk-api/quality-report.json';
+const publicAppUrl = (process.env.PUBLIC_APP_URL || 'https://order.brooklynbowl.ru').replace(/\/$/, '');
+const allowedOrigins = new Set([
+  'https://localhost',
+  'http://localhost',
+  'capacitor://localhost',
+  'https://order.brooklynbowl.ru',
+  // Compatibility for APK versions released before the domain migration.
+  'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai',
+]);
 const bridgeConnections = new BridgeConnectionRegistry();
 
 if (!process.env.DATABASE_URL || !tokenSecret || !adminPasswordHash || !/^[a-f0-9]{64}$/i.test(iikoConfigEncryptionKeyHex)) throw new Error('DATABASE_URL, TOKEN_SECRET, ADMIN_PASSWORD_HASH and a 32-byte IIKO_CONFIG_ENCRYPTION_KEY are required');
@@ -2103,7 +2110,7 @@ server.on('upgrade', async (request, socket, head) => {
 
 await loadStoredIikoConfig();
 server.listen(port, '127.0.0.1', () => {
-  console.log(`Zakaz API listening on ${port}`);
+  console.log(`BB Kiosk API listening on ${port}`);
   setTimeout(() => { void backgroundSync(); }, 3_000);
   setTimeout(() => {
     const config = runtimeIikoConfig();

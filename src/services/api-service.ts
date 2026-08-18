@@ -11,7 +11,7 @@ export const terminalId = rawTerminalId ?? crypto.randomUUID().replace(/-/g, '')
 if (!rawTerminalId) localStorage.setItem(terminalKey, terminalId);
 let activeTerminalId = terminalId;
 let source: 'tablet' | 'qr' = 'tablet';
-const productionOrigin = 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai';
+const productionOrigin = 'https://order.brooklynbowl.ru';
 const isNative = Capacitor.isNativePlatform();
 const apiBase = isNative ? `${productionOrigin}/api/v1` : '/api/v1';
 const assetSource = (value: string) => value.startsWith('/uploads/') ? `${productionOrigin}${value}` : value;

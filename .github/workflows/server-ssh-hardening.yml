@@ -19,11 +19,11 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -T 15 -H 194.226.142.35 >> ~/.ssh/known_hosts
+          ssh-keyscan -T 15 -H 201.24.51.231 >> ~/.ssh/known_hosts
       - name: Install and validate SSH hardening
         run: |
-          scp -o ConnectTimeout=20 ops/harden-ssh.sh ops/sshd-brooklynbowl.conf ops/fail2ban-sshd.local root@194.226.142.35:/tmp/
-          ssh -o ConnectTimeout=20 root@194.226.142.35 'chmod 700 /tmp/harden-ssh.sh && /tmp/harden-ssh.sh'
+          scp -o ConnectTimeout=20 ops/harden-ssh.sh ops/sshd-brooklynbowl.conf ops/fail2ban-sshd.local root@201.24.51.231:/tmp/
+          ssh -o ConnectTimeout=20 root@201.24.51.231 'chmod 700 /tmp/harden-ssh.sh && /tmp/harden-ssh.sh'
       - name: Verify a fresh key-only connection
         run: |
-          ssh -o ConnectTimeout=20 -o PreferredAuthentications=publickey -o PasswordAuthentication=no root@194.226.142.35 'printf "SSH key connection verified\n"'
+          ssh -o ConnectTimeout=20 -o PreferredAuthentications=publickey -o PasswordAuthentication=no root@201.24.51.231 'printf "SSH key connection verified\n"'

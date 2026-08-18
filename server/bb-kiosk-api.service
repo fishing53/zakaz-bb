@@ -1,13 +1,13 @@
 [Unit]
-Description=Zakaz kiosk API
+Description=BB Kiosk API
 After=network.target postgresql.service
 
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/opt/zakaz-api
-EnvironmentFile=/etc/zakaz-api.env
-ExecStart=/usr/bin/node /opt/zakaz-api/index.mjs
+WorkingDirectory=/opt/bb-kiosk-api
+EnvironmentFile=/etc/bb-kiosk-api.env
+ExecStart=/usr/bin/node /opt/bb-kiosk-api/index.mjs
 Restart=always
 RestartSec=3
 NoNewPrivileges=true

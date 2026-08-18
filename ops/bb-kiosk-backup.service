@@ -1,0 +1,12 @@
+[Unit]
+Description=BrooklynBowl Kiosk PostgreSQL backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/bb-kiosk-api.env
+ExecStartPre=+/usr/bin/install -d -o postgres -g postgres -m 700 /var/backups/bb-kiosk-postgres
+ExecStart=/opt/bb-kiosk-api/ops/backup-postgres.sh
+User=root
+PrivateTmp=true
+NoNewPrivileges=true

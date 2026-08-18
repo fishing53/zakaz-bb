@@ -41,7 +41,7 @@
 
 Без Android signing variables pipeline формирует только устанавливаемые debug APK. Release APK создаются и проверяются через `apksigner` только при наличии полного комплекта защищённых переменных. Постоянный keystore необходимо хранить ещё и в отдельном защищённом backup: потеря ключа исключит обновление уже установленного APK поверх существующего приложения.
 
-Секреты самого приложения (`DATABASE_URL`, `TOKEN_SECRET`, `ADMIN_PASSWORD_HASH`, `IIKO_CONFIG_ENCRYPTION_KEY`) хранятся на сервере в `/etc/zakaz-api.env` с правами `0600`, а не в GitLab, если деплой не создаёт сервер с нуля.
+Секреты самого приложения (`DATABASE_URL`, `TOKEN_SECRET`, `ADMIN_PASSWORD_HASH`, `IIKO_CONFIG_ENCRYPTION_KEY`) хранятся на сервере в `/etc/bb-kiosk-api.env` с правами `0600`, а не в GitLab, если деплой не создаёт сервер с нуля.
 
 ## Требования к новому серверу
 
@@ -59,10 +59,10 @@
 
 ## Что обязательно переносится
 
-1. PostgreSQL custom dump из `/var/backups/zakaz-postgres`.
-2. `/var/www/zakaz-zvyak/uploads/` — баннеры и локальные изображения карточек.
-3. `/var/www/zakaz-zvyak/ota/` — версии, которые уже могут быть установлены на планшетах.
-4. `/etc/zakaz-api.env` — только по защищённому каналу, с правами `0600`.
+1. PostgreSQL custom dump из `/var/backups/bb-kiosk-postgres`.
+2. `/var/www/bb-kiosk/uploads/` — баннеры и локальные изображения карточек.
+3. `/var/www/bb-kiosk/ota/` — версии, которые уже могут быть установлены на планшетах.
+4. `/etc/bb-kiosk-api.env` — только по защищённому каналу, с правами `0600`.
 5. Nginx-конфигурация, systemd units, health/backup timers.
 6. Действующие TLS-настройки либо новый сертификат после переключения DNS.
 
@@ -112,7 +112,7 @@
 
 ## Проверка после переезда
 
-- `systemctl is-active zakaz-api`;
+- `systemctl is-active bb-kiosk-api`;
 - readiness API и PostgreSQL latency;
 - актуальность меню и стоп-листа iiko;
 - тестовый заказ и смена всех статусов;

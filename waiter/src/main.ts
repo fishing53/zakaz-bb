@@ -4,7 +4,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { icon } from '../../src/components/icons';
 
-const api = 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1';
+const api = 'https://order.brooklynbowl.ru/api/v1';
 const root = document.querySelector<HTMLDivElement>('#app')!;
 
 type WaiterView = 'calls' | 'orders';

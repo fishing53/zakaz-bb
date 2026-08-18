@@ -4,7 +4,7 @@
 
 Основной репозиторий команды: [GitLab · yoles-rests/bb-kiosk](https://gitlab.com/yoles-rests/bb-kiosk). GitHub временно сохраняется как резерв до полного переключения CI/CD и нового сервера.
 
-Продакшен: [заказ.звяк.рф](https://xn--80aatcn.xn--b1ajk7f.xn--p1ai)
+Продакшен: [order.brooklynbowl.ru](https://order.brooklynbowl.ru)
 
 ## Что уже умеет продукт
 
@@ -52,8 +52,8 @@
 | iikoFront Bridge | C# / .NET Framework 4.7.2, iikoFront API V8, исходящий WSS |
 | Изображения и offline | Локальные WebP/PNG-ассеты, service worker, PWA manifest |
 | Android | Capacitor 8, нативный fullscreen, Lock Task для Device Owner |
-| Обновления | GitHub Actions + Capgo Capacitor Updater (OTA) |
-| Развёртывание | Nginx, systemd, GitHub Actions |
+| Обновления | GitLab CI/CD + Capgo Capacitor Updater (OTA) |
+| Развёртывание | Nginx, systemd, GitLab CI/CD |
 
 ## Архитектура
 
@@ -68,7 +68,7 @@ iikoFront 9.4 → локальный Bridge-плагин → защищённы�
   ├─ сотрудники и роли без передачи PIN
   └─ проверка PIN непосредственно средствами iikoFront
 
-GitHub Actions → production web bundle + OTA-архив → Android-приложение
+GitLab CI/CD → production web bundle + OTA-архив → Android-приложение
 ```
 
 Клиент получает актуальные данные через `/api/v1/bootstrap`. Сервер — источник правды: перед сохранением заказа он повторно проверяет доступность позиций, количество, соусы, дополнения и итоговую сумму. Это не позволяет отправить устаревший или подменённый заказ.
@@ -113,7 +113,7 @@ IIKO_CONFIG_ENCRYPTION_KEY=64-hex-characters
 - **[BrooklynBowl-Kiosk.apk](https://github.com/fishing53/zakaz-bb/releases/download/android-latest/BrooklynBowl-Kiosk.apk)**
 - **[BrooklynBowl-Waiter.apk](https://github.com/fishing53/zakaz-bb/releases/download/waiter-latest/BrooklynBowl-Waiter.apk)**
 
-APK собирается из GitHub Actions **Build BrooklynBowl Kiosk APK**. В него входят интерфейс и изображения меню, поэтому первый запуск не зависит от загрузки фотографий из сети. При запуске показывается нативный фирменный splash-экран Brooklyn Bowl с мягкой анимацией логотипа.
+APK собирается заданием GitLab CI/CD `build_android_apk`. В него входят интерфейс и изображения меню, поэтому первый запуск не зависит от загрузки фотографий из сети. При запуске показывается нативный фирменный splash-экран Brooklyn Bowl с мягкой анимацией логотипа.
 
 OTA работает только вручную: администратор открывает настройки конкретного планшета, нажимает «Проверить обновление», а затем «Скачать и применить». При запуске, возврате из фона и во время заказа приложение ничего не скачивает. Новая APK требуется только для нативных изменений: Capacitor-плагинов, разрешений, иконки, версии Android или kiosk-логики.
 

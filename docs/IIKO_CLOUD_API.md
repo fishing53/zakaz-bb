@@ -55,7 +55,7 @@ API-ключ, показанный в карточке API-логина, — э�
 
 ## Конфигурация сервера
 
-Системные секреты находятся в `/etc/zakaz-api.env` на production-сервере. Минимальный набор:
+Системные секреты находятся в `/etc/bb-kiosk-api.env` на production-сервере. Минимальный набор:
 
 ```env
 DATABASE_URL=postgres://...
@@ -71,7 +71,7 @@ App ID, API Login, Client Secret и Webhook Token сохраняются в Post
 
 После нажатия «Сохранить и применить» сервер без перезапуска проверяет подключение, регистрирует и проверяет webhook, обновляет меню, столы и стоп-лист. При ошибке он автоматически возвращает предыдущие настройки webhook и рабочую конфигурацию.
 
-Сервис запущен от пользователя `www-data`, рабочий каталог production — `/opt/zakaz-api`.
+Сервис запущен от пользователя `www-data`, рабочий каталог production — `/opt/bb-kiosk-api`.
 
 ## Авторизация
 
@@ -403,8 +403,8 @@ iiko ограничивает число запросов. Ошибка `429 Too
 Изменения схемы запускаются командой:
 
 ```bash
-cd /opt/zakaz-api
-set -a && . /etc/zakaz-api.env && set +a
+cd /opt/bb-kiosk-api
+set -a && . /etc/bb-kiosk-api.env && set +a
 node migrate.mjs
 ```
 
@@ -419,8 +419,8 @@ curl -fsS https://заказ.звяк.рф/api/v1/health
 ### Логи и сервис
 
 ```bash
-sudo systemctl status zakaz-api.service
-sudo journalctl -u zakaz-api.service -n 100 --no-pager
+sudo systemctl status bb-kiosk-api.service
+sudo journalctl -u bb-kiosk-api.service -n 100 --no-pager
 ```
 
 ### Тест статуса кухни

@@ -5,7 +5,10 @@ const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 let restaurantId = process.env.IIKO_ORGANIZATION_ID ?? '';
 const localCatalog = new URL('./menu.json', import.meta.url);
-const catalogSource = fs.existsSync(localCatalog) ? localCatalog : new URL('../menu.json', import.meta.url);
+const workingCatalog = `${process.cwd()}/menu.json`;
+const repositoryCatalog = new URL('../menu.json', import.meta.url);
+const catalogSource = [localCatalog, workingCatalog, repositoryCatalog].find((candidate) => fs.existsSync(candidate));
+if (!catalogSource) throw new Error('BB Kiosk menu.json was not found');
 const catalog = JSON.parse(fs.readFileSync(catalogSource)).menu;
 
 await pool.query(`

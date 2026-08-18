@@ -9,7 +9,7 @@ const config: CapacitorConfig = {
   plugins: {
     CapacitorUpdater: {
       autoUpdate: false,
-      updateUrl: 'https://xn--80aatcn.xn--b1ajk7f.xn--p1ai/api/v1/ota/waiter/update',
+      updateUrl: 'https://order.brooklynbowl.ru/api/v1/ota/waiter/update',
       appReadyTimeout: 15_000,
       responseTimeout: 10,
       autoDeleteFailed: true,

@@ -241,13 +241,14 @@ deploy_production:
     - install -m 600 "$DEPLOY_SSH_PRIVATE_KEY" ~/.ssh/id_ed25519
     - install -m 600 "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts
   script:
-    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/ota/waiter' '$DEPLOY_WEB_ROOT/uploads/banners' '$DEPLOY_WEB_ROOT/uploads/products' '$DEPLOY_API_ROOT/ops'"
+    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/ota/waiter' '$DEPLOY_WEB_ROOT/uploads/banners' '$DEPLOY_WEB_ROOT/uploads/products' '$DEPLOY_API_ROOT/ops' '$DEPLOY_API_ROOT/server'"
     - rsync -az --delete --exclude='ota/' --exclude='uploads/' dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/"
     - scp BB-Kiosk-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/"
     - scp ota-manifest.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/manifest.json"
     - scp BB-Waiter-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/waiter/"
     - scp waiter-ota-manifest.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/waiter/manifest.json"
-    - scp server/index.mjs server/migrate.mjs server/core.mjs server/iiko-front-bridge.mjs package.json package-lock.json quality-report.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_API_ROOT/"
+    - scp server/index.mjs server/migrate.mjs server/core.mjs server/iiko-front-bridge.mjs menu.json package.json package-lock.json quality-report.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_API_ROOT/"
+    - scp server/bb-kiosk-api.service "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_API_ROOT/server/"
     - scp ops/* "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_API_ROOT/ops/"
     - ssh "$DEPLOY_USER@$DEPLOY_HOST" "bash '$DEPLOY_API_ROOT/ops/deploy-api.sh'"
   rules:
