@@ -6,6 +6,7 @@ import {
   deterministicUuid,
   idempotencyDecision,
   iikoStatusStep,
+  isDatabaseBackupFileName,
   normalizeIikoStopListGroups,
   resolveTable,
   serviceRequestTransition,
@@ -57,6 +58,11 @@ test('QR table wins when no table is fixed', () => assert.equal(resolveTable({ q
 test('requires a table before placing an order', () => assert.throws(() => resolveTable({}), /не выбран/));
 test('generates stable iiko order UUIDs for retries', () => assert.equal(deterministicUuid('restaurant:request'), deterministicUuid('restaurant:request')));
 test('different client requests produce different UUIDs', () => assert.notEqual(deterministicUuid('a'), deterministicUuid('b')));
+test('recognizes current and legacy database backup names', () => {
+  assert.equal(isDatabaseBackupFileName('bb-kiosk-20260818T233000Z.dump'), true);
+  assert.equal(isDatabaseBackupFileName('zakaz-20260818T233000Z.dump'), true);
+  assert.equal(isDatabaseBackupFileName('bb-kiosk-20260818T233000Z.dump.partial'), false);
+});
 test('idempotency returns an existing successful order', () => assert.equal(idempotencyDecision({ requestHash: 'x', status: 'success' }, 'x'), 'return-existing'));
 test('idempotency rejects a reused key with another cart', () => assert.equal(idempotencyDecision({ requestHash: 'x', status: 'success' }, 'y'), 'conflict'));
 test('maps all guest-visible iiko kitchen stages', () => {

@@ -20,6 +20,8 @@ export const deterministicUuid = (value) => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 
+export const isDatabaseBackupFileName = (name) => /^(?:bb-kiosk|zakaz)-\d{8}T\d{6}Z\.dump$/.test(String(name));
+
 export const validateMenuPublication = (items) => {
   const visible = (Array.isArray(items) ? items : []).filter((item) => !item.isHidden);
   const missingSku = visible.filter((item) => !String(item.sku ?? '').trim());

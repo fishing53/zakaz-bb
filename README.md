@@ -188,7 +188,7 @@ deploy использует `resource_group`, поэтому параллель�
 
 API работает как `bb-kiosk-api.service`; backup и health-check запускаются
 systemd timers. Порядок развертывания, отката и проверки описан в
-[OPERATIONS.md](docs/OPERATIONS.md) и [MIGRATION.md](docs/MIGRATION.md).
+[OPERATIONS.md](docs/OPERATIONS.md) и [DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Безопасность
 
@@ -206,8 +206,12 @@ systemd timers. Порядок развертывания, отката и пр�
 - [iiko Cloud API](docs/IIKO_CLOUD_API.md)
 - [Android kiosk mode](docs/ANDROID_KIOSK.md)
 - [Эксплуатация и мониторинг](docs/OPERATIONS.md)
-- [Миграция окружения](docs/MIGRATION.md)
-- [Roadmap](ROADMAP.md)
+- [Развертывание](docs/DEPLOYMENT.md)
+- [Архитектура](docs/ARCHITECTURE.md)
+- [Локальная разработка](docs/LOCAL_DEVELOPMENT.md)
+- [Конфигурация](docs/CONFIGURATION.md)
+- [Тестирование](docs/TESTING.md)
+- [Безопасность](docs/SECURITY.md)
 
 ## Доступ
 

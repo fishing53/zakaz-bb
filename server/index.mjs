@@ -6,7 +6,7 @@ import { URL } from 'node:url';
 import pg from 'pg';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
-import { deterministicUuid, iikoItemStatuses, iikoStatusStep, normalizeIikoStopListGroups, validateMenuPublication } from './core.mjs';
+import { deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, normalizeIikoStopListGroups, validateMenuPublication } from './core.mjs';
 import { BridgeConnectionRegistry, normalizeBridgeEmployee, validateEmployeeSnapshot } from './iiko-front-bridge.mjs';
 
 const { Pool } = pg;
@@ -1071,7 +1071,7 @@ const readableIikoOrderError = (value) => {
 
 const backupState = async () => {
   try {
-    const files = (await fs.readdir(backupDir)).filter((name) => /^zakaz-\d{8}T\d{6}Z\.dump$/.test(name)).sort().reverse();
+    const files = (await fs.readdir(backupDir)).filter(isDatabaseBackupFileName).sort().reverse();
     if (!files.length) return { status: 'failed', last_at: null, age_hours: null, file: null };
     const file = files[0]; const stat = await fs.stat(pathModule.join(backupDir, file));
     const ageHours = Math.round((Date.now() - stat.mtimeMs) / 36_000) / 100;
