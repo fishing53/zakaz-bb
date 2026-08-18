@@ -1,0 +1,3 @@
+# Firebase's Android client API key is intentionally shipped in the APK.
+# Restrict it by Android package name and signing certificate in Google Cloud.
+d3932da0c343ac856e43b76b5c4653978844dcdc:waiter/google-services.json:gcp-api-key:18

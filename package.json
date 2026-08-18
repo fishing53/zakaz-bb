@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "sync:images": "node scripts/mirror-menu-images.mjs",
@@ -30,10 +33,13 @@
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/push-notifications": "^8.0.2",
     "@capgo/capacitor-updater": "^8.51.2",
-    "firebase-admin": "^13.10.0",
+    "firebase-admin": "^14.2.0",
     "lucide-static": "^1.31.0",
     "pg": "^8.13.3",
     "qrcode": "^1.5.4",
     "ws": "^8.21.3"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

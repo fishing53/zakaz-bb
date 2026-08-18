@@ -33,6 +33,11 @@ set -a
 set +a
 
 cd "$api_dir"
+node_major="$(node -p 'process.versions.node.split(`.`)[0]')"
+if (( node_major < 22 )); then
+  echo "BrooklynBowl API requires Node.js 22 or newer; found $(node --version)" >&2
+  exit 1
+fi
 npm ci --omit=dev --no-audit --no-fund
 node --check index.mjs
 node migrate.mjs

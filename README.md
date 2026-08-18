@@ -73,7 +73,7 @@ GitHub Actions → production web bundle + OTA-архив → Android-прило
 
 ## Локальный запуск
 
-Требования: Node.js 22+ и PostgreSQL для API.
+Требования: Node.js 22+ и PostgreSQL для API. Deploy-скрипт намеренно остановится до изменения сервиса, если на сервере установлена более старая версия Node.js.
 
 ```bash
 npm install
@@ -133,7 +133,7 @@ npm run android:debug   # debug APK локально
 
 ## Эксплуатация
 
-Идемпотентная отправка заказов, SKU-сезонность, роли, история событий, PostgreSQL backup, автоматические тесты и Telegram monitoring описаны в [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Идемпотентная отправка заказов, SKU-сезонность, роли, история событий, PostgreSQL backup, автоматические тесты и Telegram monitoring описаны в [docs/OPERATIONS.md](docs/OPERATIONS.md). Безопасный перенос репозитория и production-сервера описан в [docs/MIGRATION.md](docs/MIGRATION.md).
 
 ## QR-заказ со стола
 
