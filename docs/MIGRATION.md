@@ -31,6 +31,16 @@
 - `DEPLOY_SSH_PRIVATE_KEY` — protected file variable;
 - `SSH_KNOWN_HOSTS` — protected file variable.
 
+Переменные для нативных сборок:
+
+- `ANDROID_KEYSTORE_PATH` — protected file variable с постоянным release-keystore;
+- `ANDROID_KEYSTORE_PASSWORD` — masked/protected;
+- `ANDROID_KEY_ALIAS` — protected;
+- `ANDROID_KEY_PASSWORD` — masked/protected;
+- `IIKO_LICENSE_MODULE_ID` — protected, используется при сборке iikoFront-плагина.
+
+Без Android signing variables pipeline формирует только устанавливаемые debug APK. Release APK создаются и проверяются через `apksigner` только при наличии полного комплекта защищённых переменных. Постоянный keystore необходимо хранить ещё и в отдельном защищённом backup: потеря ключа исключит обновление уже установленного APK поверх существующего приложения.
+
 Секреты самого приложения (`DATABASE_URL`, `TOKEN_SECRET`, `ADMIN_PASSWORD_HASH`, `IIKO_CONFIG_ENCRYPTION_KEY`) хранятся на сервере в `/etc/zakaz-api.env` с правами `0600`, а не в GitLab, если деплой не создаёт сервер с нуля.
 
 ## Требования к новому серверу

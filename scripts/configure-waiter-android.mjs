@@ -40,5 +40,24 @@ await cp(resolve(root, 'waiter/android-template/WaiterFirebaseMessagingService.j
 let gradle = await readFile(gradlePath, 'utf8');
 if (!gradle.includes('firebase-messaging')) {
   gradle += "\n// Required by the native urgent waiter notification service.\ndependencies { implementation 'com.google.firebase:firebase-messaging:24.1.2' }\n";
-  await writeFile(gradlePath, gradle);
 }
+if (!gradle.includes('ANDROID_KEYSTORE_PATH')) {
+  gradle += `
+// A release is signed only when protected CI variables provide a permanent key.
+def waiterReleaseKeystorePath = System.getenv('ANDROID_KEYSTORE_PATH')
+if (waiterReleaseKeystorePath) {
+    android {
+        signingConfigs {
+            release {
+                storeFile file(waiterReleaseKeystorePath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+        buildTypes.release.signingConfig signingConfigs.release
+    }
+}
+`;
+}
+await writeFile(gradlePath, gradle);

@@ -13,6 +13,8 @@ stages:
 
 variables:
   NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  GIT_DEPTH: "0"
   KIOSK_VERSION: "0.2.0-$CI_PIPELINE_IID"
 
 default:
@@ -38,6 +40,21 @@ typecheck:
   stage: validate
   script:
     - npm run check
+
+dependency_audit:
+  extends: .node_job
+  stage: validate
+  script:
+    - npm audit --audit-level=moderate
+
+secret_scan:
+  image:
+    name: zricethezav/gitleaks:v8.29.1
+    entrypoint: [""]
+  stage: validate
+  cache: []
+  script:
+    - gitleaks git . --redact=100 --verbose
 
 server_tests:
   extends: .node_job
@@ -104,6 +121,66 @@ build_waiter:
     expire_in: 14 days
     paths:
       - dist-waiter/
+
+build_android_apks:
+  image: ghcr.io/cirruslabs/android-sdk:35
+  stage: package
+  needs:
+    - typecheck
+    - server_tests
+    - browser_tests
+  cache:
+    key: android-$CI_COMMIT_REF_SLUG
+    paths:
+      - .npm/
+      - .gradle/caches/
+      - .gradle/wrapper/
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends curl xz-utils
+    - mkdir -p "$CI_PROJECT_DIR/.ci-node"
+    - curl --fail --silent --show-error --location "https://nodejs.org/dist/v22.23.1/node-v22.23.1-linux-x64.tar.xz" --output /tmp/node.tar.xz
+    - tar -xJf /tmp/node.tar.xz -C "$CI_PROJECT_DIR/.ci-node" --strip-components=1
+    - export PATH="$CI_PROJECT_DIR/.ci-node/bin:$PATH"
+    - node --version
+    - npm ci --prefer-offline
+  script:
+    - export PATH="$CI_PROJECT_DIR/.ci-node/bin:$PATH"
+    - bash scripts/ci-build-android.sh
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - artifacts/android/*.apk
+
+build_iiko_front_plugin:
+  stage: package
+  tags:
+    - saas-windows-medium-amd64
+  variables:
+    GIT_DEPTH: "1"
+  before_script:
+    - dotnet --info
+  script:
+    - $moduleId = if ($env:IIKO_LICENSE_MODULE_ID) { $env:IIKO_LICENSE_MODULE_ID } else { '0' }
+    - dotnet build .\integrations\iiko-front-bridge\BrooklynBowl.IikoFrontBridge\BrooklynBowl.IikoFrontBridge.csproj -c Release -p:IikoLicenseModuleId=$moduleId
+    - $source = '.\integrations\iiko-front-bridge\BrooklynBowl.IikoFrontBridge\bin\Release\net472'
+    - $package = '.\artifacts\BrooklynBowl-IikoFrontBridge'
+    - New-Item -ItemType Directory -Force -Path $package | Out-Null
+    - Copy-Item "$source\BrooklynBowl.IikoFrontBridge.dll", "$source\Newtonsoft.Json.dll", "$source\Manifest.xml" -Destination $package
+    - Copy-Item '.\integrations\iiko-front-bridge\BridgeConfig.example.json' -Destination "$package\BridgeConfig.json"
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - artifacts/BrooklynBowl-IikoFrontBridge/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - integrations/iiko-front-bridge/**/*
+        - .gitlab-ci.yml
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - integrations/iiko-front-bridge/**/*
+        - .gitlab-ci.yml
+    - when: manual
 
 package_kiosk_ota:
   image: alpine:3.21
