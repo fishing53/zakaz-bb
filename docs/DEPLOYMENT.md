@@ -1,7 +1,7 @@
 # Развертывание BB Kiosk
 
 - Статус: актуально
-- Последняя сверка с `.gitlab-ci.yml`: 18 августа 2026 года
+- Последняя сверка с `.gitlab-ci.yml`: 19 августа 2026 года
 
 ## Production layout
 
@@ -26,12 +26,21 @@
 - заполненный `/etc/bb-kiosk-api.env`;
 - Firebase Admin JSON с минимальными правами;
 - внешний backup uploads и PostgreSQL;
-- назначенный GitLab Runner.
+- назначенный project runner с Docker executor.
 
 ## GitLab pipeline
 
 `.gitlab-ci.yml` собирает и проверяет артефакты до deploy. Production job запускается
 вручную из основной ветки и защищён `resource_group: production`.
+
+Проект использует выделенный Linux Docker runner с двумя параллельными job. Shared
+runners для проекта отключены. Кэш npm, Gradle и дистрибутива Gradle сохраняется
+между pipeline; runner не используется как production-сервер и не хранит runtime
+секреты приложения.
+
+Сборка iikoFront Bridge требует Windows runner с .NET Framework/iikoFront SDK и
+оставлена отдельной необязательной ручной job. Её отсутствие не блокирует сборки
+web, Android и OTA.
 
 Обязательные GitLab Variables перечислены в [CONFIGURATION.md](CONFIGURATION.md).
 SSH private key и `known_hosts` передаются как protected file variables; отключать

@@ -1,7 +1,7 @@
 # Тестирование
 
 - Статус: актуально
-- Последняя сверка: 18 августа 2026 года
+- Последняя сверка: 19 августа 2026 года
 
 ## Уровни проверок
 
@@ -78,8 +78,9 @@ Windows-сборка с выданным Module ID либо сборка с `0` 
 
 Pipeline выполняет typecheck, dependency audit, gitleaks, серверные тесты,
 Playwright, web-сборки, Android APK, OTA-пакеты и при необходимости bridge. Deploy
-production остаётся ручным. Job начнёт выполняться только после назначения
-подходящего GitLab Runner.
+production остаётся ручным. Linux job выполняются на выделенном project runner с
+Docker executor; до двух job могут идти параллельно. iikoFront Bridge собирается
+вручную на совместимом Windows runner и не блокирует основной pipeline.
 
 ## Известные пробелы
 

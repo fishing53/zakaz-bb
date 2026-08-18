@@ -1,7 +1,7 @@
 # Безопасность
 
 - Статус: актуально
-- Последняя сверка: 18 августа 2026 года
+- Последняя сверка: 19 августа 2026 года
 
 ## Модель доступа
 
@@ -24,6 +24,10 @@ bootstrap-доступ старой схемы и хранится только 
 | Telegram bot token | PostgreSQL, AES-256-GCM |
 | Firebase Admin service account | отдельный серверный JSON, не Git |
 | Deploy и signing keys | protected GitLab CI/CD Variables |
+
+Выделенный CI runner принимает job только этого проекта, использует эфемерные
+Docker-контейнеры и не совмещён с production. Shared runners проекта отключены.
+Runner registration token и временный GitLab PAT не хранятся в репозитории.
 
 `waiter/google-services.json` является клиентской Firebase-конфигурацией, а не
 Admin key. API-ключ в ней должен быть ограничен Android package и сертификатом
