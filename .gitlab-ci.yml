@@ -1,0 +1,179 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+stages:
+  - validate
+  - test
+  - build
+  - package
+  - deploy
+
+variables:
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+  KIOSK_VERSION: "0.2.0-$CI_PIPELINE_IID"
+
+default:
+  interruptible: true
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+
+.node_job:
+  image: node:22-bookworm-slim
+  before_script:
+    - npm ci --prefer-offline
+
+typecheck:
+  extends: .node_job
+  stage: validate
+  script:
+    - npm run check
+
+server_tests:
+  extends: .node_job
+  stage: test
+  script:
+    - npm test | tee test-output.tap
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - test-output.tap
+
+browser_tests:
+  image: mcr.microsoft.com/playwright:v1.62.1-noble
+  stage: test
+  before_script:
+    - npm ci --prefer-offline
+  script:
+    - npm run test:e2e
+  artifacts:
+    when: on_failure
+    expire_in: 14 days
+    paths:
+      - playwright-report/
+      - test-results/
+
+quality_report:
+  extends: .node_job
+  stage: build
+  needs:
+    - job: server_tests
+      artifacts: true
+    - job: browser_tests
+  script:
+    - BROWSER_TESTS_PASSED=4 node scripts/write-quality-report.mjs test-output.tap
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - quality-report.json
+
+build_kiosk:
+  extends: .node_job
+  stage: build
+  needs:
+    - typecheck
+    - server_tests
+    - browser_tests
+  script:
+    - VITE_BUILD_VERSION="$KIOSK_VERSION" npm run build
+  artifacts:
+    expire_in: 14 days
+    paths:
+      - dist/
+
+build_waiter:
+  extends: .node_job
+  stage: build
+  needs:
+    - typecheck
+    - server_tests
+  script:
+    - VITE_BUILD_VERSION="$KIOSK_VERSION" npm run build:waiter
+  artifacts:
+    expire_in: 14 days
+    paths:
+      - dist-waiter/
+
+package_kiosk_ota:
+  image: alpine:3.21
+  stage: package
+  needs:
+    - job: build_kiosk
+      artifacts: true
+  before_script:
+    - apk add --no-cache zip
+  script:
+    - (cd dist && zip -qr "../BB-Kiosk-$KIOSK_VERSION.zip" .)
+    - printf '{"version":"%s","url":"%s/ota/BB-Kiosk-%s.zip","publishedAt":"%s"}\n' "$KIOSK_VERSION" "$PUBLIC_APP_URL" "$KIOSK_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ota-manifest.json
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - BB-Kiosk-*.zip
+      - ota-manifest.json
+
+package_waiter_ota:
+  image: alpine:3.21
+  stage: package
+  needs:
+    - job: build_waiter
+      artifacts: true
+  before_script:
+    - apk add --no-cache zip
+  script:
+    - (cd dist-waiter && zip -qr "../BB-Waiter-$KIOSK_VERSION.zip" .)
+    - printf '{"version":"%s","url":"%s/ota/waiter/BB-Waiter-%s.zip","publishedAt":"%s"}\n' "$KIOSK_VERSION" "$PUBLIC_APP_URL" "$KIOSK_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > waiter-ota-manifest.json
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - BB-Waiter-*.zip
+      - waiter-ota-manifest.json
+
+deploy_production:
+  image: alpine:3.21
+  stage: deploy
+  interruptible: false
+  resource_group: production
+  environment:
+    name: production
+    url: $PUBLIC_APP_URL
+  needs:
+    - job: build_kiosk
+      artifacts: true
+    - job: package_kiosk_ota
+      artifacts: true
+    - job: package_waiter_ota
+      artifacts: true
+    - job: quality_report
+      artifacts: true
+  before_script:
+    - apk add --no-cache bash openssh-client rsync
+    - test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER" && test -n "$DEPLOY_WEB_ROOT" && test -n "$DEPLOY_API_ROOT"
+    - test -f "$DEPLOY_SSH_PRIVATE_KEY" && test -f "$SSH_KNOWN_HOSTS"
+    - install -m 700 -d ~/.ssh
+    - install -m 600 "$DEPLOY_SSH_PRIVATE_KEY" ~/.ssh/id_ed25519
+    - install -m 600 "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts
+  script:
+    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/ota/waiter' '$DEPLOY_WEB_ROOT/uploads/banners' '$DEPLOY_WEB_ROOT/uploads/products' '$DEPLOY_API_ROOT/ops'"
+    - rsync -az --delete --exclude='ota/' --exclude='uploads/' dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/"
+    - scp BB-Kiosk-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/"
+    - scp ota-manifest.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/manifest.json"
+    - scp BB-Waiter-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/waiter/"
+    - scp waiter-ota-manifest.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/waiter/manifest.json"
+    - scp server/index.mjs server/migrate.mjs server/core.mjs server/iiko-front-bridge.mjs package.json package-lock.json quality-report.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_API_ROOT/"
+    - scp ops/* "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_API_ROOT/ops/"
+    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "bash '$DEPLOY_API_ROOT/ops/deploy-api.sh'"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+    - when: never
