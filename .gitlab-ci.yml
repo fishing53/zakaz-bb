@@ -221,8 +221,9 @@ package_waiter_ota:
       - waiter-ota-manifest.json
 
 deploy_production:
-  image: alpine:3.21
+  image: ghcr.io/cirruslabs/android-sdk:35
   stage: deploy
+  allow_failure: true
   interruptible: false
   resource_group: production
   environment:
@@ -238,7 +239,7 @@ deploy_production:
     - job: quality_report
       artifacts: true
   before_script:
-    - apk add --no-cache bash openssh-client rsync
+    - apt-get update && apt-get install -y --no-install-recommends rsync
     - test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER" && test -n "$DEPLOY_WEB_ROOT" && test -n "$DEPLOY_API_ROOT"
     - test -f "$DEPLOY_SSH_PRIVATE_KEY" && test -f "$SSH_KNOWN_HOSTS"
     - install -m 700 -d ~/.ssh
