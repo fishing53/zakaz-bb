@@ -153,6 +153,7 @@ build_android_apks:
 
 build_iiko_front_plugin:
   stage: package
+  allow_failure: true
   tags:
     - saas-windows-medium-amd64
   variables:
@@ -176,10 +177,12 @@ build_iiko_front_plugin:
       changes:
         - integrations/iiko-front-bridge/**/*
         - .gitlab-ci.yml
+      when: manual
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       changes:
         - integrations/iiko-front-bridge/**/*
         - .gitlab-ci.yml
+      when: manual
     - when: manual
 
 package_kiosk_ota:

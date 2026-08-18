@@ -5,6 +5,7 @@ const root = resolve(import.meta.dirname, '..');
 const android = resolve(root, 'waiter/android');
 const manifestPath = resolve(android, 'app/src/main/AndroidManifest.xml');
 const gradlePath = resolve(android, 'app/build.gradle');
+const wrapperPath = resolve(android, 'gradle/wrapper/gradle-wrapper.properties');
 const javaDestination = resolve(android, 'app/src/main/java/ru/zvyak/brooklynbowl/waiter/WaiterFirebaseMessagingService.java');
 const kioskResources = resolve(root, 'android/app/src/main/res');
 const waiterResources = resolve(android, 'app/src/main/res');
@@ -61,3 +62,9 @@ if (waiterReleaseKeystorePath) {
 `;
 }
 await writeFile(gradlePath, gradle);
+
+let wrapper = await readFile(wrapperPath, 'utf8');
+wrapper = wrapper
+  .replace(/-all\.zip/g, '-bin.zip')
+  .replace(/^networkTimeout=.*$/m, 'networkTimeout=120000');
+await writeFile(wrapperPath, wrapper);
