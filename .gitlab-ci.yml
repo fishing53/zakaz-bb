@@ -145,6 +145,7 @@ build_android_apks:
     - node --version
     - npm ci --prefer-offline
     - mkdir -p "$CI_PROJECT_DIR/.ci-tools"
+    - test ! -s /opt/bb-ci-tools/gradle-8.14.3-bin.zip || cp /opt/bb-ci-tools/gradle-8.14.3-bin.zip "$CI_PROJECT_DIR/.ci-tools/gradle-8.14.3-bin.zip"
     - test -s "$CI_PROJECT_DIR/.ci-tools/gradle-8.14.3-bin.zip" || curl --ipv4 --fail --show-error --location --retry 8 --retry-delay 5 --retry-all-errors --connect-timeout 30 --max-time 900 --continue-at - "https://services.gradle.org/distributions/gradle-8.14.3-bin.zip" --output "$CI_PROJECT_DIR/.ci-tools/gradle-8.14.3-bin.zip"
   script:
     - export PATH="$CI_PROJECT_DIR/.ci-node/bin:$PATH"
