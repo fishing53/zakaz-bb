@@ -191,13 +191,11 @@ build_iiko_front_plugin:
     - when: manual
 
 package_kiosk_ota:
-  image: alpine:3.21
+  image: ghcr.io/cirruslabs/android-sdk:35
   stage: package
   needs:
     - job: build_kiosk
       artifacts: true
-  before_script:
-    - apk add --no-cache zip
   script:
     - (cd dist && zip -qr "../BB-Kiosk-$KIOSK_VERSION.zip" .)
     - printf '{"version":"%s","url":"%s/ota/BB-Kiosk-%s.zip","publishedAt":"%s"}\n' "$KIOSK_VERSION" "$PUBLIC_APP_URL" "$KIOSK_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ota-manifest.json
@@ -208,13 +206,11 @@ package_kiosk_ota:
       - ota-manifest.json
 
 package_waiter_ota:
-  image: alpine:3.21
+  image: ghcr.io/cirruslabs/android-sdk:35
   stage: package
   needs:
     - job: build_waiter
       artifacts: true
-  before_script:
-    - apk add --no-cache zip
   script:
     - (cd dist-waiter && zip -qr "../BB-Waiter-$KIOSK_VERSION.zip" .)
     - printf '{"version":"%s","url":"%s/ota/waiter/BB-Waiter-%s.zip","publishedAt":"%s"}\n' "$KIOSK_VERSION" "$PUBLIC_APP_URL" "$KIOSK_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > waiter-ota-manifest.json
