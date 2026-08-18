@@ -5,7 +5,16 @@ version="${KIOSK_VERSION:-dev}"
 artifact_dir="${CI_PROJECT_DIR:-$(pwd)}/artifacts/android"
 mkdir -p "$artifact_dir"
 
+use_ci_gradle_distribution() {
+  local wrapper_properties="$1"
+  if [[ -n "${CI_GRADLE_DISTRIBUTION_FILE:-}" ]]; then
+    test -s "$CI_GRADLE_DISTRIBUTION_FILE"
+    sed -i "s#^distributionUrl=.*#distributionUrl=file\\\://${CI_GRADLE_DISTRIBUTION_FILE}#" "$wrapper_properties"
+  fi
+}
+
 npm run android:sync
+use_ci_gradle_distribution android/gradle/wrapper/gradle-wrapper.properties
 (
   cd android
   ./gradlew --no-daemon assembleDebug
@@ -19,6 +28,7 @@ npm run build:waiter
   cp google-services.json android/app/google-services.json
   ../node_modules/.bin/cap sync android
   node ../scripts/configure-waiter-android.mjs
+  use_ci_gradle_distribution android/gradle/wrapper/gradle-wrapper.properties
   cd android
   ./gradlew --no-daemon assembleDebug
 )

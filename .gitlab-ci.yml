@@ -135,6 +135,7 @@ build_android_apks:
       - .npm/
       - .gradle/caches/
       - .gradle/wrapper/
+      - .ci-tools/
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends curl xz-utils
     - mkdir -p "$CI_PROJECT_DIR/.ci-node"
@@ -143,8 +144,11 @@ build_android_apks:
     - export PATH="$CI_PROJECT_DIR/.ci-node/bin:$PATH"
     - node --version
     - npm ci --prefer-offline
+    - mkdir -p "$CI_PROJECT_DIR/.ci-tools"
+    - test -s "$CI_PROJECT_DIR/.ci-tools/gradle-8.14.3-bin.zip" || curl --fail --show-error --location --retry 8 --retry-delay 5 --retry-all-errors --connect-timeout 30 --max-time 900 --continue-at - "https://services.gradle.org/distributions/gradle-8.14.3-bin.zip" --output "$CI_PROJECT_DIR/.ci-tools/gradle-8.14.3-bin.zip"
   script:
     - export PATH="$CI_PROJECT_DIR/.ci-node/bin:$PATH"
+    - export CI_GRADLE_DISTRIBUTION_FILE="$CI_PROJECT_DIR/.ci-tools/gradle-8.14.3-bin.zip"
     - bash scripts/ci-build-android.sh
   artifacts:
     expire_in: 30 days
