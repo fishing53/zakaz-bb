@@ -1,7 +1,8 @@
 # Интеграция с iiko Cloud API
 
 - Статус: production implementation
-- Проверено с iikoOffice/iikoFront 9.4
+- Проверено с iikoOffice/iikoFront 9.4. Локальный Bridge использует стабильную
+  LTS-версию iikoFront API V8; V9 требует iikoRMS 9.5 или новее.
 - Последняя сверка с кодом: 18 августа 2026 года
 
 Документ описывает особенности реализации BB Kiosk. Полный контракт и актуальные

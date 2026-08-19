@@ -9,7 +9,7 @@ namespace BrooklynBowl.IikoFrontBridge
 {
     internal sealed class BridgeConfig
     {
-        public string ServerUrl { get; set; } = "https://заказ.звяк.рф";
+        public string ServerUrl { get; set; } = "https://order.brooklynbowl.ru";
         public string PairingCode { get; set; } = "";
         public string DisplayName { get; set; } = "BrooklynBowl iikoFront";
 
