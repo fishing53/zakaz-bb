@@ -125,6 +125,7 @@ build_waiter:
 build_android_apks:
   image: ghcr.io/cirruslabs/android-sdk:35
   stage: package
+  allow_failure: true
   needs:
     - typecheck
     - server_tests
@@ -155,6 +156,10 @@ build_android_apks:
     expire_in: 30 days
     paths:
       - artifacts/android/*.apk
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG'
+      when: manual
+    - when: never
 
 build_iiko_front_plugin:
   image: mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim
