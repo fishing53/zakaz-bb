@@ -248,6 +248,39 @@ await pool.query(`
     last_synced_at timestamptz not null default now(), created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
     primary key(restaurant_id,employee_id)
   );
+  alter table iiko_employees add column if not exists restaurant_id text;
+  alter table iiko_employees add column if not exists first_name text not null default '';
+  alter table iiko_employees add column if not exists middle_name text not null default '';
+  alter table iiko_employees add column if not exists last_name text not null default '';
+  alter table iiko_employees add column if not exists role_ids jsonb not null default '[]'::jsonb;
+  alter table iiko_employees add column if not exists role_names jsonb not null default '[]'::jsonb;
+  alter table iiko_employees add column if not exists app_access_enabled boolean not null default false;
+  alter table iiko_employees add column if not exists last_synced_at timestamptz not null default now();
+  alter table iiko_employees add column if not exists created_at timestamptz not null default now();
+  do $migration$
+  begin
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema=current_schema() and table_name='iiko_employees' and column_name='organization_id'
+    ) then
+      execute 'update iiko_employees set restaurant_id=organization_id where restaurant_id is null';
+    end if;
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema=current_schema() and table_name='iiko_employees' and column_name='role_name'
+    ) then
+      execute $sql$update iiko_employees set role_names=jsonb_build_array(role_name) where role_name <> '' and role_names='[]'::jsonb$sql$;
+    end if;
+  end
+  $migration$;
+  delete from iiko_employees where restaurant_id is null;
+  alter table iiko_employees alter column restaurant_id set not null;
+  -- Legacy installations linked waiter profiles to employee_id globally.
+  -- Employees are restaurant-scoped now, so that foreign key would both block
+  -- the composite primary key migration and mix staff from different venues.
+  alter table waiter_profiles drop constraint if exists waiter_profiles_iiko_employee_id_fkey;
+  alter table iiko_employees drop constraint if exists iiko_employees_pkey;
+  alter table iiko_employees add primary key(restaurant_id,employee_id);
   create table if not exists admin_users (
     id uuid primary key, restaurant_id text not null, username text not null, display_name text not null,
     role text not null check(role in ('administrator','hostess')), password_hash text not null,
