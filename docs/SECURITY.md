@@ -43,6 +43,8 @@ JavaScript.
 - Nginx завершает TLS и ограничивает размер запросов;
 - iikoFront Bridge создаёт исходящее WSS-соединение, входящий порт ресторана не
   нужен;
+- strong-name ключ iikoFront Bridge хранится локально и в скрытой protected
+  GitLab-переменной; в репозиторий и artifacts попадает только подписанная DLL;
 - CORS разрешает production, Capacitor localhost и временный старый домен только
   для совместимости уже выпущенных APK.
 

@@ -8,17 +8,23 @@
 
 ## Сборка
 
-Требуются Windows, .NET SDK и выданный iiko `Module ID`:
+Требуются Windows, .NET SDK, выданный iiko `Module ID` и постоянный strong-name
+ключ разработчика:
 
 ```powershell
-.\build.ps1 -ModuleId ВАШ_MODULE_ID
+.\build.ps1 -ModuleId ВАШ_MODULE_ID -SigningKeyFile C:\secure\developer.snk
 ```
 
 Готовый ZIP появится в `artifacts`. В GitLab сборка описана ручной задачей
 `build_iiko_front_plugin`; для рабочей сборки задайте CI/CD-переменную
-`IIKO_LICENSE_MODULE_ID`.
+`IIKO_LICENSE_MODULE_ID` и скрытую protected-переменную
+`IIKO_SIGNING_KEY_B64` с приватным ключом в Base64.
 
 Значение автоматически попадёт и в атрибут плагина, и в `Manifest.xml`. Сборка с `Module ID = 0` предназначена только для проверки компиляции и не устанавливается в рабочий iikoFront.
+
+Приватный `.snk` нельзя добавлять в Git, CI artifacts или загружать в портал
+iiko. На портал передаётся только экспортированный из него `.pub`. Все релизы
+одного плагина должны подписываться одной и той же ключевой парой.
 
 ## Сопряжение
 

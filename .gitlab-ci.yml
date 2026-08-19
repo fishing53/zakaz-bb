@@ -175,7 +175,13 @@ build_iiko_front_plugin:
   script:
     - module_id="${IIKO_LICENSE_MODULE_ID:-}"
     - test "$module_id" -gt 0 2>/dev/null || (echo "IIKO_LICENSE_MODULE_ID must be a positive integer" >&2; exit 1)
-    - dotnet build integrations/iiko-front-bridge/BrooklynBowl.IikoFrontBridge/BrooklynBowl.IikoFrontBridge.csproj -c Release -p:IikoLicenseModuleId="$module_id"
+    - test -n "${IIKO_SIGNING_KEY_B64:-}" || (echo "IIKO_SIGNING_KEY_B64 is required" >&2; exit 1)
+    - signing_dir="$CI_PROJECT_DIR/.ci-iiko"
+    - signing_key="$signing_dir/developer.snk"
+    - mkdir -p "$signing_dir"
+    - printf '%s' "$IIKO_SIGNING_KEY_B64" | base64 --decode > "$signing_key"
+    - chmod 600 "$signing_key" && test -s "$signing_key"
+    - dotnet build integrations/iiko-front-bridge/BrooklynBowl.IikoFrontBridge/BrooklynBowl.IikoFrontBridge.csproj -c Release -p:IikoLicenseModuleId="$module_id" -p:IikoSigningKeyFile="$signing_key"
     - source_dir="integrations/iiko-front-bridge/BrooklynBowl.IikoFrontBridge/bin/Release/net472"
     - package_dir="artifacts/BB-Kiosk-IikoFrontBridge"
     - mkdir -p "$package_dir"
@@ -187,6 +193,9 @@ build_iiko_front_plugin:
     paths:
       - artifacts/BB-Kiosk-IikoFrontBridge/
       - artifacts/BB-Kiosk-IikoFrontBridge-*.zip
+  after_script:
+    - find "$CI_PROJECT_DIR/.ci-iiko" -type f -delete 2>/dev/null || true
+    - rmdir "$CI_PROJECT_DIR/.ci-iiko" 2>/dev/null || true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:

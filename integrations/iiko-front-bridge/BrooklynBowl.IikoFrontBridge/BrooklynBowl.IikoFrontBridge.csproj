@@ -7,6 +7,8 @@
     <RootNamespace>BrooklynBowl.IikoFrontBridge</RootNamespace>
     <Version>0.1.0</Version>
     <IikoLicenseModuleId Condition="'$(IikoLicenseModuleId)' == ''">0</IikoLicenseModuleId>
+    <SignAssembly Condition="'$(IikoSigningKeyFile)' != ''">true</SignAssembly>
+    <AssemblyOriginatorKeyFile Condition="'$(IikoSigningKeyFile)' != ''">$(IikoSigningKeyFile)</AssemblyOriginatorKeyFile>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.Net.Http" />

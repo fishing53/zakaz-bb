@@ -11,6 +11,8 @@ integrations/**/bin/
 integrations/**/obj/
 integrations/**/BridgeConfig.json
 integrations/**/artifacts/
+integrations/**/*.snk
+.ci-iiko/
 .env
 .env.*
 !.env.example
