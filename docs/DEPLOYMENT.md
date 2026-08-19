@@ -33,14 +33,14 @@
 `.gitlab-ci.yml` собирает и проверяет артефакты до deploy. Production job запускается
 вручную из основной ветки и защищён `resource_group: production`.
 
-Проект использует выделенный Linux Docker runner с двумя параллельными job. Shared
-runners для проекта отключены. Кэш npm, Gradle и дистрибутива Gradle сохраняется
-между pipeline; runner не используется как production-сервер и не хранит runtime
-секреты приложения.
+Проект использует защищённый Linux Docker runner на production-сервере с одной
+параллельной job и ограничениями CPU/RAM. Shared runners отключены. Кэш npm,
+Gradle и дистрибутива Gradle сохраняется между pipeline; Android и iikoFront
+сборки запускаются вручную, чтобы не создавать постоянную нагрузку на production.
 
-Сборка iikoFront Bridge требует Windows runner с .NET Framework/iikoFront SDK и
-оставлена отдельной необязательной ручной job. Её отсутствие не блокирует сборки
-web, Android и OTA.
+Сборка iikoFront Bridge выполняется в Linux-контейнере .NET SDK. Ссылки на
+.NET Framework и iikoFront API восстанавливаются из NuGet; готовый ZIP остаётся
+отдельным необязательным артефактом и не блокирует web и OTA.
 
 Обязательные GitLab Variables перечислены в [CONFIGURATION.md](CONFIGURATION.md).
 SSH private key и `known_hosts` передаются как protected file variables; отключать

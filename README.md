@@ -59,7 +59,8 @@ waiter/                        Web/Android-клиент официанта
 - npm 10 или новее;
 - PostgreSQL 16 или новее для запуска API;
 - JDK 17 и Android SDK для сборки APK;
-- Windows, .NET SDK и библиотеки iikoFront для сборки bridge-плагина.
+- .NET SDK 8 для сборки bridge-плагина; локальный установочный сценарий также
+  доступен через PowerShell на Windows.
 
 ## Установка
 
@@ -165,8 +166,8 @@ GitLab pipeline определён в `.gitlab-ci.yml` и включает:
 - TypeScript, dependency audit и secret scan;
 - серверные и браузерные тесты;
 - сборку киоска и приложения официанта;
-- сборку Android APK;
-- сборку iikoFront bridge на Windows runner;
+- ручную сборку Android APK;
+- ручную сборку iikoFront bridge в .NET SDK-контейнере;
 - упаковку OTA-релизов;
 - ручной production deploy из основной ветки.
 
