@@ -173,8 +173,8 @@ build_iiko_front_plugin:
     - dotnet --info
     - apt-get update && apt-get install -y --no-install-recommends zip
   script:
-    - module_id="${IIKO_LICENSE_MODULE_ID:-0}"
-    - test "$module_id" -ge 0 2>/dev/null
+    - module_id="${IIKO_LICENSE_MODULE_ID:-}"
+    - test "$module_id" -gt 0 2>/dev/null || (echo "IIKO_LICENSE_MODULE_ID must be a positive integer" >&2; exit 1)
     - dotnet build integrations/iiko-front-bridge/BrooklynBowl.IikoFrontBridge/BrooklynBowl.IikoFrontBridge.csproj -c Release -p:IikoLicenseModuleId="$module_id"
     - source_dir="integrations/iiko-front-bridge/BrooklynBowl.IikoFrontBridge/bin/Release/net472"
     - package_dir="artifacts/BB-Kiosk-IikoFrontBridge"
