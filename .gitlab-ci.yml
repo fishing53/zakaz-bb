@@ -178,15 +178,17 @@ build_iiko_front_plugin:
     - test -n "${IIKO_SIGNING_KEY_B64:-}" || (echo "IIKO_SIGNING_KEY_B64 is required" >&2; exit 1)
     - signing_dir="$CI_PROJECT_DIR/.ci-iiko"
     - signing_key="$signing_dir/developer.snk"
+    - binding_file="integrations/iiko-front-bridge/binding.jwt"
     - mkdir -p "$signing_dir"
     - printf '%s' "$IIKO_SIGNING_KEY_B64" | base64 --decode > "$signing_key"
-    - chmod 600 "$signing_key" && test -s "$signing_key"
+    - chmod 600 "$signing_key" && test -s "$signing_key" && test -s "$binding_file"
     - dotnet build integrations/iiko-front-bridge/BrooklynBowl.IikoFrontBridge/BrooklynBowl.IikoFrontBridge.csproj -c Release -p:IikoLicenseModuleId="$module_id" -p:IikoSigningKeyFile="$signing_key"
     - source_dir="integrations/iiko-front-bridge/BrooklynBowl.IikoFrontBridge/bin/Release/net472"
     - package_dir="artifacts/BB-Kiosk-IikoFrontBridge"
     - mkdir -p "$package_dir"
     - cp "$source_dir/BrooklynBowl.IikoFrontBridge.dll" "$source_dir/Newtonsoft.Json.dll" "$source_dir/Manifest.xml" "$package_dir/"
     - cp integrations/iiko-front-bridge/BridgeConfig.example.json "$package_dir/BridgeConfig.json"
+    - cp "$binding_file" "$package_dir/binding.jwt"
     - (cd artifacts && zip -qr "BB-Kiosk-IikoFrontBridge-${module_id}.zip" BB-Kiosk-IikoFrontBridge)
   artifacts:
     expire_in: 30 days

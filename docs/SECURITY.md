@@ -45,6 +45,8 @@ JavaScript.
   нужен;
 - strong-name ключ iikoFront Bridge хранится локально и в скрытой protected
   GitLab-переменной; в репозиторий и artifacts попадает только подписанная DLL;
+- выданный iiko `binding.jwt` содержит только подписанную привязку к Module ID
+  и публичному ключу и хранится как распространяемая часть плагина;
 - CORS разрешает production, Capacitor localhost и временный старый домен только
   для совместимости уже выпущенных APK.
 
