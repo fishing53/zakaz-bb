@@ -157,26 +157,31 @@ build_android_apks:
       - artifacts/android/*.apk
 
 build_iiko_front_plugin:
+  image: mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim
   stage: package
   allow_failure: true
   tags:
-    - saas-windows-medium-amd64
+    - bb-production
   variables:
     GIT_DEPTH: "1"
   before_script:
     - dotnet --info
+    - apt-get update && apt-get install -y --no-install-recommends zip
   script:
-    - $moduleId = if ($env:IIKO_LICENSE_MODULE_ID) { $env:IIKO_LICENSE_MODULE_ID } else { '0' }
-    - dotnet build .\integrations\iiko-front-bridge\BrooklynBowl.IikoFrontBridge\BrooklynBowl.IikoFrontBridge.csproj -c Release -p:IikoLicenseModuleId=$moduleId
-    - $source = '.\integrations\iiko-front-bridge\BrooklynBowl.IikoFrontBridge\bin\Release\net472'
-    - $package = '.\artifacts\BrooklynBowl-IikoFrontBridge'
-    - New-Item -ItemType Directory -Force -Path $package | Out-Null
-    - Copy-Item "$source\BrooklynBowl.IikoFrontBridge.dll", "$source\Newtonsoft.Json.dll", "$source\Manifest.xml" -Destination $package
-    - Copy-Item '.\integrations\iiko-front-bridge\BridgeConfig.example.json' -Destination "$package\BridgeConfig.json"
+    - module_id="${IIKO_LICENSE_MODULE_ID:-0}"
+    - test "$module_id" -ge 0 2>/dev/null
+    - dotnet build integrations/iiko-front-bridge/BrooklynBowl.IikoFrontBridge/BrooklynBowl.IikoFrontBridge.csproj -c Release -p:IikoLicenseModuleId="$module_id"
+    - source_dir="integrations/iiko-front-bridge/BrooklynBowl.IikoFrontBridge/bin/Release/net472"
+    - package_dir="artifacts/BB-Kiosk-IikoFrontBridge"
+    - mkdir -p "$package_dir"
+    - cp "$source_dir/BrooklynBowl.IikoFrontBridge.dll" "$source_dir/Newtonsoft.Json.dll" "$source_dir/Manifest.xml" "$package_dir/"
+    - cp integrations/iiko-front-bridge/BridgeConfig.example.json "$package_dir/BridgeConfig.json"
+    - (cd artifacts && zip -qr "BB-Kiosk-IikoFrontBridge-${module_id}.zip" BB-Kiosk-IikoFrontBridge)
   artifacts:
     expire_in: 30 days
     paths:
-      - artifacts/BrooklynBowl-IikoFrontBridge/
+      - artifacts/BB-Kiosk-IikoFrontBridge/
+      - artifacts/BB-Kiosk-IikoFrontBridge-*.zip
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
