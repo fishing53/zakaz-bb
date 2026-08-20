@@ -529,18 +529,94 @@ const saveIikoOrder = async (eventInfo, { organizationId = iikoOrganizationId, e
 };
 let iikoAccessToken = '';
 let iikoAccessTokenExpiresAt = 0;
+let iikoAccessTokenTask = null;
 let iikoRetryAfter = 0;
+const iikoRetryAfterByGroup = new Map();
+const iikoRequestWindows = new Map();
+const iikoRestrictionGroup = (path) => ({
+  '/api/v2/access_token': 'Authorization',
+  '/api/1/organizations': 'Data: dictionaries',
+  '/api/1/terminal_groups': 'Data: dictionaries',
+  '/api/1/deliveries/order_types': 'Data: dictionaries',
+  '/api/1/discounts': 'Data: dictionaries',
+  '/api/1/terminal_groups/is_alive': 'POS: availability',
+  '/api/2/menu': 'Data: menu',
+  '/api/2/menu/by_id': 'Data: menu',
+  '/api/1/reserve/available_restaurant_sections': 'Orders: preparing',
+  '/api/1/stop_lists': 'Data: stoplists',
+  '/api/1/order/create': 'Orders: creating',
+  '/api/1/order/by_id': 'Orders: receiving',
+  '/api/1/webhooks/settings': 'Organizations: settings',
+  '/api/1/webhooks/update_settings': 'WebHooks: settings',
+}[path] ?? `Other:${path}`);
+// Numeric quotas are assigned to an API login in iikoWeb and are not published
+// as one universal table. These deliberately conservative local ceilings keep
+// BB Kiosk below the assigned quotas; business order creation remains roomy.
+const iikoLocalBudgets = new Map([
+  ['Authorization', 8],
+  ['Data: dictionaries', 12],
+  ['POS: availability', 6],
+  ['Data: menu', 6],
+  ['Orders: preparing', 6],
+  ['Data: stoplists', 8],
+  ['Orders: receiving', 8],
+  ['Organizations: settings', 3],
+  ['WebHooks: settings', 1],
+  ['Orders: creating', 120],
+]);
+const iikoRetryDelay = (response, fallbackSeconds = 60) => {
+  const raw = String(response.headers.get('retry-after') ?? '').trim();
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds > 0) return Math.max(30_000, seconds * 1_000);
+  const date = Date.parse(raw);
+  if (Number.isFinite(date)) return Math.max(30_000, date - Date.now());
+  return fallbackSeconds * 1_000;
+};
+const registerIikoRateLimit = (response, group) => {
+  const delay = iikoRetryDelay(response);
+  iikoRetryAfter = Math.max(iikoRetryAfter, Date.now() + delay);
+  iikoRetryAfterByGroup.set(group, Date.now() + delay);
+  return Math.ceil(delay / 1_000);
+};
+const reserveIikoRequest = (path) => {
+  const group = iikoRestrictionGroup(path);
+  const remoteRetryAt = Number(iikoRetryAfterByGroup.get(group) ?? 0);
+  if (Date.now() < remoteRetryAt) {
+    const retryAfter = Math.max(1, Math.ceil((remoteRetryAt - Date.now()) / 1_000));
+    throw Object.assign(new Error(`iiko временно ограничил запросы. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter });
+  }
+  const windowMs = 10 * 60_000; const now = Date.now();
+  const recent = arrayValue(iikoRequestWindows.get(group)).filter((timestamp) => timestamp > now - windowMs);
+  const budget = Number(iikoLocalBudgets.get(group) ?? 10);
+  if (recent.length >= budget) {
+    const retryAfter = Math.max(1, Math.ceil((recent[0] + windowMs - now) / 1_000));
+    iikoRequestWindows.set(group, recent);
+    throw Object.assign(new Error(`Безопасный лимит iiko для группы «${group}» исчерпан. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter });
+  }
+  recent.push(now); iikoRequestWindows.set(group, recent);
+  return group;
+};
 const iikoDiscoverySessions = new Map();
 const cleanIikoDiscoverySessions = () => {
   const now = Date.now();
   for (const [id, session] of iikoDiscoverySessions) if (session.expiresAt <= now) iikoDiscoverySessions.delete(id);
 };
 const discoverIikoCredentials = async (config, userId) => {
+  const authGroup = reserveIikoRequest('/api/v2/access_token');
   const auth = await fetch(`${config.apiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId: config.appId, apiLogin: config.apiLogin, clientSecret: config.clientSecret }) });
   const authBody = await auth.json().catch(() => ({}));
+  if (auth.status === 429) {
+    const retryAfter = registerIikoRateLimit(auth, authGroup);
+    throw Object.assign(new Error(`iiko временно ограничил запросы. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter, correlationId: authBody.correlationId ?? null });
+  }
   if (!auth.ok || !authBody.token) throw Object.assign(new Error(authBody.errorDescription ?? 'iiko не принял данные авторизации'), { status: 409 });
+  const organizationsGroup = reserveIikoRequest('/api/1/organizations');
   const organizationsResponse = await fetch(`${config.apiBase}/api/1/organizations`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authBody.token}` }, body: JSON.stringify({ returnAdditionalInfo: false, includeDisabled: false }) });
   const organizationsBody = await organizationsResponse.json().catch(() => ({}));
+  if (organizationsResponse.status === 429) {
+    const retryAfter = registerIikoRateLimit(organizationsResponse, organizationsGroup);
+    throw Object.assign(new Error(`iiko временно ограничил запросы. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter, correlationId: organizationsBody.correlationId ?? null });
+  }
   if (!organizationsResponse.ok) throw Object.assign(new Error(organizationsBody.errorDescription ?? 'Не удалось получить рестораны iiko'), { status: 409 });
   const organizations = arrayValue(organizationsBody.organizations).map((item) => ({ id: String(item.id), name: String(item.name ?? item.code ?? 'Ресторан'), code: String(item.code ?? '') }));
   if (!organizations.length) throw Object.assign(new Error('Для этого API-логина не найдено доступных ресторанов'), { status: 409 });
@@ -557,8 +633,13 @@ const requireIikoDiscoverySession = (token, admin) => {
   return session;
 };
 const iikoDiscoveryCall = async (session, path, body) => {
+  const group = reserveIikoRequest(path);
   const result = await fetch(`${session.config.apiBase}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.accessToken}` }, body: JSON.stringify(body) });
   const payload = await result.json().catch(() => ({}));
+  if (result.status === 429) {
+    const retryAfter = registerIikoRateLimit(result, group);
+    throw Object.assign(new Error(`iiko временно ограничил запросы. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter, correlationId: payload.correlationId ?? null });
+  }
   if (!result.ok) throw Object.assign(new Error(payload.errorDescription ?? `Не удалось получить настройки iiko: ${path}`), { status: 409 });
   return payload;
 };
@@ -592,14 +673,24 @@ const managedIikoWebhookFilter = {
   stopListUpdateFilter: { updates: true },
 };
 const authorizeIikoConfig = async (config) => {
+  const group = reserveIikoRequest('/api/v2/access_token');
   const result = await fetch(`${config.apiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId: config.appId, apiLogin: config.apiLogin, clientSecret: config.clientSecret }) });
   const payload = await result.json().catch(() => ({}));
+  if (result.status === 429) {
+    const retryAfter = registerIikoRateLimit(result, group);
+    throw Object.assign(new Error(`iiko временно ограничил запросы. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter, correlationId: payload.correlationId ?? null });
+  }
   if (!result.ok || !payload.token) throw Object.assign(new Error(payload.errorDescription ?? 'iiko не принял данные авторизации для настройки webhook'), { status: 409 });
   return payload.token;
 };
 const iikoConfigCall = async (config, token, path, body) => {
+  const group = reserveIikoRequest(path);
   const result = await fetch(`${config.apiBase}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
   const payload = await result.json().catch(() => ({}));
+  if (result.status === 429) {
+    const retryAfter = registerIikoRateLimit(result, group);
+    throw Object.assign(new Error(`iiko временно ограничил запросы. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter, correlationId: payload.correlationId ?? null });
+  }
   if (!result.ok) throw Object.assign(new Error(payload.errorDescription ?? `iiko не принял настройку webhook: ${path}`), { status: 409, correlationId: payload.correlationId ?? null });
   return payload;
 };
@@ -620,40 +711,44 @@ const webhookRegistrationMatches = (settings, config) => {
     && current.webHooksFilter?.stopListUpdateFilter?.updates === true;
 };
 const updateIikoWebhookSettings = (config, token, settings) => iikoConfigCall(config, token, '/api/1/webhooks/update_settings', { organizationId: config.organizationId, ...normalizedWebhookSettings(settings) });
-const ensureIikoWebhookRegistration = async (config) => {
-  const token = await authorizeIikoConfig(config);
-  const previous = normalizedWebhookSettings(await iikoConfigCall(config, token, '/api/1/webhooks/settings', { organizationId: config.organizationId }));
-  if (webhookRegistrationMatches(previous, config)) return { updated: false, verified: true, previous: null };
-  const desired = { webHooksUri: publicIikoWebhookUrl, authToken: config.webhookToken, webHooksFilter: { ...previous.webHooksFilter, ...managedIikoWebhookFilter } };
-  let changed = false;
-  try {
-    await updateIikoWebhookSettings(config, token, desired); changed = true;
-    let verified = null;
-    for (const delayMs of [0, 400, 1_000, 2_000]) {
-      if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
-      verified = await iikoConfigCall(config, token, '/api/1/webhooks/settings', { organizationId: config.organizationId });
-      if (webhookRegistrationMatches(verified, config)) break;
+const iikoWebhookEnsureTasks = new Map();
+const iikoWebhookVerifiedUntil = new Map();
+const iikoWebhookUpdatedAt = new Map();
+const ensureIikoWebhookRegistration = (config, existingToken = '') => {
+  const key = `${config.apiBase}|${config.organizationId}|${config.apiLogin}`;
+  if (Number(iikoWebhookVerifiedUntil.get(key) ?? 0) > Date.now()) return Promise.resolve({ updated: false, verified: true });
+  if (iikoWebhookEnsureTasks.has(key)) return iikoWebhookEnsureTasks.get(key);
+  const task = (async () => {
+    const token = existingToken || await authorizeIikoConfig(config);
+    const current = normalizedWebhookSettings(await iikoConfigCall(config, token, '/api/1/webhooks/settings', { organizationId: config.organizationId }));
+    if (webhookRegistrationMatches(current, config)) {
+      iikoWebhookVerifiedUntil.set(key, Date.now() + 10 * 60_000);
+      return { updated: false, verified: true };
     }
-    if (!webhookRegistrationMatches(verified, config)) throw Object.assign(new Error('iiko сохранила webhook не полностью'), { status: 409 });
-    return { updated: true, verified: true, previous, token };
-  } catch (error) {
-    if (changed) await updateIikoWebhookSettings(config, token, previous).catch((restoreError) => console.error('Unable to restore previous iiko webhook settings:', restoreError));
-    throw error;
-  }
-};
-const restoreIikoWebhookRegistration = async (config, registration) => {
-  if (!registration?.updated || !registration.previous || !registration.token) return;
-  await updateIikoWebhookSettings(config, registration.token, registration.previous);
+    const lastUpdate = Number(iikoWebhookUpdatedAt.get(key) ?? 0);
+    if (lastUpdate && Date.now() - lastUpdate < 10 * 60_000) {
+      const retryAfter = Math.ceil((lastUpdate + 10 * 60_000 - Date.now()) / 1_000);
+      throw Object.assign(new Error(`Настройки webhook уже изменялись. Повторите через ${retryAfter} сек.`), { status: 429, retryAfter });
+    }
+    const desired = { webHooksUri: publicIikoWebhookUrl, authToken: config.webhookToken, webHooksFilter: { ...current.webHooksFilter, ...managedIikoWebhookFilter } };
+    await updateIikoWebhookSettings(config, token, desired);
+    iikoWebhookUpdatedAt.set(key, Date.now());
+    // update_settings returning 200 is the acknowledgement. Do not poll the
+    // settings endpoint repeatedly: iiko applies a separate quota per method.
+    iikoWebhookVerifiedUntil.set(key, Date.now() + 10 * 60_000);
+    return { updated: true, verified: true };
+  })().finally(() => iikoWebhookEnsureTasks.delete(key));
+  iikoWebhookEnsureTasks.set(key, task);
+  return task;
 };
 const iikoRequest = async (path, body) => {
-  if (Date.now() < iikoRetryAfter) throw Object.assign(new Error('iiko временно ограничил запросы, используем сохранённые данные'), { status: 503 });
+  const group = reserveIikoRequest(path);
   const token = await getIikoAccessToken();
   const result = await fetch(`${iikoApiBase}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
   const payload = await result.json().catch(() => ({}));
   if (result.status === 429) {
-    const seconds = Math.max(30, Number(result.headers.get('retry-after') ?? 60));
-    iikoRetryAfter = Date.now() + seconds * 1_000;
-    throw Object.assign(new Error('iiko временно ограничил запросы'), { status: 503 });
+    const retryAfter = registerIikoRateLimit(result, group);
+    throw Object.assign(new Error(`iiko временно ограничил запросы. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter, correlationId: payload.correlationId ?? null });
   }
   if (!result.ok) {
     const correlationId = String(payload.correlationId ?? result.headers.get('x-correlation-id') ?? '');
@@ -722,22 +817,45 @@ const promotionInput = async (body) => {
 };
 const getIikoAccessToken = async () => {
   if (iikoAccessToken && iikoAccessTokenExpiresAt > Date.now()) return iikoAccessToken;
+  if (iikoAccessTokenTask) return iikoAccessTokenTask;
   if (!iikoAppId || !iikoApiLogin || !iikoClientSecret) throw Object.assign(new Error('iiko credentials are not configured'), { status: 503 });
-  const result = await fetch(`${iikoApiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId: iikoAppId, apiLogin: iikoApiLogin, clientSecret: iikoClientSecret }) });
-  const body = await result.json().catch(() => ({}));
-  if (!result.ok || !body.token) throw Object.assign(new Error(body.errorDescription ?? 'iiko authorization failed'), { status: 502 });
-  iikoAccessToken = body.token;
-  iikoAccessTokenExpiresAt = Date.now() + 14 * 60 * 1000;
-  return iikoAccessToken;
+  const authGroup = reserveIikoRequest('/api/v2/access_token');
+  iikoAccessTokenTask = (async () => {
+    const result = await fetch(`${iikoApiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId: iikoAppId, apiLogin: iikoApiLogin, clientSecret: iikoClientSecret }) });
+    const body = await result.json().catch(() => ({}));
+    if (result.status === 429) {
+      const retryAfter = registerIikoRateLimit(result, authGroup);
+      throw Object.assign(new Error(`iiko временно ограничил запросы. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter, correlationId: body.correlationId ?? null });
+    }
+    if (!result.ok || !body.token) throw Object.assign(new Error(body.errorDescription ?? 'iiko authorization failed'), { status: 502 });
+    iikoAccessToken = body.token;
+    iikoAccessTokenExpiresAt = Date.now() + 14 * 60 * 1000;
+    return iikoAccessToken;
+  })().finally(() => { iikoAccessTokenTask = null; });
+  return iikoAccessTokenTask;
 };
-const testIikoConnection = async (config) => {
+const testIikoConnection = async (config, existingToken = '') => {
   const started = Date.now();
-  const auth = await fetch(`${config.apiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId: config.appId, apiLogin: config.apiLogin, clientSecret: config.clientSecret }) });
-  const authBody = await auth.json().catch(() => ({}));
-  if (!auth.ok || !authBody.token) throw Object.assign(new Error(authBody.errorDescription ?? 'iiko не принял данные авторизации'), { status: 409 });
+  let accessToken = existingToken;
+  if (!accessToken) {
+    const authGroup = reserveIikoRequest('/api/v2/access_token');
+    const auth = await fetch(`${config.apiBase}/api/v2/access_token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId: config.appId, apiLogin: config.apiLogin, clientSecret: config.clientSecret }) });
+    const authBody = await auth.json().catch(() => ({}));
+    if (auth.status === 429) {
+      const retryAfter = registerIikoRateLimit(auth, authGroup);
+      throw Object.assign(new Error(`iiko временно ограничил запросы. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter, correlationId: authBody.correlationId ?? null });
+    }
+    if (!auth.ok || !authBody.token) throw Object.assign(new Error(authBody.errorDescription ?? 'iiko не принял данные авторизации'), { status: 409 });
+    accessToken = authBody.token;
+  }
   const call = async (path, body) => {
-    const result = await fetch(`${config.apiBase}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authBody.token}` }, body: JSON.stringify(body) });
+    const group = reserveIikoRequest(path);
+    const result = await fetch(`${config.apiBase}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify(body) });
     const payload = await result.json().catch(() => ({}));
+    if (result.status === 429) {
+      const retryAfter = registerIikoRateLimit(result, group);
+      throw Object.assign(new Error(`iiko временно ограничил запросы. Повторите через ${retryAfter} сек.`), { status: 503, retryAfter, correlationId: payload.correlationId ?? null });
+    }
     if (!result.ok) throw Object.assign(new Error(payload.errorDescription ?? `Проверка iiko не пройдена: ${path}`), { status: 409 });
     return payload;
   };
@@ -844,16 +962,17 @@ const syncIikoTables = async () => {
     values($1,$2,$3,$4,$5,$6,$7) on conflict(table_id) do update set organization_id=excluded.organization_id,terminal_group_id=excluded.terminal_group_id,section_id=excluded.section_id,section_name=excluded.section_name,table_number=excluded.table_number,table_name=excluded.table_name,updated_at=now()`, row);
   return rows.length;
 };
+const fetchIikoOrders = async (orderIds) => {
+  const uniqueIds = [...new Set(arrayValue(orderIds).map(String).filter(Boolean))].slice(0, 100);
+  if (!uniqueIds.length) return [];
+  const body = await iikoRequest('/api/1/order/by_id', { organizationIds: [iikoOrganizationId], orderIds: uniqueIds });
+  const orders = arrayValue(body.orders);
+  return Promise.all(orders.map((order) => saveIikoOrder(order, { organizationId: iikoOrganizationId })));
+};
 const fetchIikoOrder = async (orderId) => {
-  const token = await getIikoAccessToken();
-  const result = await fetch(`${iikoApiBase}/api/1/order/by_id`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ organizationIds: [iikoOrganizationId], orderIds: [orderId] }),
-  });
-  const body = await result.json().catch(() => ({}));
-  if (!result.ok) throw Object.assign(new Error(body.errorDescription ?? 'Unable to get iiko order'), { status: 502 });
-  if (!body.orders?.length) throw Object.assign(new Error('iiko order not found'), { status: 404 });
-  return saveIikoOrder(body.orders[0], { organizationId: iikoOrganizationId });
+  const orders = await fetchIikoOrders([orderId]);
+  if (!orders.length) throw Object.assign(new Error('iiko order not found'), { status: 404 });
+  return orders[0];
 };
 const saveIikoStopLists = async (terminalGroupStopLists, organizationId = iikoOrganizationId, requestedTerminalGroupIds = []) => {
   const client = await pool.connect();
@@ -889,13 +1008,7 @@ const loadIikoStopLists = async (terminalGroupIds = []) => {
   const requestedTerminalGroupIds = terminalGroupIds.length
     ? terminalGroupIds.map(String)
     : (iikoTerminalGroupId ? [iikoTerminalGroupId] : []);
-  const token = await getIikoAccessToken();
-  const result = await fetch(`${iikoApiBase}/api/1/stop_lists`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ organizationIds: [iikoOrganizationId], ...(requestedTerminalGroupIds.length ? { terminalGroupsIds: requestedTerminalGroupIds } : {}), returnSize: true }),
-  });
-  const body = await result.json().catch(() => ({}));
-  if (!result.ok) throw Object.assign(new Error(body.errorDescription ?? 'Unable to get iiko stop list'), { status: 502 });
+  const body = await iikoRequest('/api/1/stop_lists', { organizationIds: [iikoOrganizationId], ...(requestedTerminalGroupIds.length ? { terminalGroupsIds: requestedTerminalGroupIds } : {}), returnSize: true });
   const groups = normalizeIikoStopListGroups(body);
   await saveIikoStopLists(groups, iikoOrganizationId, requestedTerminalGroupIds);
   return groups;
@@ -1890,13 +2003,14 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'POST' && path === '/api/v1/admin/iiko-config/discover') {
       const configAdmin = requireIikoConfigAccess(request); const body = await readBody(request);
-      enforceRequestRate(`iiko-config-discover:${requestIp(request)}:${String(configAdmin.userId ?? 'master')}`, 5, 10 * 60_000);
+      enforceRequestRate(`iiko-config-discover:${requestIp(request)}:${String(configAdmin.userId ?? 'master')}`, 2, 10 * 60_000);
       const discovered = await discoverIikoCredentials(credentialsForIikoDiscovery(body), configAdmin.userId ?? null);
       await audit(actor, 'discover', 'iiko_connection', 'candidate', null, { organizations: discovered.organizations.map((item) => item.name) });
       return json(response, 200, discovered);
     }
     if (request.method === 'POST' && path === '/api/v1/admin/iiko-config/restaurant-options') {
       const configAdmin = requireIikoConfigAccess(request); const body = await readBody(request); const session = requireIikoDiscoverySession(body.discoveryToken, configAdmin);
+      enforceRequestRate(`iiko-config-options:${requestIp(request)}:${String(configAdmin.userId ?? 'master')}`, 2, 10 * 60_000);
       const organizationId = String(body.organizationId ?? '');
       if (!session.organizations.some((item) => item.id === organizationId)) return json(response, 400, { error: 'Выбранный ресторан недоступен этому API-логину' });
       const options = await discoverIikoRestaurantOptions(session, organizationId);
@@ -1907,8 +2021,8 @@ const server = http.createServer(async (request, response) => {
       const configAdmin = requireIikoConfigAccess(request); const body = await readBody(request);
       const session = body.discoveryToken ? requireIikoDiscoverySession(body.discoveryToken, configAdmin) : null;
       const candidate = session ? configFromIikoDiscovery(session, body) : candidateIikoConfig(body);
-      enforceRequestRate(`iiko-config-test:${requestIp(request)}:${String(configAdmin.userId ?? 'master')}`, 5, 10 * 60_000);
-      const result = await testIikoConnection(candidate);
+      enforceRequestRate(`iiko-config-test:${requestIp(request)}:${String(configAdmin.userId ?? 'master')}`, 2, 10 * 60_000);
+      const result = await testIikoConnection(candidate, session?.accessToken ?? '');
       await audit(actor, 'test', 'iiko_connection', 'candidate', null, { ...result, organizationId: candidate.organizationId, terminalGroupId: candidate.terminalGroupId, externalMenuId: candidate.externalMenuId });
       return json(response, 200, { result, testToken: sign({ configTest: true, configHash: iikoConfigHash(candidate), userId: configAdmin.userId ?? null, result, exp: Date.now() + 5 * 60_000 }) });
     }
@@ -1916,12 +2030,12 @@ const server = http.createServer(async (request, response) => {
       const configAdmin = requireIikoConfigAccess(request); const body = await readBody(request);
       const session = body.discoveryToken ? requireIikoDiscoverySession(body.discoveryToken, configAdmin) : null;
       const candidate = session ? configFromIikoDiscovery(session, body) : candidateIikoConfig(body);
-      enforceRequestRate(`iiko-config-apply:${requestIp(request)}:${String(configAdmin.userId ?? 'master')}`, 3, 10 * 60_000);
+      enforceRequestRate(`iiko-config-apply:${requestIp(request)}:${String(configAdmin.userId ?? 'master')}`, 1, 10 * 60_000);
       const tested = verify(body.testToken);
       if (!tested?.configTest || tested.configHash !== iikoConfigHash(candidate) || String(tested.userId ?? '') !== String(configAdmin.userId ?? '')) return json(response, 409, { error: 'Сначала проверьте именно эту конфигурацию ещё раз' });
       const previousRow = iikoConnectionMetadata; const previousConfig = previousRow ? configFromRow(previousRow) : runtimeIikoConfig(); const before = safeIikoConfig(previousRow);
       const encrypted = encryptIikoCredentials({ appId: candidate.appId, apiLogin: candidate.apiLogin, clientSecret: candidate.clientSecret, webhookToken: candidate.webhookToken });
-      iikoConfigSwitching = true; let restoreOk = true; let webhookRegistration = null;
+      iikoConfigSwitching = true; let restoreOk = true;
       try {
         const saved = await pool.query(`insert into iiko_connection_settings(id,api_base,organization_id,terminal_group_id,external_menu_id,order_type_id,order_source_key,credentials_ciphertext,credentials_iv,credentials_tag,configured_by,last_test_at,last_test_details)
           values('active',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),$11)
@@ -1929,16 +2043,18 @@ const server = http.createServer(async (request, response) => {
           credentials_ciphertext=excluded.credentials_ciphertext,credentials_iv=excluded.credentials_iv,credentials_tag=excluded.credentials_tag,configured_by=excluded.configured_by,last_test_at=excluded.last_test_at,last_test_details=excluded.last_test_details,updated_at=now() returning *`,
         [candidate.apiBase,candidate.organizationId,candidate.terminalGroupId,candidate.externalMenuId,candidate.orderTypeId,candidate.orderSourceKey,encrypted.ciphertext,encrypted.iv,encrypted.tag,actor,JSON.stringify(tested.result ?? {})]);
         iikoConnectionMetadata = saved.rows[0]; applyRuntimeIikoConfig(candidate);
+        if (session?.accessToken) {
+          iikoAccessToken = session.accessToken;
+          iikoAccessTokenExpiresAt = Date.now() + 5 * 60_000;
+        }
         const [menuCount, tableCount] = await Promise.all([syncIikoMenu(), syncIikoTables()]);
         await fetchIikoStopLists([candidate.terminalGroupId]);
-        webhookRegistration = await ensureIikoWebhookRegistration(candidate);
+        const webhookRegistration = await ensureIikoWebhookRegistration(candidate, session?.accessToken ?? '');
         const after = safeIikoConfig(saved.rows[0]); await audit(actor, 'activate', 'iiko_connection', 'active', before, after);
         await publishEvent('iiko_connection_changed', 'iiko_connection', 'active', { actor, organizationId: candidate.organizationId, menuCount, tableCount, webhookRegistered: true, webhookUpdated: webhookRegistration.updated }, candidate.organizationId);
         if (body.discoveryToken) iikoDiscoverySessions.delete(String(body.discoveryToken));
         return json(response, 200, { config: after, sync: { menuItems: menuCount, tables: tableCount }, webhook: { registered: true, updated: webhookRegistration.updated } });
       } catch (error) {
-        try { await restoreIikoWebhookRegistration(candidate, webhookRegistration); }
-        catch (restoreError) { restoreOk = false; console.error('Unable to restore previous iiko webhook registration:', restoreError); }
         try {
           if (previousRow) await pool.query(`update iiko_connection_settings set api_base=$1,organization_id=$2,terminal_group_id=$3,external_menu_id=$4,order_type_id=$5,order_source_key=$6,credentials_ciphertext=$7,credentials_iv=$8,credentials_tag=$9,configured_by=$10,last_test_at=$11,last_test_details=$12,updated_at=$13 where id='active'`,
             [previousRow.api_base,previousRow.organization_id,previousRow.terminal_group_id,previousRow.external_menu_id,previousRow.order_type_id,previousRow.order_source_key,previousRow.credentials_ciphertext,previousRow.credentials_iv,previousRow.credentials_tag,previousRow.configured_by,previousRow.last_test_at,previousRow.last_test_details,previousRow.updated_at]);
@@ -2256,13 +2372,18 @@ const server = http.createServer(async (request, response) => {
 });
 
 let backgroundSyncRunning = false;
-const syncActiveIikoOrders = async () => {
+let activeIikoOrderSyncTask = null;
+const loadActiveIikoOrders = async () => {
   const active = await pool.query(`select o.iiko_order_id from customer_orders o
     left join iiko_orders io on io.order_id=o.iiko_order_id
     where o.iiko_order_id is not null and o.completed_at is null
       and o.updated_at > now() - interval '8 hours' and coalesce(io.creation_status,'') <> 'Error'
     limit 30`);
-  for (const row of active.rows) await fetchIikoOrder(row.iiko_order_id);
+  await fetchIikoOrders(active.rows.map((row) => row.iiko_order_id));
+};
+const syncActiveIikoOrders = () => {
+  if (!activeIikoOrderSyncTask) activeIikoOrderSyncTask = loadActiveIikoOrders().finally(() => { activeIikoOrderSyncTask = null; });
+  return activeIikoOrderSyncTask;
 };
 const backgroundSync = async () => {
   if (backgroundSyncRunning) return;
@@ -2333,25 +2454,14 @@ server.on('upgrade', async (request, socket, head) => {
 await loadStoredIikoConfig();
 server.listen(port, '127.0.0.1', () => {
   console.log(`BB Kiosk API listening on ${port}`);
-  setTimeout(() => { void backgroundSync(); }, 3_000);
-  setTimeout(() => {
-    const config = runtimeIikoConfig();
-    if (!config.appId || !config.organizationId || !config.webhookToken) return;
-    void ensureIikoWebhookRegistration(config)
-      .then((result) => { if (result.updated) console.log('iiko webhook registration updated and verified'); })
-      .catch(async (error) => { console.warn('iiko webhook registration:', error.message); await recordMonitoringEvent('webhook', `Автоматическая регистрация webhook: ${error.message}`, { correlationId: error.correlationId ?? null }, 'warning'); });
-  }, 6_000);
+  // A process restart must not create an iiko request burst. Webhook settings
+  // are changed only by the explicit connection wizard and the first scheduled
+  // refresh happens after the normal ten-minute interval; cached data remains
+  // available immediately.
   // No tablet makes these calls. Menu/tables/stop-list are refreshed in one
   // controlled server task; active orders use webhooks first and this fallback.
   setInterval(() => { void backgroundSync(); }, 10 * 60 * 1_000).unref();
-  // Webhooks are primary. This isolated fallback keeps a missed notification
-  // from leaving the kiosk stale while avoiding a full menu download.
-  setInterval(() => {
-    if (!iikoTerminalGroupId || backgroundSyncRunning) return;
-    void fetchIikoStopLists([iikoTerminalGroupId]).catch(async (error) => {
-      console.warn('iiko stop-list fallback:', error.message);
-      await recordMonitoringEvent('iiko_sync', `Стоп-лист: ${error.message}`, {}, 'warning');
-    });
-  }, 2 * 60 * 1_000).unref();
+  // Stop-list webhooks are primary; the ten-minute full sync above is the only
+  // fallback. A former second two-minute poll duplicated these calls.
   setInterval(() => { void syncActiveIikoOrders().catch((error) => console.warn('iiko order sync:', error.message)); }, 2 * 60 * 1_000).unref();
 });
