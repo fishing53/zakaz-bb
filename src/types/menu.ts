@@ -213,6 +213,7 @@ export interface IikoConnectionSelection {
   organizationId: string;
   terminalGroupId: string;
   externalMenuId: string;
+  orderTypeId: string;
 }
 
 export interface TerminalSettings {

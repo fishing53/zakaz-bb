@@ -213,7 +213,7 @@ async function loadAdminPromotions(notify = true, refresh = false) {
 
 function readIikoConnectionSelection(): IikoConnectionSelection {
   const value = (name: string) => root.querySelector<HTMLSelectElement>(`[data-iiko-selection="${name}"]`)?.value ?? '';
-  return { discoveryToken: iikoDiscovery?.discoveryToken ?? '', organizationId: iikoSelectedOrganizationId, terminalGroupId: value('terminalGroupId'), externalMenuId: value('externalMenuId') };
+  return { discoveryToken: iikoDiscovery?.discoveryToken ?? '', organizationId: iikoSelectedOrganizationId, terminalGroupId: value('terminalGroupId'), externalMenuId: value('externalMenuId'), orderTypeId: value('orderTypeId') };
 }
 
 async function loadIikoRestaurantOptions(organizationId: string) {

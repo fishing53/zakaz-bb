@@ -212,12 +212,13 @@ const credentialsForIikoDiscovery = (body) => {
 };
 const configFromIikoDiscovery = (session, body) => {
   const options = session.options;
-  const organizationId = String(body.organizationId ?? ''); const terminalGroupId = String(body.terminalGroupId ?? ''); const externalMenuId = String(body.externalMenuId ?? '');
+  const organizationId = String(body.organizationId ?? ''); const terminalGroupId = String(body.terminalGroupId ?? ''); const externalMenuId = String(body.externalMenuId ?? ''); const orderTypeId = String(body.orderTypeId ?? '');
   if (!options || options.organizationId !== organizationId) throw Object.assign(new Error('Сначала выберите ресторан и получите его параметры'), { status: 409 });
   if (!options.terminalGroups.some((item) => item.id === terminalGroupId)) throw Object.assign(new Error('Выберите доступную кассовую группу'), { status: 400 });
   if (!options.externalMenus.some((item) => item.id === externalMenuId)) throw Object.assign(new Error('Выберите доступное внешнее меню'), { status: 400 });
+  if (!options.orderTypes.some((item) => item.id === orderTypeId)) throw Object.assign(new Error('Выберите доступный тип заказа'), { status: 400 });
   const existingWebhook = String(session.config.webhookToken ?? '');
-  return validateIikoConfig({ ...session.config, organizationId, terminalGroupId, externalMenuId, orderTypeId: options.orderTypeId, orderSourceKey: 'BrooklynBowl Kiosk', webhookToken: existingWebhook });
+  return validateIikoConfig({ ...session.config, organizationId, terminalGroupId, externalMenuId, orderTypeId, orderSourceKey: 'BrooklynBowl Kiosk', webhookToken: existingWebhook });
 };
 const requestIp = (request) => String(request.headers['x-forwarded-for'] ?? request.socket.remoteAddress ?? '').split(',')[0].trim();
 const authAttemptKey = (request, realm) => sha256(`${realm}:${requestIp(request)}`);
@@ -579,7 +580,7 @@ const discoverIikoRestaurantOptions = async (session, organizationId) => {
     terminalGroups, externalMenus, orderTypes,
     recommendedTerminalGroupId: current.organizationId === id && terminalGroups.some((item) => item.id === current.terminalGroupId) ? current.terminalGroupId : terminalGroups.length === 1 ? terminalGroups[0].id : '',
     recommendedExternalMenuId: current.organizationId === id && externalMenus.some((item) => item.id === current.externalMenuId) ? current.externalMenuId : externalMenus.length === 1 ? externalMenus[0].id : '',
-    orderTypeId: orderTypes[0].id,
+    orderTypeId: current.organizationId === id && orderTypes.some((item) => item.id === current.orderTypeId) ? current.orderTypeId : orderTypes[0].id,
   };
 };
 const managedIikoWebhookFilter = {
