@@ -38,6 +38,16 @@ test('rejects duplicate SKU but ignores hidden seasonal items', () => {
   const result = validateMenuPublication([{ sku: 'A' }, { sku: 'A' }, { sku: '', isHidden: true }]);
   assert.deepEqual(result.duplicateSkus, ['A']);
 });
+test('allows one iiko product to be placed in several menu categories', () => {
+  assert.equal(validateMenuPublication([
+    { productId: 'pizza-1', sku: 'PIZZA-1', isHidden: false },
+    { productId: 'pizza-1', sku: 'PIZZA-1', isHidden: false },
+  ]).ok, true);
+  assert.equal(validateMenuPublication([
+    { productId: 'pizza-1', sku: 'PIZZA-1', isHidden: false },
+    { productId: 'pizza-2', sku: 'PIZZA-1', isHidden: false },
+  ]).ok, false);
+});
 test('applies and clears stop-list snapshots', () => {
   assert.equal(applyStopList(products, [{ productId: 'pizza', balance: 0 }])[0].available, false);
   assert.equal(applyStopList(products, [])[0].available, true);

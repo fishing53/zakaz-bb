@@ -28,7 +28,15 @@ export const deterministicUuid = (value) => {
 export const isDatabaseBackupFileName = (name) => /^(?:bb-kiosk|zakaz)-\d{8}T\d{6}Z\.dump$/.test(String(name));
 
 export const validateMenuPublication = (items) => {
-  const visible = (Array.isArray(items) ? items : []).filter((item) => !item.isHidden);
+  const seenProducts = new Set();
+  const visible = (Array.isArray(items) ? items : []).filter((item) => {
+    if (item.isHidden) return false;
+    const productId = String(item.productId ?? '');
+    if (!productId) return true;
+    if (seenProducts.has(productId)) return false;
+    seenProducts.add(productId);
+    return true;
+  });
   const missingSku = visible.filter((item) => !String(item.sku ?? '').trim());
   const counts = new Map();
   visible.forEach((item) => {

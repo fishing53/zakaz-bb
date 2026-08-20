@@ -14,11 +14,11 @@ export const menuService = {
   ready: () => ready,
   all: () => catalog.menu,
   find: (id: string) => byId.get(id),
-  categories: () => [...new Set(catalog.menu.map((product) => product.category))],
-  byCategory: (category: string) => catalog.menu.filter((product) => product.category === category),
+  categories: () => [...new Set(catalog.menu.flatMap((product) => product.categories?.length ? product.categories : [product.category]))],
+  byCategory: (category: string) => catalog.menu.filter((product) => (product.categories?.length ? product.categories : [product.category]).includes(category)),
   search: (query: string, category: string) => {
     const normalized = query.trim().toLocaleLowerCase('ru');
-    return catalog.menu.filter((product) => (category === 'Все блюда' || product.category === category)
+    return catalog.menu.filter((product) => (category === 'Все блюда' || (product.categories?.length ? product.categories : [product.category]).includes(category))
       && (!normalized || `${product.name} ${product.description ?? ''}`.toLocaleLowerCase('ru').includes(normalized)));
   },
   related: (product: Product) => (product.pairs_with ?? []).map((id) => byId.get(id)).filter(Boolean) as Product[],

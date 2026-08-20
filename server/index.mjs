@@ -757,12 +757,28 @@ const testIikoConnection = async (config) => {
 };
 const defaultItemSize = (item) => arrayValue(item?.itemSizes).find((size) => size?.isDefault) ?? arrayValue(item?.itemSizes)[0] ?? {};
 const iikoPrice = (size) => Number(arrayValue(size?.prices).find((price) => String(price?.organizationId) === iikoOrganizationId)?.price ?? arrayValue(size?.prices)[0]?.price ?? 0);
-const iikoMenuPublicationEntries = (menu) => arrayValue(menu?.itemCategories).flatMap((category) => arrayValue(category?.items).map((item) => {
-  const size = defaultItemSize(item);
-  return { productId: String(item?.itemId ?? ''), category: String(category?.name ?? 'Без категории').trim(), name: String(item?.name ?? 'Без названия').trim(), sku: String(item?.sku ?? size?.sku ?? '').trim(), isHidden: Boolean(item?.isHidden || size?.isHidden) };
-}));
+const iikoMenuRecords = (menu) => {
+  const records = new Map(); let sortOrder = 0;
+  for (const category of arrayValue(menu?.itemCategories)) for (const item of arrayValue(category?.items)) {
+    if (!item?.itemId) continue;
+    const productId = String(item.itemId); const size = defaultItemSize(item);
+    const categoryEntry = { id: String(category?.id ?? ''), name: String(category?.name ?? 'Без категории').trim() };
+    const placementHidden = Boolean(item?.isHidden || size?.isHidden);
+    let record = records.get(productId);
+    if (!record) {
+      record = { productId, sku: String(item?.sku ?? size?.sku ?? '').trim(), categoryId: categoryEntry.id, category: categoryEntry.name, categories: [], name: String(item?.name ?? 'Без названия').trim(), item, size, isHidden: true, sortOrder: sortOrder++ };
+      records.set(productId, record);
+    }
+    record.isHidden = record.isHidden && placementHidden;
+    if (!placementHidden && !record.categories.some((value) => value.id === categoryEntry.id)) record.categories.push(categoryEntry);
+  }
+  return [...records.values()].map((record) => {
+    const primary = record.categories[0] ?? { id: record.categoryId, name: record.category };
+    return { ...record, categoryId: primary.id, category: primary.name, categories: record.categories.length ? record.categories : [primary] };
+  });
+};
 const assertIikoMenuIsPublishable = (menu) => {
-  const entries = iikoMenuPublicationEntries(menu);
+  const entries = iikoMenuRecords(menu);
   const publication = validateMenuPublication(entries);
   if (publication.ok) return entries.length;
   const visible = entries.filter((item) => !item.isHidden);
@@ -793,14 +809,7 @@ const publicModifierGroups = (groups, stoppedProductIds = new Set()) => arrayVal
 const syncIikoMenu = async () => {
   if (!iikoExternalMenuId) return 0;
   const menu = await iikoRequest('/api/2/menu/by_id', { organizationIds: [iikoOrganizationId], externalMenuId: iikoExternalMenuId, version: 2, language: 'ru', asyncMode: false });
-  const rows = [];
-  let sortOrder = 0;
-  for (const category of arrayValue(menu?.itemCategories)) for (const item of arrayValue(category?.items)) {
-    const size = defaultItemSize(item);
-    if (!item?.itemId) continue;
-    const sku = String(item?.sku ?? size?.sku ?? '').trim() || null;
-    rows.push([String(item.itemId), sku, String(category?.id ?? ''), String(category?.name ?? 'Без категории'), String(item?.name ?? ''), item?.description ?? null, iikoPrice(size), Number(size?.portionWeightGrams ?? 0), String(size?.measureUnitType ?? ''), JSON.stringify(size?.nutritionPerHundredGrams ?? size?.nutritions?.[0] ?? null), size?.buttonImageUrl ?? null, JSON.stringify(size?.itemModifierGroups ?? []), Boolean(item?.isHidden || size?.isHidden), sortOrder++, Number(menu?.revision ?? 0), JSON.stringify({ item, size })]);
-  }
+  const rows = iikoMenuRecords(menu).map((record) => [record.productId, record.sku || null, record.categoryId, record.category, record.name, record.item?.description ?? null, iikoPrice(record.size), Number(record.size?.portionWeightGrams ?? 0), String(record.size?.measureUnitType ?? ''), JSON.stringify(record.size?.nutritionPerHundredGrams ?? record.size?.nutritions?.[0] ?? null), record.size?.buttonImageUrl ?? null, JSON.stringify(record.size?.itemModifierGroups ?? []), record.isHidden, record.sortOrder, Number(menu?.revision ?? 0), JSON.stringify({ item: record.item, size: record.size, categories: record.categories })]);
   if (!rows.length) throw Object.assign(new Error('iiko вернул пустое внешнее меню; сохранён предыдущий снимок'), { status: 502 });
   assertIikoMenuIsPublishable(menu);
   const client = await pool.connect();
@@ -940,7 +949,7 @@ const publicState = async (terminalId) => {
   const visibleIikoProducts = visibleCatalogItems(iikoProducts.rows, stopList.rows);
   const stoppedProductIds = new Set(stopList.rows.filter((item) => Number(item.balance) <= 0).map((item) => String(item.productId)));
   const products = demoMode ? localProducts.rows.map((item) => ({ ...item, sauce_options: [], modifier_groups: demoModifierGroups(item) })) : iikoProducts.rowCount ? visibleIikoProducts.map((item) => ({
-    id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
+    id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, categories: arrayValue(item.raw_payload?.categories).map((category) => String(category?.name ?? '')).filter(Boolean), price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, composition: item.override_composition ?? '', kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
     pairs_with: arrayValue(item.override_pairs_with).filter((id) => !stoppedProductIds.has(String(id))), recommendations_note: null, is_available: true, badge: item.override_badge ?? '', image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups, stoppedProductIds), iiko: true,

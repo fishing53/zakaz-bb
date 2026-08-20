@@ -5,6 +5,7 @@ export interface Product {
   sku?: string;
   name: string;
   category: string;
+  categories?: string[];
   price_rub: number;
   portion: string;
   unit: string;

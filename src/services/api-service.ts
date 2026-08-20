@@ -101,7 +101,7 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
 };
 
 const product = (item: ServerProduct): Product => ({
-  id: item.id, sku: item.sku, name: item.name, category: item.category, price_rub: Number(item.price_rub), portion: item.portion, unit: item.unit, description: item.description,
+  id: item.id, sku: item.sku, name: item.name, category: item.category, categories: item.categories?.length ? item.categories : [item.category], price_rub: Number(item.price_rub), portion: item.portion, unit: item.unit, description: item.description,
   composition: item.composition ?? '', kbju: item.kbju, image: cachedAsset(item.image), imageSource: assetSource(item.image), source_url: item.source_url, sauce_options: item.sauce_options ?? [], sauce_addon_price_rub: item.sauce_addon_price_rub ?? undefined,
   addon_options: item.addon_options ?? [], flavor_options: item.flavor_options ?? [], size_option: item.size_option ?? undefined, pairs_with: item.pairs_with ?? [], recommendations_note: item.recommendations_note ?? undefined,
   modifier_groups: (item.modifier_groups ?? []).map((group) => ({ ...group, items: group.items.map((modifier) => { const source = assetSource(modifier.image || '/images/sauce-fallback.webp'); return { ...modifier, image: imageCacheService.resolve(source), imageSource: source }; }) })),
