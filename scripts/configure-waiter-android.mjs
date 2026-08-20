@@ -39,6 +39,12 @@ await writeFile(manifestPath, manifest);
 await mkdir(dirname(javaDestination), { recursive: true });
 await cp(resolve(root, 'waiter/android-template/WaiterFirebaseMessagingService.java'), javaDestination);
 let gradle = await readFile(gradlePath, 'utf8');
+const versionCode = Number.parseInt(process.env.ANDROID_VERSION_CODE || '1', 10);
+const versionName = process.env.KIOSK_VERSION || '1.0';
+if (!Number.isSafeInteger(versionCode) || versionCode < 1) throw new Error('ANDROID_VERSION_CODE must be a positive integer');
+gradle = gradle
+  .replace(/versionCode\s+\d+/, `versionCode ${versionCode}`)
+  .replace(/versionName\s+"[^"]*"/, `versionName "${versionName.replaceAll('"', '')}"`);
 if (!gradle.includes('firebase-messaging')) {
   gradle += "\n// Required by the native urgent waiter notification service.\ndependencies { implementation 'com.google.firebase:firebase-messaging:24.1.2' }\n";
 }

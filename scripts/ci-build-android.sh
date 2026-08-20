@@ -4,6 +4,7 @@ set -euo pipefail
 version="${KIOSK_VERSION:-dev}"
 artifact_dir="${CI_PROJECT_DIR:-$(pwd)}/artifacts/android"
 mkdir -p "$artifact_dir"
+export ANDROID_VERSION_CODE="${ANDROID_VERSION_CODE:-${CI_PIPELINE_IID:-1}}"
 
 use_ci_gradle_distribution() {
   local wrapper_properties="$1"
@@ -61,11 +62,13 @@ if "$release_ready"; then
     ./gradlew --no-daemon assembleRelease
   )
   cp android/app/build/outputs/apk/release/app-release.apk "$artifact_dir/BB-Kiosk-${version}.apk"
+  cp android/app/build/outputs/apk/release/app-release.apk "$artifact_dir/BB-Kiosk-latest.apk"
   cp waiter/android/app/build/outputs/apk/release/app-release.apk "$artifact_dir/BB-Waiter-${version}.apk"
   cp waiter/android/app/build/outputs/apk/release/app-release.apk "$artifact_dir/BB-Waiter-latest.apk"
   apksigner_bin="$(command -v apksigner || find "${ANDROID_HOME:-/opt/android-sdk-linux}/build-tools" -type f -name apksigner -perm -u+x | sort -V | tail -n 1)"
   test -x "$apksigner_bin"
   "$apksigner_bin" verify --verbose "$artifact_dir/BB-Kiosk-${version}.apk"
+  "$apksigner_bin" verify --verbose "$artifact_dir/BB-Kiosk-latest.apk"
   "$apksigner_bin" verify --verbose "$artifact_dir/BB-Waiter-${version}.apk"
   "$apksigner_bin" verify --verbose "$artifact_dir/BB-Waiter-latest.apk"
 else
