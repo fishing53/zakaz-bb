@@ -141,6 +141,9 @@ test('tablet settings are split into persistent focused categories', async ({ pa
 
   const navigation = page.getByRole('navigation', { name: 'Категории настроек планшета' });
   await expect(navigation).toBeVisible();
+  await expect(page.getByText('НАСТРОЙКИ ПЛАНШЕТА')).toHaveCount(0);
+  await expect(navigation.getByRole('button', { name: 'Выйти' })).toBeVisible();
+  await expect(navigation.locator('button').last()).toHaveAttribute('aria-label', 'Выйти');
   await expect(page.locator('[data-terminal-settings-section="general"]')).toBeVisible();
   await navigation.getByRole('button', { name: /^Стол/ }).click();
   await expect(page.locator('[data-terminal-settings-section="table"]')).toBeVisible();

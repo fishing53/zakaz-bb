@@ -112,6 +112,7 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
         ${terminalSectionButton('waiter', 'Официант', escapeHtml(selectedWaiter?.display_name ?? 'Общий режим'), 'user')}
         ${terminalSectionButton('images', 'Изображения', imageCache.total ? `${imageCache.cached} из ${imageCache.total}` : 'Хранилище', 'image')}
         ${terminalSectionButton('update', 'Обновление', updateVersion(updateState.currentVersion), 'refresh')}
+        <button class="terminal-settings-logout" data-action="logout-admin" aria-label="Выйти">${icon('logout')}<span><b>Выйти</b><small>Закрыть настройки</small></span></button>
       </nav>
       <div class="terminal-settings-content">
         <section class="terminal-settings-section terminal-settings-section--general" data-terminal-settings-section="general" ${terminalSection === 'general' ? '' : 'hidden'}>
@@ -289,5 +290,6 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
   const allowedTabIds = new Set(visibleTabs.map(([id]) => id));
   const visibleTab: AdminTab = allowedTabIds.has(tab) ? tab : (role === 'hostess' ? 'orders' : scope === 'terminal' ? 'terminal' : 'orders');
   const singleTab = visibleTabs.length === 1;
-  return `<section class="admin-page ${singleTab ? 'admin-page--single-tab' : ''}"><header class="admin-header"><div><span class="eyebrow">${scope === 'terminal' ? 'BB KIOSK · ЭТО УСТРОЙСТВО' : 'УПРАВЛЕНИЕ РЕСТОРАНОМ'}</span><h1>${scope === 'terminal' ? 'Настройки <em>планшета</em>' : 'Админ-<em>панель</em>'}</h1><p>${scope === 'terminal' ? 'Управление работой, столом, официантом и файлами этого терминала.' : 'Все изменения сохраняются на сервере и применяются на терминалах.'}</p></div><button class="button button--secondary button--compact admin-logout" data-action="logout-admin">Выйти</button></header>${singleTab ? '' : `<nav class="admin-tabs" aria-label="Разделы админ-панели">${visibleTabs.map(([id, title]) => `<button data-action="select-admin-tab" data-admin-tab="${id}" class="${visibleTab === id ? 'is-active' : ''}">${title}</button>`).join('')}</nav>`}${views[visibleTab]}</section>`;
+  const adminHeader = scope === 'terminal' ? '' : '<header class="admin-header"><div><span class="eyebrow">УПРАВЛЕНИЕ РЕСТОРАНОМ</span><h1>Админ-<em>панель</em></h1><p>Все изменения сохраняются на сервере и применяются на терминалах.</p></div><button class="button button--secondary button--compact admin-logout" data-action="logout-admin">Выйти</button></header>';
+  return `<section class="admin-page ${singleTab ? 'admin-page--single-tab' : ''} ${scope === 'terminal' ? 'admin-page--terminal-settings' : ''}">${adminHeader}${singleTab ? '' : `<nav class="admin-tabs" aria-label="Разделы админ-панели">${visibleTabs.map(([id, title]) => `<button data-action="select-admin-tab" data-admin-tab="${id}" class="${visibleTab === id ? 'is-active' : ''}">${title}</button>`).join('')}</nav>`}${views[visibleTab]}</section>`;
 }

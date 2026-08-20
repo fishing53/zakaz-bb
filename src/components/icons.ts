@@ -8,6 +8,7 @@ import heart from 'lucide-static/icons/heart.svg?raw';
 import info from 'lucide-static/icons/info.svg?raw';
 import languages from 'lucide-static/icons/languages.svg?raw';
 import image from 'lucide-static/icons/image.svg?raw';
+import logOut from 'lucide-static/icons/log-out.svg?raw';
 import mapPinned from 'lucide-static/icons/map-pinned.svg?raw';
 import minus from 'lucide-static/icons/minus.svg?raw';
 import pencil from 'lucide-static/icons/pencil.svg?raw';
@@ -37,6 +38,7 @@ const icons = {
   image,
   info,
   language: languages,
+  logout: logOut,
   menu: utensilsCrossed,
   map: mapPinned,
   minus,
