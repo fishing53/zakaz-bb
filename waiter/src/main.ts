@@ -226,7 +226,7 @@ function render(requests: Request[], orders: Order[], alertItem?: Request, force
     ? (requests.length ? requests.map(callCard).join('') : emptyState('calls'))
     : (orders.length ? orders.map(orderCard).join('') : emptyState('orders'));
 
-  root.innerHTML = `<section class="waiter-shell"><nav class="waiter-tabs" aria-label="Рабочие разделы"><button class="${activeView === 'calls' ? 'is-active' : ''}" data-view="calls"><span>Вызовы</span><b>${requests.length}</b></button><button class="${activeView === 'orders' ? 'is-active' : ''}" data-view="orders"><span>Активные заказы</span><b>${orders.length}</b></button></nav><main class="waiter-content"><div class="task-list">${list}</div></main></section>${alertItem ? incoming(alertItem) : ''}`;
+  root.innerHTML = `<section class="waiter-shell"><main class="waiter-content"><div class="task-list">${list}</div></main><nav class="waiter-tabs" aria-label="Рабочие разделы"><button class="${activeView === 'calls' ? 'is-active' : ''}" data-view="calls"><span>Вызовы</span><b>${requests.length}</b></button><button class="${activeView === 'orders' ? 'is-active' : ''}" data-view="orders"><span>Активные заказы</span><b>${orders.length}</b></button></nav></section>${alertItem ? incoming(alertItem) : ''}`;
 
   root.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((button) => {
     button.onclick = () => {
