@@ -2248,32 +2248,36 @@ html, body, #app,
 .option-group.option-group--modifiers[data-multiple="true"] .option-chips .option-chip {
   width: auto;
   min-width: 0;
-  min-height: 46px;
-  padding: 8px 12px;
+  min-height: 48px;
+  padding: 9px 38px;
+  position: relative;
   display: inline-grid;
-  grid-template-columns: 18px minmax(0, auto);
-  align-items: center;
-  column-gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
   row-gap: 3px;
   line-height: 1;
-  text-align: left;
+  text-align: center;
 }
 .option-group.option-group--modifiers .option-chip__check,
 .option-group.option-group--modifiers[data-multiple="true"] .option-chip__check {
   display: grid;
-  grid-column: 1;
-  grid-row: 1 / span 2;
-  align-self: center;
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 .option-group.option-group--modifiers .option-chip__label,
 .option-group.option-group--modifiers[data-multiple="true"] .option-chip__label {
-  grid-column: 2;
+  grid-column: 1;
   min-width: 0;
-  line-height: 1.15;
+  font: 700 .88rem/1.1 "Roboto Condensed",sans-serif;
+  letter-spacing: .04em;
+  text-align: center;
+  text-transform: uppercase;
 }
 .option-group.option-group--modifiers .option-chips .option-chip small,
 .option-group.option-group--modifiers[data-multiple="true"] .option-chips .option-chip small {
-  grid-column: 2;
+  grid-column: 1;
   padding: 0;
   font: 700 .68rem/1 "Roboto Condensed",sans-serif;
   letter-spacing: .02em;

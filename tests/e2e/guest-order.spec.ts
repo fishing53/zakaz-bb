@@ -53,9 +53,14 @@ test('free iiko modifiers use a centered check without a technical label', async
 
   const buttonBox = await freeModifier.boundingBox();
   const checkBox = await freeModifier.locator('.option-chip__check').boundingBox();
+  const label = freeModifier.locator('.option-chip__label');
+  const labelBox = await label.boundingBox();
   expect(buttonBox).not.toBeNull();
   expect(checkBox).not.toBeNull();
+  expect(labelBox).not.toBeNull();
   expect(Math.abs((checkBox!.y + checkBox!.height / 2) - (buttonBox!.y + buttonBox!.height / 2))).toBeLessThanOrEqual(2);
+  expect(Math.abs((labelBox!.x + labelBox!.width / 2) - (buttonBox!.x + buttonBox!.width / 2))).toBeLessThanOrEqual(2);
+  await expect(label).toHaveCSS('text-transform', 'uppercase');
 
   await paidModifier.click();
   await expect(paidModifier).toHaveAttribute('aria-pressed', 'true');

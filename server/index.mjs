@@ -1014,6 +1014,7 @@ const fetchIikoStopLists = (terminalGroupIds = []) => {
 };
 const catalogRevision = () => pool.query(`select concat($3::text, ':',
   coalesce((select max(updated_at)::text from iiko_menu_items),''), ':',
+  coalesce((select max(updated_at)::text from iiko_product_presentations where restaurant_id=$1),''), ':',
   coalesce((select md5(coalesce(string_agg(concat_ws(':',product_id,size_id,balance::text),',' order by product_id,size_id),''))
     from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2),'')
 ) as revision`, [iikoOrganizationId, iikoTerminalGroupId, catalogSchemaRevision]);
@@ -1060,7 +1061,7 @@ const publicState = async (terminalId) => {
     id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, categories: arrayValue(item.raw_payload?.categories).map((category) => String(category?.name ?? '')).filter(Boolean), category_ids: arrayValue(item.raw_payload?.categories).map((category) => String(category?.id ?? '')).filter(Boolean), price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, composition: item.override_composition ?? '', kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
-    pairs_with: arrayValue(item.override_pairs_with).filter((id) => !stoppedProductIds.has(String(id))), recommendations_note: null, is_available: true, badge: item.override_badge ?? '', image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups, stoppedProductIds), iiko: true,
+    pairs_with: arrayValue(item.override_pairs_with).filter((id) => id && !stoppedProductIds.has(String(id))), recommendations_note: null, is_available: true, badge: item.override_badge ?? '', image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups, stoppedProductIds), iiko: true,
   })) : localProducts.rows.map((item) => ({ ...item, category_ids: [`local:${item.category}`] }));
   const visibleProductIds = new Set(products.map((item) => String(item.id)));
   const fallbackCategories = [];
