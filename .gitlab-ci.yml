@@ -322,7 +322,7 @@ publish_verified_waiter_apk:
     - install -m 600 "$DEPLOY_SSH_PRIVATE_KEY" ~/.ssh/id_ed25519
     - install -m 600 "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts
   script:
-    - curl --fail --location --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/16006585039/artifacts/artifacts/android/BB-Waiter-latest.apk" --output BB-Waiter-latest.apk
+    - 'curl --fail --location --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/16006585039/artifacts/artifacts/android/BB-Waiter-latest.apk" --output BB-Waiter-latest.apk'
     - test -s BB-Waiter-latest.apk
     - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/downloads'"
     - scp BB-Waiter-latest.apk "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/downloads/BB-Waiter-latest.apk"
