@@ -307,9 +307,9 @@ const requireWaiter = async (request) => {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
   const payload = verify(token);
   if (!payload?.waiterId) throw Object.assign(new Error('Unauthorized'), { status: 401 });
-  const active = await pool.query('select 1 from waiter_profiles where id=$1 and restaurant_id=$2 and is_active=true', [payload.waiterId, iikoOrganizationId]);
+  const active = await pool.query('select display_name from waiter_profiles where id=$1 and restaurant_id=$2 and is_active=true', [payload.waiterId, iikoOrganizationId]);
   if (!active.rowCount) throw Object.assign(new Error('Доступ сотрудника отключён'), { status: 403 });
-  return payload;
+  return { ...payload, waiterName: active.rows[0].display_name };
 };
 const audit = (actor, action, entity, entityId, before, after) => pool.query(
   'insert into audit_log(actor, action, entity, entity_id, before_data, after_data) values ($1,$2,$3,$4,$5,$6)',
@@ -1471,16 +1471,21 @@ const server = http.createServer(async (request, response) => {
         pool.query(`select id,table_number,request_type,status,created_at,accepted_by,accepted_at from service_requests
           where restaurant_id=$1 and status in ('new','accepted','in_progress') and (assigned_waiter_id is null or assigned_waiter_id=$2)
             and (accepted_by is null or accepted_by=$2) and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
-        pool.query(`select order_number,table_number,items,total,status_step,created_at,source from customer_orders
+        pool.query(`select order_number,table_number,items,total,comment,status_step,created_at,source from customer_orders
           where restaurant_id=$1 and is_demo=false and completed_at is null and (assigned_waiter_id is null or assigned_waiter_id=$2)
             and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
       ]);
-      return json(response, 200, { requests: requests.rows, orders: orders.rows, serverTime: new Date().toISOString() });
+      return json(response, 200, { requests: requests.rows, orders: orders.rows, waiter: { id: waiter.waiterId, name: waiter.waiterName }, serverTime: new Date().toISOString() });
     }
     if (request.method === 'POST' && path === '/api/v1/waiter/devices') {
       const waiter = await requireWaiter(request); const body = await readBody(request); const deviceToken = String(body.token ?? '');
       if (deviceToken.length < 32 || deviceToken.length > 4096) return json(response, 400, { error: 'Некорректный токен устройства' });
       await pool.query(`insert into waiter_devices(waiter_id,token,platform) values($1,$2,$3) on conflict(token) do update set waiter_id=excluded.waiter_id,platform=excluded.platform,is_active=true,last_seen_at=now()`, [waiter.waiterId, deviceToken, String(body.platform ?? 'android')]);
+      return json(response, 204, {});
+    }
+    if (request.method === 'DELETE' && path === '/api/v1/waiter/devices') {
+      const waiter = await requireWaiter(request); const body = await readBody(request); const deviceToken = String(body.token ?? '');
+      if (deviceToken) await pool.query('update waiter_devices set is_active=false,last_seen_at=now() where waiter_id=$1 and token=$2', [waiter.waiterId, deviceToken]);
       return json(response, 204, {});
     }
     if (request.method === 'POST' && path.startsWith('/api/v1/waiter/requests/') && path.endsWith('/accept')) {
