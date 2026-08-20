@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const product = { id: 'pizza-1', sku: 'PIZZA-1', name: 'Пицца Маргарита', category: 'Пицца', price_rub: 559, portion: '1000', unit: 'г', description: 'Томатный соус и сыр', composition: '', kbju: null, image: '/images/menu/0.webp', source_url: '', modifier_groups: [], is_available: true, badge: '', image_position: 'center', allergens: '', spicy: 'none', sort_order: 0 };
+const product = { id: 'pizza-1', sku: 'PIZZA-1', name: 'Пицца Маргарита', category: 'Пицца', price_rub: 559, portion: '1000', unit: 'г', description: 'Томатный соус и сыр', composition: '', kbju: null, image: '/images/menu/0.webp', source_url: '', modifier_groups: [{ name: 'Острота', minQuantity: 0, maxQuantity: 1, items: [{ productId: 'mild', name: 'Не острое', price: 0, defaultQuantity: 1 }, { productId: 'hot', name: 'Острое', price: 99 }] }], is_available: true, badge: '', image_position: 'center', allergens: '', spicy: 'none', sort_order: 0 };
 
 async function mockApi(page: Page) {
   await page.route('**/api/v1/**', async (route) => {
@@ -38,6 +38,28 @@ test('guest completes the critical order path', async ({ page }) => {
   } else {
     expect(actions!.y).toBeGreaterThanOrEqual(Math.max(stage!.y + stage!.height, receipt!.y + receipt!.height) - 1);
   }
+});
+
+test('free iiko modifiers use a centered check without a technical label', async ({ page }) => {
+  await page.getByRole('button', { name: 'СДЕЛАТЬ ЗАКАЗ' }).click();
+  await page.locator('.product-card').click();
+
+  const freeModifier = page.locator('[data-iiko-modifier="true"][data-product-id="mild"]');
+  const paidModifier = page.locator('[data-iiko-modifier="true"][data-product-id="hot"]');
+  await expect(freeModifier).toHaveAttribute('aria-pressed', 'true');
+  await expect(freeModifier.getByText('Включено')).toHaveCount(0);
+  await expect(freeModifier.locator('.option-chip__check')).toBeVisible();
+  await expect(paidModifier).toContainText('+99 ₽');
+
+  const buttonBox = await freeModifier.boundingBox();
+  const checkBox = await freeModifier.locator('.option-chip__check').boundingBox();
+  expect(buttonBox).not.toBeNull();
+  expect(checkBox).not.toBeNull();
+  expect(Math.abs((checkBox!.y + checkBox!.height / 2) - (buttonBox!.y + buttonBox!.height / 2))).toBeLessThanOrEqual(2);
+
+  await paidModifier.click();
+  await expect(paidModifier).toHaveAttribute('aria-pressed', 'true');
+  await expect(freeModifier).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('administrator sees security checks and protected Telegram settings', async ({ page }) => {

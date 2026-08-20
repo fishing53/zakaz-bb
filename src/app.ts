@@ -704,6 +704,9 @@ async function action(element: HTMLElement) {
       group?.querySelectorAll('button').forEach((button) => button.classList.remove('is-selected'));
       if (!wasSelected || !isOptional) element.classList.add('is-selected');
     }
+    group?.querySelectorAll<HTMLElement>('button').forEach((button) => {
+      button.setAttribute('aria-pressed', String(button.classList.contains('is-selected')));
+    });
     updateModalTotal();
     return;
   }
