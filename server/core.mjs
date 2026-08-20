@@ -62,13 +62,6 @@ export const visibleCatalogItems = (items, stopList) => {
   });
 };
 
-export const isSauceMenuCategory = (value) => String(value ?? '').trim().toLocaleUpperCase('ru-RU') === 'СОУСЫ';
-
-export const isStandaloneMenuProduct = (item) => {
-  const categories = Array.isArray(item?.categories) && item.categories.length ? item.categories : [item?.category];
-  return categories.some((category) => !isSauceMenuCategory(typeof category === 'object' ? category?.name : category));
-};
-
 const arrayValue = (value) => Array.isArray(value) ? value : [];
 
 /**
