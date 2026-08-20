@@ -835,7 +835,7 @@ const publicState = async (terminalId) => {
     pool.query(`select m.*, p.image as override_image,
       coalesce((select jsonb_agg((select pm.product_id from iiko_menu_items pm where pm.sku=pair.sku and not pm.is_hidden order by pm.updated_at desc limit 1) order by pair.ordinality) from jsonb_array_elements_text(p.pairs_with_skus) with ordinality pair(sku,ordinality)),'[]'::jsonb) as override_pairs_with,
       p.badge as override_badge, p.image_position as override_image_position, p.composition as override_composition
-      from iiko_menu_items m left join iiko_product_presentations p on p.restaurant_id=$1 and p.sku=m.sku where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId, iikoTerminalGroupId]),
+      from iiko_menu_items m left join iiko_product_presentations p on p.restaurant_id=$1 and p.sku=m.sku where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId]),
     pool.query(`select product_id as "productId",balance from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2`, [iikoOrganizationId, iikoTerminalGroupId]),
     pool.query(`select b.*,coalesce((select m.product_id from iiko_menu_items m where m.sku=b.product_sku and not m.is_hidden order by m.updated_at desc limit 1),b.product_id) as product_id from banners b where active=true
       and (starts_at is null or starts_at <= now())
