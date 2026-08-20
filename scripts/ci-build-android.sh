@@ -57,8 +57,11 @@ if "$release_ready"; then
   )
   cp android/app/build/outputs/apk/release/app-release.apk "$artifact_dir/BB-Kiosk-${version}.apk"
   cp waiter/android/app/build/outputs/apk/release/app-release.apk "$artifact_dir/BB-Waiter-${version}.apk"
+  cp waiter/android/app/build/outputs/apk/release/app-release.apk "$artifact_dir/BB-Waiter-latest.apk"
   apksigner verify --verbose "$artifact_dir/BB-Kiosk-${version}.apk"
   apksigner verify --verbose "$artifact_dir/BB-Waiter-${version}.apk"
+  apksigner verify --verbose "$artifact_dir/BB-Waiter-latest.apk"
 else
   echo 'Protected Android signing variables are absent; release APK files were not created.'
+  exit 1
 fi
