@@ -1,7 +1,7 @@
 # Конфигурация
 
 - Статус: актуально
-- Последняя сверка с `server/index.mjs`: 18 августа 2026 года
+- Последняя сверка с `server/index.mjs`: 20 августа 2026 года
 
 Секреты production хранятся в `/etc/bb-kiosk-api.env` с правами `0600`. Значения
 не должны попадать в Git, Markdown, клиентский bundle или журнал CI.
@@ -32,6 +32,7 @@
 | `IIKO_ORDER_SOURCE_KEY` | `BrooklynBowl Kiosk` |
 | `OTA_MANIFEST_PATH` | `/var/www/bb-kiosk/ota/manifest.json` |
 | `WAITER_OTA_MANIFEST_PATH` | `/var/www/bb-kiosk/ota/waiter/manifest.json` |
+| `APPLICATION_DOWNLOAD_DIR` | `/var/www/bb-kiosk/downloads`; подписанные APK и `manifest.json` для одноразовых выдач |
 | `BANNER_UPLOAD_DIR` | `/var/www/bb-kiosk/uploads/banners` |
 | `BANNER_PUBLIC_PATH` | `/uploads/banners` |
 | `PRODUCT_UPLOAD_DIR` | `/var/www/bb-kiosk/uploads/products` |
