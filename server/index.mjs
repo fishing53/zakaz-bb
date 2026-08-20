@@ -29,6 +29,7 @@ let iikoAppId = process.env.IIKO_APP_ID ?? '';
 let iikoApiLogin = process.env.IIKO_API_LOGIN ?? '';
 let iikoClientSecret = process.env.IIKO_CLIENT_SECRET ?? '';
 const iikoConfigEncryptionKeyHex = process.env.IIKO_CONFIG_ENCRYPTION_KEY ?? '';
+const catalogSchemaRevision = '2';
 const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/bb-kiosk/ota/manifest.json';
 const waiterOtaManifestPath = process.env.WAITER_OTA_MANIFEST_PATH ?? '/var/www/bb-kiosk/ota/waiter/manifest.json';
 const applicationDownloadDir = process.env.APPLICATION_DOWNLOAD_DIR ?? '/var/www/bb-kiosk/downloads';
@@ -1011,11 +1012,11 @@ const fetchIikoStopLists = (terminalGroupIds = []) => {
   }
   return iikoStopListSyncTask;
 };
-const catalogRevision = () => pool.query(`select concat(
+const catalogRevision = () => pool.query(`select concat($3::text, ':',
   coalesce((select max(updated_at)::text from iiko_menu_items),''), ':',
   coalesce((select md5(coalesce(string_agg(concat_ws(':',product_id,size_id,balance::text),',' order by product_id,size_id),''))
     from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2),'')
-) as revision`, [iikoOrganizationId, iikoTerminalGroupId]);
+) as revision`, [iikoOrganizationId, iikoTerminalGroupId, catalogSchemaRevision]);
 const publicIikoStatus = (row) => ({
   orderId: row.order_id,
   posId: row.pos_id,
