@@ -12,6 +12,11 @@ export const iikoStatusStep = (order) => {
   return 0;
 };
 
+// A served item is only a kitchen/service milestone: the guest may still be
+// eating and may place another order. The guest session can be finalized only
+// after iiko closes the whole order (the final settlement/check event).
+export const isIikoOrderSettled = (order) => order?.status === 'Closed';
+
 export const deterministicUuid = (value) => {
   const bytes = crypto.createHash('sha256').update(String(value)).digest().subarray(0, 16);
   bytes[6] = (bytes[6] & 0x0f) | 0x50;

@@ -7,7 +7,7 @@ import { URL } from 'node:url';
 import pg from 'pg';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
-import { deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, normalizeIikoStopListGroups, validateMenuPublication, visibleCatalogItems } from './core.mjs';
+import { deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, isIikoOrderSettled, normalizeIikoStopListGroups, validateMenuPublication, visibleCatalogItems } from './core.mjs';
 import { BridgeConnectionRegistry, normalizeBridgeEmployee, validateEmployeeSnapshot } from './iiko-front-bridge.mjs';
 
 const { Pool } = pg;
@@ -501,6 +501,28 @@ const saveIikoOrder = async (eventInfo, { organizationId = iikoOrganizationId, e
     const orderNumber = customerOrder.rows[0]?.order_number ?? snapshot.externalNumber ?? null;
     await pool.query(`insert into order_status_history(restaurant_id,order_number,iiko_order_id,status_step,order_status,item_statuses,source) values($1,$2,$3,$4,$5,$6,$7)`, [organizationId, orderNumber, snapshot.orderId, snapshot.statusStep, snapshot.orderStatus, JSON.stringify(snapshot.itemStatuses), webhook ? 'webhook' : 'poll']);
     if (orderNumber) await publishEvent('order_status_changed', 'order', orderNumber, { statusStep: snapshot.statusStep, orderStatus: snapshot.orderStatus, itemStatuses: snapshot.itemStatuses, source: webhook ? 'webhook' : 'poll' }, organizationId);
+  }
+  if (isIikoOrderSettled(eventInfo?.order)) {
+    // Do this only once. In particular, statusStep=4/Served must never enter
+    // this branch: it is a guest-visible serving stage, not a closed check.
+    const completed = await pool.query(`update customer_orders set completed_at=now(),updated_at=now()
+      where iiko_order_id=$1 and completed_at is null
+      returning order_number,guest_session_id,terminal_id,table_number,source,is_demo`, [snapshot.orderId]);
+    if (completed.rowCount) {
+      const order = completed.rows[0];
+      if (order.guest_session_id) {
+        await pool.query(`update service_requests set status='completed',handled_at=coalesce(handled_at,now()),completed_at=coalesce(completed_at,now())
+          where guest_session_id=$1 and status in ('new','accepted','in_progress')`, [order.guest_session_id]);
+      }
+      const remaining = await pool.query('select count(*)::int as count from customer_orders where terminal_id=$1 and is_demo=$2 and completed_at is null', [order.terminal_id, order.is_demo]);
+      const terminal = await pool.query('select table_number from terminals where id=$1', [order.terminal_id]);
+      const hasFixedTable = Boolean(String(terminal.rows[0]?.table_number ?? '').trim());
+      if (!String(order.terminal_id).startsWith('qr_') && !hasFixedTable && !remaining.rows[0].count) {
+        await pool.query('delete from terminal_table_selections where terminal_id=$1', [order.terminal_id]);
+      }
+      if (!order.is_demo) await publishEvent('order_completed', 'order', order.order_number, { tableNumber: order.table_number, source: order.source, reason: 'iiko_check_closed' }, organizationId);
+      await closeGuestSessionIfIdle(order.guest_session_id, 'iiko_check_closed');
+    }
   }
   return result.rows[0];
 };
@@ -2215,7 +2237,7 @@ let backgroundSyncRunning = false;
 const syncActiveIikoOrders = async () => {
   const active = await pool.query(`select o.iiko_order_id from customer_orders o
     left join iiko_orders io on io.order_id=o.iiko_order_id
-    where o.iiko_order_id is not null and o.completed_at is null and o.status_step < 4
+    where o.iiko_order_id is not null and o.completed_at is null
       and o.updated_at > now() - interval '8 hours' and coalesce(io.creation_status,'') <> 'Error'
     limit 30`);
   for (const row of active.rows) await fetchIikoOrder(row.iiko_order_id);

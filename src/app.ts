@@ -1173,13 +1173,21 @@ async function performServerSync() {
       catalogSnapshot = nextCatalogSnapshot;
     }
     if (!imageCacheService.isRunning()) adminImageCacheState = imageCacheService.state(imageSources(data.products, data.banners));
-    const selectedOrderId = previous.selectedOrderId ?? data.orders[0]?.id ?? null;
+    const selectedOrderStillActive = previous.selectedOrderId
+      ? data.orders.some((order) => order.id === previous.selectedOrderId)
+      : false;
+    const selectedOrderWasClosed = Boolean(previous.selectedOrderId) && !selectedOrderStillActive;
+    const selectedOrderId = selectedOrderStillActive ? previous.selectedOrderId : data.orders[0]?.id ?? null;
     const nextBootstrapSnapshot = JSON.stringify({ banners: data.banners, display: data.display, terminal: data.terminal, orders: data.orders, selectedOrderId });
     const stateChanged = nextBootstrapSnapshot !== bootstrapSnapshot;
     const connectionRestored = !previous.isOnline;
     if (stateChanged || connectionRestored || catalogChanged) {
       bootstrapSnapshot = nextBootstrapSnapshot;
-      appStore.set({ banners: data.banners, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId, orderNumber: previous.orderNumber ?? data.orders[0]?.id ?? null, isOnline: true });
+      appStore.set({ banners: data.banners, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId, orderNumber: selectedOrderId, isOnline: true });
+    }
+    if (selectedOrderWasClosed && !data.orders.length) {
+      appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, serviceOpen: false, orderNumber: null, selectedOrderId: null, statusStep: 0 });
+      if (router.current() === 'status' || router.current() === 'orders') router.go(apiService.isQrMode() ? 'menu' : 'welcome');
     }
     if (imageCacheService.autoUpdate() && !imageCacheService.isRunning() && Date.now() - lastAutomaticImageSync > 5 * 60_000) {
       lastAutomaticImageSync = Date.now();
