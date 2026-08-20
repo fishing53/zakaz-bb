@@ -140,7 +140,9 @@ export function render() {
   if (!needsCatalogUpdates && catalogRefreshTimer) { clearInterval(catalogRefreshTimer); catalogRefreshTimer = 0; }
   if (route === 'admin' && state.adminTab === 'orders' && !adminOrderRefreshTimer) adminOrderRefreshTimer = window.setInterval(() => { void loadAdminOrders(); }, 15_000);
   if ((route !== 'admin' || state.adminTab !== 'orders') && adminOrderRefreshTimer) { clearInterval(adminOrderRefreshTimer); adminOrderRefreshTimer = 0; }
-  if (route === 'admin' && state.adminTab === 'applications' && !adminApplicationRefreshTimer) adminApplicationRefreshTimer = window.setInterval(() => { void loadAdminApplicationDownloads(); }, 8_000);
+  if (route === 'admin' && state.adminTab === 'applications' && !adminApplicationRefreshTimer) adminApplicationRefreshTimer = window.setInterval(() => {
+    if (!root.querySelector('[data-application-download]:focus')) void loadAdminApplicationDownloads();
+  }, 8_000);
   if ((route !== 'admin' || state.adminTab !== 'applications') && adminApplicationRefreshTimer) { clearInterval(adminApplicationRefreshTimer); adminApplicationRefreshTimer = 0; }
 }
 
@@ -160,8 +162,10 @@ async function loadAdminQrCodes(notify = true) {
 
 async function loadAdminApplicationDownloads(notify = true) {
   try {
-    adminApplicationDownloads = await apiService.applicationDownloads();
-    if (notify) render();
+    const next = await apiService.applicationDownloads();
+    const changed = JSON.stringify(next) !== JSON.stringify(adminApplicationDownloads);
+    adminApplicationDownloads = next;
+    if (notify && changed) render();
   } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось загрузить приложения'); }
 }
 
