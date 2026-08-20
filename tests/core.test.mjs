@@ -11,6 +11,7 @@ import {
   resolveTable,
   serviceRequestTransition,
   validateMenuPublication,
+  visibleCatalogItems,
 } from '../server/core.mjs';
 
 const products = [{
@@ -39,6 +40,10 @@ test('rejects duplicate SKU but ignores hidden seasonal items', () => {
 test('applies and clears stop-list snapshots', () => {
   assert.equal(applyStopList(products, [{ productId: 'pizza', balance: 0 }])[0].available, false);
   assert.equal(applyStopList(products, [])[0].available, true);
+});
+test('hides stopped dishes and restores them after the stop-list is cleared', () => {
+  assert.deepEqual(visibleCatalogItems(products, [{ productId: 'pizza', balance: 0 }]).map((item) => item.id), ['drink']);
+  assert.deepEqual(visibleCatalogItems(products, []).map((item) => item.id), ['pizza', 'drink']);
 });
 test('calculates cart, quantity and optional modifiers', () => {
   const order = calculateOrder({ products, lines: [{ productId: 'pizza', quantity: 2, modifiers: [{ groupId: 'sauces', productId: 'cheese', amount: 1 }] }] });

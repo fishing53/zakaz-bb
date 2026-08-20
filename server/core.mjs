@@ -39,6 +39,16 @@ export const applyStopList = (items, stopList) => {
   return (Array.isArray(items) ? items : []).map((item) => ({ ...item, available: !balance.has(String(item.id)) || Number(balance.get(String(item.id))) > 0 }));
 };
 
+export const visibleCatalogItems = (items, stopList) => {
+  const stopped = new Set((Array.isArray(stopList) ? stopList : [])
+    .filter((item) => Number(item.balance ?? 0) <= 0)
+    .map((item) => String(item.productId)));
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const id = item?.productId ?? item?.product_id ?? item?.id;
+    return id && !stopped.has(String(id));
+  });
+};
+
 export const normalizeIikoStopListGroups = (payload) => {
   const wrappers = Array.isArray(payload?.terminalGroupStopLists) ? payload.terminalGroupStopLists : [];
   return wrappers.flatMap((wrapper) => {

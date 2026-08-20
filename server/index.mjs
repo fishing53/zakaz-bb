@@ -6,7 +6,7 @@ import { URL } from 'node:url';
 import pg from 'pg';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
-import { deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, normalizeIikoStopListGroups, validateMenuPublication } from './core.mjs';
+import { deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, normalizeIikoStopListGroups, validateMenuPublication, visibleCatalogItems } from './core.mjs';
 import { BridgeConnectionRegistry, normalizeBridgeEmployee, validateEmployeeSnapshot } from './iiko-front-bridge.mjs';
 
 const { Pool } = pg;
@@ -693,9 +693,9 @@ const allergenNames = (value) => [...new Map(arrayValue(value)
   })
   .filter(([, name]) => name)).values()];
 const allergenText = (value) => allergenNames(value).join(', ');
-const publicModifierGroups = (groups) => arrayValue(groups).map((group) => ({
+const publicModifierGroups = (groups, stoppedProductIds = new Set()) => arrayValue(groups).map((group) => ({
   name: String(group?.name ?? 'Дополнения'), minQuantity: Number(group?.restrictions?.minQuantity ?? 0), maxQuantity: Number(group?.restrictions?.maxQuantity ?? 99), freeQuantity: Number(group?.restrictions?.freeQuantity ?? 0),
-  items: arrayValue(group?.items).filter((item) => item?.itemId && !item?.isHidden).map((item) => {
+  items: arrayValue(group?.items).filter((item) => item?.itemId && !item?.isHidden && !stoppedProductIds.has(String(item.itemId))).map((item) => {
     const restrictions = modifierRestrictions(item?.restrictions);
     const groupMaximum = Number(group?.restrictions?.maxQuantity ?? 20) || 20;
     const itemMaximum = Number(restrictions.maxQuantity ?? 0) || groupMaximum;
@@ -830,13 +830,13 @@ const publicIikoStatus = (row) => ({
 });
 
 const publicState = async (terminalId) => {
-  const [localProducts, iikoProducts, banners, terminal, selection, settings, revision] = await Promise.all([
+  const [localProducts, iikoProducts, stopList, banners, terminal, selection, settings, revision] = await Promise.all([
     pool.query('select * from products order by category, sort_order, name'),
     pool.query(`select m.*, p.image as override_image,
       coalesce((select jsonb_agg((select pm.product_id from iiko_menu_items pm where pm.sku=pair.sku and not pm.is_hidden order by pm.updated_at desc limit 1) order by pair.ordinality) from jsonb_array_elements_text(p.pairs_with_skus) with ordinality pair(sku,ordinality)),'[]'::jsonb) as override_pairs_with,
-      p.badge as override_badge, p.image_position as override_image_position, p.composition as override_composition,
-      exists(select 1 from iiko_stop_list_items s where s.organization_id=$1 and s.terminal_group_id=$2 and s.product_id=m.product_id and s.balance <= 0) as stopped
+      p.badge as override_badge, p.image_position as override_image_position, p.composition as override_composition
       from iiko_menu_items m left join iiko_product_presentations p on p.restaurant_id=$1 and p.sku=m.sku where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId, iikoTerminalGroupId]),
+    pool.query(`select product_id as "productId",balance from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2`, [iikoOrganizationId, iikoTerminalGroupId]),
     pool.query(`select b.*,coalesce((select m.product_id from iiko_menu_items m where m.sku=b.product_sku and not m.is_hidden order by m.updated_at desc limit 1),b.product_id) as product_id from banners b where active=true
       and (starts_at is null or starts_at <= now())
       and (ends_at is null or ends_at > now())
@@ -852,16 +852,18 @@ const publicState = async (terminalId) => {
   const chosen = selection.rows[0];
   const effectiveTable = fixedTable || chosen?.table_number || '';
   const demoMode = terminal.rows[0].demo_mode === true;
-  const products = demoMode ? localProducts.rows.map((item) => ({ ...item, sauce_options: [], modifier_groups: demoModifierGroups(item) })) : iikoProducts.rowCount ? iikoProducts.rows.map((item) => ({
+  const visibleIikoProducts = visibleCatalogItems(iikoProducts.rows, stopList.rows);
+  const stoppedProductIds = new Set(stopList.rows.filter((item) => Number(item.balance) <= 0).map((item) => String(item.productId)));
+  const products = demoMode ? localProducts.rows.map((item) => ({ ...item, sauce_options: [], modifier_groups: demoModifierGroups(item) })) : iikoProducts.rowCount ? visibleIikoProducts.map((item) => ({
     id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, composition: item.override_composition ?? '', kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
-    pairs_with: item.override_pairs_with ?? [], recommendations_note: null, is_available: !item.stopped, badge: item.stopped ? 'СТОП-ЛИСТ' : (item.override_badge ?? ''), image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups), iiko: true,
+    pairs_with: arrayValue(item.override_pairs_with).filter((id) => !stoppedProductIds.has(String(id))), recommendations_note: null, is_available: true, badge: item.override_badge ?? '', image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups, stoppedProductIds), iiko: true,
   })) : localProducts.rows;
   if (demoMode) await pool.query(`update customer_orders set status_step=least(4,floor(extract(epoch from now()-created_at)/5)::int),updated_at=now()
     where terminal_id=$1 and is_demo=true and completed_at is null and status_step<4`, [terminalId]);
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and is_demo=$2 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId, demoMode]);
-  const publicBanners = demoMode ? localProducts.rows.slice(0, 3).map((item, index) => ({ id: `demo-${index}`, name: item.name, image_url: item.image, product_id: item.id, kind: 'restaurant', active: true, starts_at: null, ends_at: null, impression_limit: null, impressions: 0, sort_order: index })) : banners.rows;
+  const publicBanners = demoMode ? localProducts.rows.slice(0, 3).map((item, index) => ({ id: `demo-${index}`, name: item.name, image_url: item.image, product_id: item.id, kind: 'restaurant', active: true, starts_at: null, ends_at: null, impression_limit: null, impressions: 0, sort_order: index })) : banners.rows.filter((item) => !item.product_id || !stoppedProductIds.has(String(item.product_id)));
   return { products, banners: publicBanners, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? (chosen.source === 'qr' ? 'qr' : 'guest') : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])), catalogRevision: String(revision.rows[0]?.revision ?? '') };
 };
 
