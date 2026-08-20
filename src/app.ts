@@ -20,7 +20,7 @@ import { applyLanguage } from './services/i18n';
 import { otaService } from './services/ota-service';
 import { imageCacheService, type ImageCacheState } from './services/image-cache-service';
 import { icon } from './components/icons';
-import type { AdminDiagnostics, AdminOrder, AdminPromotion, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoDiscountOption, IikoRestaurantOptions, Product, SecurityOverview, TableQrCode } from './types/menu';
+import type { AdminDiagnostics, AdminOrder, AdminPromotion, ApplicationDownloadIssue, Banner, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoDiscountOption, IikoRestaurantOptions, Product, SecurityOverview, TableQrCode } from './types/menu';
 import type { AdminUserProfile, IikoFrontOverview, WaiterProfile } from './services/api-service';
 import brand from './config/brand.json';
 
@@ -45,6 +45,7 @@ let adminPromotions: AdminPromotion[] = [];
 let adminIikoDiscounts: IikoDiscountOption[] = [];
 let adminOrders: AdminOrder[] = [];
 let adminQrCodes: TableQrCode[] = [];
+let adminApplicationDownloads: ApplicationDownloadIssue[] = [];
 let adminDiagnostics: AdminDiagnostics | null = null;
 let adminSecurity: SecurityOverview | null = null;
 let iikoConfigAccessToken = '';
@@ -56,6 +57,7 @@ let iikoRestaurantOptions: IikoRestaurantOptions | null = null;
 let iikoSelectedOrganizationId = '';
 let adminOrderFilter: 'active' | 'all' = 'active';
 let adminOrderRefreshTimer = 0;
+let adminApplicationRefreshTimer = 0;
 let adminUpdateState: AdminUpdateState = { phase: 'idle', currentVersion: otaService.bundledVersion, latestVersion: null, progress: 0, browser: false };
 let adminImageCacheState: ImageCacheState = imageCacheService.state([]);
 let lastAutomaticImageSync = 0;
@@ -91,7 +93,7 @@ function page() {
       const order = state.orders.find((item) => item.id === state.selectedOrderId);
       return statusPage(order, order?.id ?? state.orderNumber, order?.statusStep ?? state.statusStep, orderStore.product);
     }
-    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState, state.tables, adminImageCacheState, adminQrCodes, adminSecurity, adminIikoFront) : '';
+    case 'admin': return state.adminAuthenticated ? adminPage(menuService.all(), adminBanners, state.productDisplay, state.terminal, state.adminTab, state.adminProductId, auditLog, state.adminScope, state.adminRole, waiterProfiles, adminUserProfiles, adminOrders, adminOrderFilter, adminDiagnostics, adminIikoConfig, iikoDiscovery, iikoRestaurantOptions, iikoSelectedOrganizationId, adminPromotions, adminIikoDiscounts, adminUpdateState, state.tables, adminImageCacheState, adminQrCodes, adminSecurity, adminIikoFront, adminApplicationDownloads) : '';
   }
 }
 
@@ -138,6 +140,8 @@ export function render() {
   if (!needsCatalogUpdates && catalogRefreshTimer) { clearInterval(catalogRefreshTimer); catalogRefreshTimer = 0; }
   if (route === 'admin' && state.adminTab === 'orders' && !adminOrderRefreshTimer) adminOrderRefreshTimer = window.setInterval(() => { void loadAdminOrders(); }, 15_000);
   if ((route !== 'admin' || state.adminTab !== 'orders') && adminOrderRefreshTimer) { clearInterval(adminOrderRefreshTimer); adminOrderRefreshTimer = 0; }
+  if (route === 'admin' && state.adminTab === 'applications' && !adminApplicationRefreshTimer) adminApplicationRefreshTimer = window.setInterval(() => { void loadAdminApplicationDownloads(); }, 8_000);
+  if ((route !== 'admin' || state.adminTab !== 'applications') && adminApplicationRefreshTimer) { clearInterval(adminApplicationRefreshTimer); adminApplicationRefreshTimer = 0; }
 }
 
 async function loadAdminOrders(notify = true) {
@@ -152,6 +156,13 @@ async function loadAdminQrCodes(notify = true) {
     adminQrCodes = await apiService.qrCodes();
     if (notify) render();
   } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось загрузить QR-коды'); }
+}
+
+async function loadAdminApplicationDownloads(notify = true) {
+  try {
+    adminApplicationDownloads = await apiService.applicationDownloads();
+    if (notify) render();
+  } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось загрузить приложения'); }
 }
 
 async function loadTerminalTables() {
@@ -466,12 +477,13 @@ async function action(element: HTMLElement) {
   }
   if (type === 'logout-admin') { apiService.logout(); clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; appStore.set({ adminAuthenticated: false, adminScope: null, adminRole: null, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
-    const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'qr' | 'promotions' | 'staff' | 'quality' | 'security' | 'audit';
+    const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'qr' | 'applications' | 'promotions' | 'staff' | 'quality' | 'security' | 'audit';
     appStore.set({ adminTab });
     if (adminTab === 'audit') apiService.audit().then((items) => { auditLog = items; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'staff') Promise.all([apiService.waiters(), apiService.adminUsers(), apiService.iikoFront()]).then(([waiters, users, iikoFront]) => { waiterProfiles = waiters; adminUserProfiles = users; adminIikoFront = iikoFront; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'banners') apiService.banners().then((items) => { adminBanners = items; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'qr') Promise.all([loadTerminalTables(), loadAdminQrCodes(false)]).then(render).catch((error) => flash(error.message));
+    if (adminTab === 'applications') void loadAdminApplicationDownloads();
     if (adminTab === 'promotions') void loadAdminPromotions();
     if (adminTab === 'orders') void loadAdminOrders();
     if (adminTab === 'quality') void loadAdminDiagnostics();
@@ -527,6 +539,40 @@ async function action(element: HTMLElement) {
     return;
   }
   if (type === 'retry-qr-entry') { location.reload(); return; }
+  if (type === 'refresh-application-downloads') { await loadAdminApplicationDownloads(); flash('Список приложений обновлён'); return; }
+  if (type === 'create-application-download') {
+    const appKind = root.querySelector<HTMLSelectElement>('[data-application-download="kind"]')?.value === 'waiter' ? 'waiter' : 'kiosk';
+    const label = root.querySelector<HTMLInputElement>('[data-application-download="label"]')?.value.trim() ?? '';
+    const expiresInHours = Number(root.querySelector<HTMLSelectElement>('[data-application-download="expires"]')?.value ?? 24);
+    if (!label) { flash('Укажите устройство или получателя'); return; }
+    try { await apiService.createApplicationDownload({ appKind, label, expiresInHours }); await loadAdminApplicationDownloads(); flash('Одноразовый QR-код готов'); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Не удалось выпустить QR-код'); }
+    return;
+  }
+  if (type === 'copy-application-download') {
+    const item = adminApplicationDownloads.find((entry) => entry.id === element.dataset.applicationId); if (!item?.publicUrl) return;
+    try { await navigator.clipboard.writeText(item.publicUrl); flash('Ссылка скопирована'); }
+    catch { flash('Не удалось скопировать ссылку'); }
+    return;
+  }
+  if (type === 'download-application-qr') {
+    const item = adminApplicationDownloads.find((entry) => entry.id === element.dataset.applicationId); if (!item?.svg) return;
+    const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([item.svg], { type: 'image/svg+xml;charset=utf-8' }));
+    link.download = `${item.appName.replace(/\s+/g, '-')}-${item.id.slice(0, 8)}.svg`; link.click(); window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    return;
+  }
+  if (type === 'revoke-application-download') {
+    const id = element.dataset.applicationId ?? ''; if (!id || !confirm('Этот QR-код сразу перестанет работать. Отозвать?')) return;
+    try { await apiService.updateApplicationDownload(id, 'revoked'); await loadAdminApplicationDownloads(); flash('QR-код отозван'); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Не удалось отозвать QR-код'); }
+    return;
+  }
+  if (type === 'confirm-application-install') {
+    const id = element.dataset.applicationId ?? ''; if (!id) return;
+    try { await apiService.updateApplicationDownload(id, 'installed'); await loadAdminApplicationDownloads(); flash('Установка подтверждена'); }
+    catch (error) { flash(error instanceof Error ? error.message : 'Не удалось подтвердить установку'); }
+    return;
+  }
   if (type === 'refresh-admin-orders') { await loadAdminOrders(); flash('Заказы обновлены'); return; }
   if (type === 'refresh-admin-diagnostics') { await loadAdminDiagnostics(); flash('Проверка обновлена'); return; }
   if (type === 'run-security-checks') {

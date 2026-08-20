@@ -47,6 +47,7 @@ test('administrator sees security checks and protected Telegram settings', async
     if (path.endsWith('/bootstrap')) return route.fulfill({ json: { products: [product], banners: [], terminal: { id: 'terminal-test', label: 'Тест', table_number: '5', is_active: true, demo_mode: false, idle_seconds: 45, table_source: 'admin', table_id: 'table-5' }, orders: [], settings: {} } });
     if (path.endsWith('/admin/login')) return route.fulfill({ json: { token: 'admin-token', scope: 'restaurant', role: 'administrator' } });
     if (path.endsWith('/admin/orders')) return route.fulfill({ json: [] });
+    if (path.endsWith('/admin/application-downloads')) return route.fulfill({ json: [{ id: '11111111-1111-4111-8111-111111111111', app_kind: 'kiosk', app_name: 'BB Kiosk', label: 'Планшет зала №2', status: 'issued', version: '0.2.0-39', artifact_available: true, artifact_size: 1024, expires_at: new Date(Date.now() + 86_400_000).toISOString(), downloaded_at: null, installed_at: null, revoked_at: null, created_at: new Date().toISOString(), public_url: 'https://order.brooklynbowl.ru/api/v1/apps/install/token', qr_svg: '<svg xmlns="http://www.w3.org/2000/svg"></svg>' }] });
     if (path.endsWith('/admin/security')) return route.fulfill({ json: { generated_at: new Date().toISOString(), telegram: { configured: false, enabled: false, chat_id_masked: '', last_test_at: null, last_success_at: null, last_error: null }, automated: { status: 'passed', commit: 'abcdef1', passed: 22, failed: 0, duration_ms: 500, created_at: new Date().toISOString() }, safe_run: { status: 'passed', passed: 8, failed: 0, created_at: new Date().toISOString() }, smoke: { status: 'unknown', created_at: null, detail: 'Ещё не запускался' }, load: { status: 'unknown', created_at: null, detail: 'Ещё не запускался' }, checks: [{ id: 'database', name: 'База данных', status: 'passed', detail: 'Ответ 2 мс' }], backup: { status: 'passed', last_at: new Date().toISOString(), age_hours: 2, file: 'zakaz-test.dump' } } });
     return route.fulfill({ json: [] });
   });
@@ -68,4 +69,8 @@ test('administrator sees security checks and protected Telegram settings', async
   const settingsRequest = page.waitForRequest((request) => request.url().includes('/api/v1/admin/security/telegram') && request.method() === 'PUT');
   await page.getByRole('button', { name: 'Сохранить настройки' }).click();
   expect((await settingsRequest).postDataJSON()).toMatchObject({ chat_id: '-1001234567890', password: 'test-password', enabled: true });
+  await page.getByRole('button', { name: 'Приложения' }).click();
+  await expect(page.getByRole('heading', { name: 'Приложения' })).toBeVisible();
+  await expect(page.getByText('Планшет зала №2').first()).toBeVisible();
+  await expect(page.getByText('ГОТОВ К СКАЧИВАНИЮ').first()).toBeVisible();
 });

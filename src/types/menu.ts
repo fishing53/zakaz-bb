@@ -125,6 +125,24 @@ export interface AdminOrder {
   history: Array<{ eventType: string; payload: Record<string, unknown>; createdAt: string }>;
 }
 
+export interface ApplicationDownloadIssue {
+  id: string;
+  appKind: 'kiosk' | 'waiter';
+  appName: string;
+  label: string;
+  status: 'issued' | 'downloaded' | 'installed' | 'revoked' | 'expired';
+  version: string;
+  artifactAvailable: boolean;
+  artifactSize: number;
+  expiresAt: string;
+  downloadedAt: string | null;
+  installedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  publicUrl: string | null;
+  svg: string | null;
+}
+
 export interface AdminDiagnostics {
   generatedAt: string;
   api: { ok: boolean; uptimeSeconds: number; startedAt: string };

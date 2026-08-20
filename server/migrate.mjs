@@ -180,6 +180,25 @@ await pool.query(`
     unique(restaurant_id, table_id)
   );
   create index if not exists table_qr_codes_restaurant_idx on table_qr_codes(restaurant_id,is_active,section_name,table_number);
+  create table if not exists application_download_issues (
+    id uuid primary key,
+    restaurant_id text not null,
+    app_kind text not null check(app_kind in ('kiosk','waiter')),
+    label text not null default '',
+    status text not null default 'issued' check(status in ('issued','downloaded','installed','revoked','expired')),
+    version text not null default '',
+    expires_at timestamptz not null,
+    downloaded_at timestamptz,
+    installed_at timestamptz,
+    revoked_at timestamptz,
+    download_ip_hash text,
+    download_user_agent text not null default '',
+    created_by text not null default '',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  create index if not exists application_download_issues_history_idx on application_download_issues(restaurant_id,created_at desc);
+  create unique index if not exists application_download_issues_active_idx on application_download_issues(restaurant_id,app_kind) where status='issued';
   alter table terminal_table_selections add column if not exists source text not null default 'guest';
   alter table terminal_table_selections add column if not exists qr_code_id uuid references table_qr_codes(id) on delete set null;
   create table if not exists service_requests (

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import pathModule from 'node:path';
@@ -30,6 +31,7 @@ let iikoClientSecret = process.env.IIKO_CLIENT_SECRET ?? '';
 const iikoConfigEncryptionKeyHex = process.env.IIKO_CONFIG_ENCRYPTION_KEY ?? '';
 const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/bb-kiosk/ota/manifest.json';
 const waiterOtaManifestPath = process.env.WAITER_OTA_MANIFEST_PATH ?? '/var/www/bb-kiosk/ota/waiter/manifest.json';
+const applicationDownloadDir = process.env.APPLICATION_DOWNLOAD_DIR ?? '/var/www/bb-kiosk/downloads';
 const bannerUploadDir = process.env.BANNER_UPLOAD_DIR ?? '/var/www/bb-kiosk/uploads/banners';
 const bannerPublicPath = process.env.BANNER_PUBLIC_PATH ?? '/uploads/banners';
 const productUploadDir = process.env.PRODUCT_UPLOAD_DIR ?? '/var/www/bb-kiosk/uploads/products';
@@ -55,6 +57,7 @@ const json = (response, status, body) => {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(body));
 };
+const htmlText = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 const readBody = async (request, maxBytes = 1_000_000) => {
   const chunks = [];
   let size = 0;
@@ -284,6 +287,53 @@ const publicQrCode = async (row) => {
     section_name: row.section_name, is_active: row.is_active, scans_count: Number(row.scans_count),
     last_scanned_at: row.last_scanned_at, created_at: row.created_at, updated_at: row.updated_at,
     public_url: publicUrl, qr_svg: qrSvg,
+  };
+};
+const applicationArtifacts = {
+  kiosk: { name: 'BB Kiosk', filename: 'BB-Kiosk-latest.apk' },
+  waiter: { name: 'BB Waiter', filename: 'BB-Waiter-latest.apk' },
+};
+const applicationDownloadToken = (row) => {
+  const signature = crypto.createHmac('sha256', tokenSecret).update(`application-download:${row.id}`).digest('base64url');
+  return `${row.id}.${signature}`;
+};
+const verifyApplicationDownloadToken = (value) => {
+  const [id, signature, ...rest] = String(value ?? '').split('.');
+  if (rest.length || !/^[0-9a-f-]{36}$/i.test(id ?? '') || !signature) return null;
+  const expected = crypto.createHmac('sha256', tokenSecret).update(`application-download:${id}`).digest('base64url');
+  const actualBytes = Buffer.from(signature);
+  const expectedBytes = Buffer.from(expected);
+  if (actualBytes.length !== expectedBytes.length || !crypto.timingSafeEqual(actualBytes, expectedBytes)) return null;
+  return id;
+};
+const applicationArtifact = async (kind) => {
+  const definition = applicationArtifacts[kind];
+  if (!definition) return null;
+  const filePath = pathModule.join(applicationDownloadDir, definition.filename);
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) return null;
+    return { ...definition, filePath, size: stat.size };
+  } catch { return null; }
+};
+const applicationVersion = async (kind) => {
+  try {
+    const manifest = JSON.parse(await fs.readFile(pathModule.join(applicationDownloadDir, 'manifest.json'), 'utf8'));
+    return String(manifest?.[kind]?.version ?? manifest?.version ?? '').slice(0, 80) || 'Актуальная сборка';
+  } catch { return 'Актуальная сборка'; }
+};
+const publicApplicationDownload = async (row) => {
+  const artifact = await applicationArtifact(row.app_kind);
+  const expired = row.status === 'issued' && new Date(row.expires_at).getTime() <= Date.now();
+  const status = expired ? 'expired' : row.status;
+  const version = status === 'issued' ? await applicationVersion(row.app_kind) : row.version;
+  const publicUrl = status === 'issued' && artifact ? `${publicAppUrl}/api/v1/apps/install/${encodeURIComponent(applicationDownloadToken(row))}` : null;
+  const qrSvg = publicUrl ? await QRCode.toString(publicUrl, { type: 'svg', errorCorrectionLevel: 'M', margin: 2, color: { dark: '#000000', light: '#ffffff' } }) : null;
+  return {
+    id: row.id, app_kind: row.app_kind, app_name: applicationArtifacts[row.app_kind]?.name ?? row.app_kind,
+    label: row.label, status, version, artifact_available: Boolean(artifact), artifact_size: artifact?.size ?? 0,
+    expires_at: row.expires_at, downloaded_at: row.downloaded_at, installed_at: row.installed_at,
+    revoked_at: row.revoked_at, created_at: row.created_at, public_url: publicUrl, qr_svg: qrSvg,
   };
 };
 const requireAdmin = (request) => {
@@ -1312,6 +1362,63 @@ const server = http.createServer(async (request, response) => {
         return json(response, 200, { version: 'builtin' });
       }
     }
+    if (request.method === 'GET' && path.startsWith('/api/v1/apps/install/')) {
+      const rawToken = decodeURIComponent(path.slice('/api/v1/apps/install/'.length));
+      const id = verifyApplicationDownloadToken(rawToken);
+      if (!id) return json(response, 404, { error: 'Ссылка недействительна' });
+      const result = await pool.query('select * from application_download_issues where id=$1 and restaurant_id=$2', [id, iikoOrganizationId]);
+      const row = result.rows[0];
+      const artifact = row ? await applicationArtifact(row.app_kind) : null;
+      const available = row?.status === 'issued' && new Date(row.expires_at).getTime() > Date.now() && artifact;
+      const appName = applicationArtifacts[row?.app_kind]?.name ?? 'BB Kiosk';
+      const safeAppName = htmlText(appName);
+      const safeVersion = htmlText(row ? await applicationVersion(row.app_kind) : 'актуальная');
+      response.writeHead(available ? 200 : 410, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      response.end(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeAppName}</title><style>*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px;background:#000;color:#fff;font-family:Arial,sans-serif}.card{width:min(100%,460px);padding:32px;border-radius:28px;background:#191919;text-align:center}b{display:block;margin-bottom:8px;color:#f33430;font-size:12px;letter-spacing:.16em}h1{margin:0 0 12px;font-size:42px}p{margin:0 0 24px;color:#aaa;line-height:1.5}.button{display:block;width:100%;padding:18px;border-radius:16px;background:#f33430;color:#fff;text-decoration:none;font-weight:800;text-transform:uppercase}</style></head><body><main class="card"><b>ПРИЛОЖЕНИЕ</b><h1>${safeAppName}</h1>${available ? `<p>Версия ${safeVersion}. Ссылка сработает один раз и после скачивания будет заменена.</p><a class="button" href="/api/v1/apps/download/${encodeURIComponent(rawToken)}">Скачать APK</a>` : '<p>Эта ссылка уже использована, отозвана или истекла. Попросите администратора показать новый QR-код.</p>'}</main></body></html>`);
+      return;
+    }
+    if (request.method === 'GET' && path.startsWith('/api/v1/apps/download/')) {
+      const rawToken = decodeURIComponent(path.slice('/api/v1/apps/download/'.length));
+      const id = verifyApplicationDownloadToken(rawToken);
+      if (!id) return json(response, 404, { error: 'Ссылка недействительна' });
+      const ipHash = sha256(requestIp(request));
+      const userAgent = String(request.headers['user-agent'] ?? '').slice(0, 500);
+      const client = await pool.connect();
+      let row;
+      try {
+        await client.query('begin');
+        const found = await client.query('select * from application_download_issues where id=$1 and restaurant_id=$2 for update', [id, iikoOrganizationId]);
+        row = found.rows[0];
+        if (!row) { await client.query('rollback'); return json(response, 404, { error: 'Ссылка недействительна' }); }
+        const expired = new Date(row.expires_at).getTime() <= Date.now();
+        if (row.status === 'issued' && expired) {
+          await client.query("update application_download_issues set status='expired',updated_at=now() where id=$1", [id]);
+          await client.query('commit');
+          return json(response, 410, { error: 'Срок действия ссылки истёк' });
+        }
+        const retryWindow = row.status === 'downloaded' && row.download_ip_hash === ipHash && row.download_user_agent === userAgent && Date.now() - new Date(row.downloaded_at).getTime() < 15 * 60_000;
+        if (row.status !== 'issued' && !retryWindow) { await client.query('rollback'); return json(response, 410, { error: 'Ссылка уже использована' }); }
+        const artifact = await applicationArtifact(row.app_kind);
+        if (!artifact) { await client.query('rollback'); return json(response, 503, { error: 'Сборка приложения пока недоступна' }); }
+        if (row.status === 'issued') {
+          const currentVersion = await applicationVersion(row.app_kind);
+          await client.query("update application_download_issues set status='downloaded',version=$1,downloaded_at=now(),download_ip_hash=$2,download_user_agent=$3,updated_at=now() where id=$4", [currentVersion, ipHash, userAgent, id]);
+          const duration = Math.max(60 * 60_000, Math.min(7 * 24 * 60 * 60_000, new Date(row.expires_at).getTime() - new Date(row.created_at).getTime()));
+          await client.query(`insert into application_download_issues(id,restaurant_id,app_kind,label,status,version,expires_at,created_by)
+            values($1,$2,$3,$4,'issued',$5,$6,'automatic-rotation')`, [crypto.randomUUID(), iikoOrganizationId, row.app_kind, row.label, currentVersion, new Date(Date.now() + duration)]);
+        }
+        await client.query('commit');
+        response.writeHead(200, {
+          'Content-Type': 'application/vnd.android.package-archive', 'Content-Length': artifact.size,
+          'Content-Disposition': `attachment; filename="${artifact.filename}"`, 'Cache-Control': 'no-store',
+        });
+        createReadStream(artifact.filePath).on('error', () => response.destroy()).pipe(response);
+        return;
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally { client.release(); }
+    }
     if (request.method === 'POST' && path === '/api/v1/qr/resolve') {
       const body = await readBody(request);
       const parsed = verifyQrToken(body.token);
@@ -1632,6 +1739,52 @@ const server = http.createServer(async (request, response) => {
     const hostessAllowed = request.method === 'GET' && path === '/api/v1/admin/orders' || terminalOnly;
     if (admin.role === 'hostess' && !hostessAllowed) throw Object.assign(new Error('Недостаточно прав'), { status: 403 });
     const actor = admin.userId ? `admin-user:${admin.userId}` : admin.scope === 'terminal' ? 'terminal-admin' : 'restaurant-admin';
+    if (request.method === 'GET' && path === '/api/v1/admin/application-downloads') {
+      await pool.query("update application_download_issues set status='expired',updated_at=now() where restaurant_id=$1 and status='issued' and expires_at<=now()", [iikoOrganizationId]);
+      const rows = await pool.query('select * from application_download_issues where restaurant_id=$1 order by created_at desc limit 100', [iikoOrganizationId]);
+      return json(response, 200, await Promise.all(rows.rows.map(publicApplicationDownload)));
+    }
+    if (request.method === 'POST' && path === '/api/v1/admin/application-downloads') {
+      const body = await readBody(request);
+      const appKind = String(body.app_kind ?? '');
+      const label = String(body.label ?? '').trim().slice(0, 120);
+      const expiresInHours = Number(body.expires_in_hours ?? 24);
+      if (!applicationArtifacts[appKind]) return json(response, 400, { error: 'Выберите приложение' });
+      if (!Number.isInteger(expiresInHours) || expiresInHours < 1 || expiresInHours > 168) return json(response, 400, { error: 'Срок действия должен быть от 1 часа до 7 дней' });
+      const artifact = await applicationArtifact(appKind);
+      if (!artifact) return json(response, 409, { error: 'APK ещё не опубликован на сервере' });
+      const version = await applicationVersion(appKind);
+      const client = await pool.connect();
+      let created;
+      try {
+        await client.query('begin');
+        await client.query("update application_download_issues set status='expired',updated_at=now() where restaurant_id=$1 and status='issued' and expires_at<=now()", [iikoOrganizationId]);
+        await client.query("update application_download_issues set status='revoked',revoked_at=now(),updated_at=now() where restaurant_id=$1 and app_kind=$2 and status='issued'", [iikoOrganizationId, appKind]);
+        created = await client.query(`insert into application_download_issues(id,restaurant_id,app_kind,label,status,version,expires_at,created_by)
+          values($1,$2,$3,$4,'issued',$5,now()+($6::text||' hours')::interval,$7) returning *`, [crypto.randomUUID(), iikoOrganizationId, appKind, label || applicationArtifacts[appKind].name, version, expiresInHours, actor]);
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally { client.release(); }
+      await audit(actor, 'issue', 'application_download', created.rows[0].id, null, { appKind, label, version, expiresInHours });
+      return json(response, 201, await publicApplicationDownload(created.rows[0]));
+    }
+    if (request.method === 'PUT' && path.startsWith('/api/v1/admin/application-downloads/')) {
+      const id = decodeURIComponent(path.slice('/api/v1/admin/application-downloads/'.length));
+      const body = await readBody(request); const nextStatus = String(body.status ?? '');
+      if (!/^[0-9a-f-]{36}$/i.test(id) || !['installed', 'revoked'].includes(nextStatus)) return json(response, 400, { error: 'Некорректное действие' });
+      const before = await pool.query('select * from application_download_issues where id=$1 and restaurant_id=$2', [id, iikoOrganizationId]);
+      if (!before.rowCount) return json(response, 404, { error: 'Выдача не найдена' });
+      if (nextStatus === 'installed' && before.rows[0].status !== 'downloaded') return json(response, 409, { error: 'Сначала APK должен быть скачан' });
+      if (nextStatus === 'revoked' && before.rows[0].status !== 'issued') return json(response, 409, { error: 'Отозвать можно только активный QR-код' });
+      const result = await pool.query(`update application_download_issues set status=$1,
+        installed_at=case when $1='installed' then now() else installed_at end,
+        revoked_at=case when $1='revoked' then now() else revoked_at end,updated_at=now()
+        where id=$2 and restaurant_id=$3 returning *`, [nextStatus, id, iikoOrganizationId]);
+      await audit(actor, nextStatus, 'application_download', id, before.rows[0], result.rows[0]);
+      return json(response, 200, await publicApplicationDownload(result.rows[0]));
+    }
     if (request.method === 'GET' && path === '/api/v1/admin/qr-codes') {
       const rows = await pool.query(`select q.*,coalesce(t.table_number,q.table_number) as table_number,coalesce(t.table_name,q.table_name) as table_name,coalesce(t.section_name,q.section_name) as section_name
         from table_qr_codes q left join iiko_tables t on t.table_id=q.table_id and t.organization_id=q.restaurant_id and t.terminal_group_id=$2
