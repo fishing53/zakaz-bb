@@ -1,7 +1,7 @@
 import { appShell } from './components/app-shell';
 import { productModal, relatedCards } from './components/product-modal';
 import { serviceSheet } from './components/service-sheet';
-import { menuService, setCatalog } from './services/menu-service';
+import { ALL_MENU_CATEGORY, menuService, setCatalog } from './services/menu-service';
 import { apiService } from './services/api-service';
 import { orderService } from './services/order-service';
 import { waiterService } from './services/waiter-service';
@@ -72,9 +72,9 @@ let offlineTimer = 0;
 const pendingServiceRequests = new Set<string>();
 const updateSearch = debounce((value: string) => {
   const searching = Boolean(value.trim());
-  appStore.set({ search: value, ...(searching ? { category: 'Все блюда' } : {}) }, false);
+  appStore.set({ search: value, ...(searching ? { category: ALL_MENU_CATEGORY } : {}) }, false);
   if (searching) {
-    root.querySelectorAll<HTMLElement>('.category-nav button').forEach((button) => button.classList.toggle('is-active', button.dataset.category === 'Все блюда'));
+    root.querySelectorAll<HTMLElement>('.category-nav button').forEach((button) => button.classList.toggle('is-active', button.dataset.category === ALL_MENU_CATEGORY));
   }
   refreshMenuResults();
 }, 180);
@@ -684,12 +684,12 @@ async function action(element: HTMLElement) {
     const id = element.dataset.productId ?? null;
     const recentProductIds = id ? [id, ...appStore.get().recentProductIds.filter((item) => item !== id)].slice(0, 8) : appStore.get().recentProductIds;
     const fromWelcome = router.current() === 'welcome';
-    appStore.set({ productId: id, recentProductIds, ...(fromWelcome ? { category: 'Все блюда', search: '' } : {}) });
+    appStore.set({ productId: id, recentProductIds, ...(fromWelcome ? { category: ALL_MENU_CATEGORY, search: '' } : {}) });
     if (fromWelcome) router.go('menu');
     return;
   }
   if (type === 'close-product') { appStore.set({ productId: null }); return; }
-  if (type === 'select-category') { appStore.set({ category: element.dataset.category ?? 'Все блюда', search: '' }); return; }
+  if (type === 'select-category') { appStore.set({ category: element.dataset.category ?? ALL_MENU_CATEGORY, search: '' }); return; }
   if (type === 'close-search') {
     updateSearch('');
     appStore.set({ search: '' });
@@ -1166,10 +1166,10 @@ async function performServerSync() {
     const data = await apiService.bootstrap();
     currentCatalogRevision = data.catalogRevision;
     consecutiveBootstrapFailures = 0;
-    const nextCatalogSnapshot = JSON.stringify(data.products);
+    const nextCatalogSnapshot = JSON.stringify({ products: data.products, categories: data.categories });
     const catalogChanged = nextCatalogSnapshot !== catalogSnapshot;
     if (catalogChanged) {
-      setCatalog(data.products);
+      setCatalog(data.products, data.categories);
       catalogSnapshot = nextCatalogSnapshot;
     }
     if (!imageCacheService.isRunning()) adminImageCacheState = imageCacheService.state(imageSources(data.products, data.banners));
@@ -1178,12 +1178,13 @@ async function performServerSync() {
       : false;
     const selectedOrderWasClosed = Boolean(previous.selectedOrderId) && !selectedOrderStillActive;
     const selectedOrderId = selectedOrderStillActive ? previous.selectedOrderId : data.orders[0]?.id ?? null;
-    const nextBootstrapSnapshot = JSON.stringify({ banners: data.banners, display: data.display, terminal: data.terminal, orders: data.orders, selectedOrderId });
+    const category = menuService.hasCategory(previous.category) ? previous.category : ALL_MENU_CATEGORY;
+    const nextBootstrapSnapshot = JSON.stringify({ banners: data.banners, display: data.display, terminal: data.terminal, orders: data.orders, selectedOrderId, category });
     const stateChanged = nextBootstrapSnapshot !== bootstrapSnapshot;
     const connectionRestored = !previous.isOnline;
     if (stateChanged || connectionRestored || catalogChanged) {
       bootstrapSnapshot = nextBootstrapSnapshot;
-      appStore.set({ banners: data.banners, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId, orderNumber: selectedOrderId, isOnline: true });
+      appStore.set({ banners: data.banners, productDisplay: data.display, terminal: data.terminal, inactivitySeconds: data.terminal.idleSeconds, orders: data.orders, selectedOrderId, orderNumber: selectedOrderId, category, isOnline: true });
     }
     if (selectedOrderWasClosed && !data.orders.length) {
       appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, serviceOpen: false, orderNumber: null, selectedOrderId: null, statusStep: 0 });

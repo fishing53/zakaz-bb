@@ -1,4 +1,4 @@
-import type { AdminDiagnostics, AdminOrder, AdminPromotion, ApplicationDownloadIssue, Banner, CartLine, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoConnectionTest, IikoDiscountOption, IikoRestaurantOptions, Product, ProductDisplaySettings, PromoRule, RestaurantTable, SecurityOverview, SubmittedOrder, TableQrCode, TerminalSettings } from '../types/menu';
+import type { AdminDiagnostics, AdminOrder, AdminPromotion, ApplicationDownloadIssue, Banner, CartLine, IikoConnectionConfig, IikoConnectionDiscovery, IikoConnectionSelection, IikoConnectionTest, IikoDiscountOption, IikoRestaurantOptions, MenuCategory, Product, ProductDisplaySettings, PromoRule, RestaurantTable, SecurityOverview, SubmittedOrder, TableQrCode, TerminalSettings } from '../types/menu';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { imageCacheService } from './image-cache-service';
 
@@ -22,7 +22,7 @@ const apiErrorMessage = (path: string, status: number, message?: string) => {
   return status === 413 ? 'Файл слишком большой для загрузки' : 'Ошибка сервера';
 };
 
-type ServerProduct = Product & { sku?: string; is_available: boolean; badge: string; image_position: string; allergens: string; spicy: 'none' | 'mild' | 'hot'; sort_order: number };
+type ServerProduct = Product & { sku?: string; category_ids?: string[]; is_available: boolean; badge: string; image_position: string; allergens: string; spicy: 'none' | 'mild' | 'hot'; sort_order: number };
 type ServerBanner = { id: number | string; name: string; image_url: string; product_id: string | null; kind: 'restaurant' | 'advertising'; active: boolean; starts_at: string | null; ends_at: string | null; impression_limit: number | null; impressions: number; sort_order: number };
 type ServerTerminal = { id: string; label: string; table_number: string; is_active: boolean; demo_mode: boolean; idle_seconds: number; table_source?: 'admin' | 'guest' | 'qr' | null; table_id?: string | null; waiter_id?: string | null };
 type ServerOrder = { order_number: string; items: CartLine[]; total: number; status_step: number; table_number: string; created_at: string };
@@ -101,7 +101,7 @@ const request = async <T>(path: string, init: RequestInit = {}) => {
 };
 
 const product = (item: ServerProduct): Product => ({
-  id: item.id, sku: item.sku, name: item.name, category: item.category, categories: item.categories?.length ? item.categories : [item.category], price_rub: Number(item.price_rub), portion: item.portion, unit: item.unit, description: item.description,
+  id: item.id, sku: item.sku, name: item.name, category: item.category, categories: item.categories?.length ? item.categories : [item.category], categoryIds: item.category_ids?.length ? item.category_ids : undefined, price_rub: Number(item.price_rub), portion: item.portion, unit: item.unit, description: item.description,
   composition: item.composition ?? '', kbju: item.kbju, image: cachedAsset(item.image), imageSource: assetSource(item.image), source_url: item.source_url, sauce_options: item.sauce_options ?? [], sauce_addon_price_rub: item.sauce_addon_price_rub ?? undefined,
   addon_options: item.addon_options ?? [], flavor_options: item.flavor_options ?? [], size_option: item.size_option ?? undefined, pairs_with: item.pairs_with ?? [], recommendations_note: item.recommendations_note ?? undefined,
   modifier_groups: (item.modifier_groups ?? []).map((group) => ({ ...group, items: group.items.map((modifier) => { const source = assetSource(modifier.image || '/images/sauce-fallback.webp'); return { ...modifier, image: imageCacheService.resolve(source), imageSource: source }; }) })),
@@ -123,8 +123,8 @@ export const apiService = {
     return data.table;
   },
   async bootstrap() {
-    const data = await request<{ products: ServerProduct[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown>; catalogRevision: string }>(`/bootstrap?terminalId=${activeTerminalId}`);
-    return { products: data.products.map(product), display: Object.fromEntries(data.products.map((item) => [item.id, display(item)])), banners: data.banners.map(banner), terminal: terminal(data.terminal), orders: data.orders.map(order), settings: data.settings, catalogRevision: data.catalogRevision ?? '' };
+    const data = await request<{ products: ServerProduct[]; categories?: MenuCategory[]; banners: ServerBanner[]; terminal: ServerTerminal; orders: ServerOrder[]; settings: Record<string, unknown>; catalogRevision: string }>(`/bootstrap?terminalId=${activeTerminalId}`);
+    return { products: data.products.map(product), categories: data.categories ?? [], display: Object.fromEntries(data.products.map((item) => [item.id, display(item)])), banners: data.banners.map(banner), terminal: terminal(data.terminal), orders: data.orders.map(order), settings: data.settings, catalogRevision: data.catalogRevision ?? '' };
   },
   catalogRevision: () => request<{ revision: string }>('/catalog/revision'),
   async login(password: string, scope: 'terminal' | 'restaurant', username = '') {

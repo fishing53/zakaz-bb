@@ -62,6 +62,73 @@ export const visibleCatalogItems = (items, stopList) => {
   });
 };
 
+const arrayValue = (value) => Array.isArray(value) ? value : [];
+
+/**
+ * Preserve the external-menu presentation order. A product is stored once,
+ * while every visible category placement keeps its own position.
+ */
+export const createIikoMenuSnapshot = (menu) => {
+  const records = new Map();
+  const categories = [];
+  let productSortOrder = 0;
+
+  arrayValue(menu?.itemCategories).forEach((category, categorySortOrder) => {
+    const categoryId = String(category?.id ?? `category-${categorySortOrder}`);
+    const categoryName = String(category?.name ?? 'Без категории').trim() || 'Без категории';
+    const placements = [];
+
+    arrayValue(category?.items).forEach((item, itemSortOrder) => {
+      if (!item?.itemId) return;
+      const productId = String(item.itemId);
+      const sizes = arrayValue(item?.itemSizes);
+      const size = sizes.find((value) => value?.isDefault) ?? sizes[0] ?? {};
+      const placementHidden = Boolean(item?.isHidden || size?.isHidden);
+      let record = records.get(productId);
+
+      if (!record) {
+        record = {
+          productId,
+          sku: String(item?.sku ?? size?.sku ?? '').trim(),
+          categoryId,
+          category: categoryName,
+          categories: [],
+          name: String(item?.name ?? 'Без названия').trim(),
+          item,
+          size,
+          isHidden: true,
+          sortOrder: productSortOrder++,
+        };
+        records.set(productId, record);
+      }
+
+      record.isHidden = record.isHidden && placementHidden;
+      if (placementHidden) return;
+      if (!record.categories.some((value) => value.id === categoryId)) {
+        record.categories.push({ id: categoryId, name: categoryName });
+      }
+      if (!placements.some((placement) => placement.productId === productId)) {
+        placements.push({ productId, sortOrder: itemSortOrder });
+      }
+    });
+
+    categories.push({
+      id: categoryId,
+      name: categoryName,
+      sortOrder: categorySortOrder,
+      items: placements,
+      raw: category,
+    });
+  });
+
+  const products = [...records.values()].map((record) => {
+    const primary = record.categories[0] ?? { id: record.categoryId, name: record.category };
+    return { ...record, categoryId: primary.id, category: primary.name, categories: record.categories.length ? record.categories : [primary] };
+  });
+
+  return { products, categories };
+};
+
 export const normalizeIikoStopListGroups = (payload) => {
   const wrappers = Array.isArray(payload?.terminalGroupStopLists) ? payload.terminalGroupStopLists : [];
   return wrappers.flatMap((wrapper) => {

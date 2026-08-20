@@ -134,6 +134,22 @@ await pool.query(`
   update iiko_menu_items set sku=nullif(raw_payload->'item'->>'sku','') where sku is null;
   create index if not exists iiko_menu_items_sku_idx on iiko_menu_items(sku) where sku is not null;
   create index if not exists iiko_menu_items_category_idx on iiko_menu_items(category_name, sort_order);
+  create table if not exists iiko_menu_categories (
+    category_id text primary key,
+    name text not null,
+    sort_order integer not null default 0,
+    revision bigint,
+    raw_payload jsonb not null default '{}'::jsonb,
+    updated_at timestamptz not null default now()
+  );
+  create index if not exists iiko_menu_categories_order_idx on iiko_menu_categories(sort_order, category_id);
+  create table if not exists iiko_menu_category_items (
+    category_id text not null references iiko_menu_categories(category_id) on delete cascade,
+    product_id text not null references iiko_menu_items(product_id) on delete cascade,
+    sort_order integer not null default 0,
+    primary key (category_id, product_id)
+  );
+  create index if not exists iiko_menu_category_items_order_idx on iiko_menu_category_items(category_id, sort_order, product_id);
   create table if not exists iiko_product_overrides (
     product_id text primary key references iiko_menu_items(product_id) on delete cascade,
     image text not null default '', image_position text not null default 'center', badge text not null default '',

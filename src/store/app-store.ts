@@ -46,7 +46,7 @@ const restoredOrders: SubmittedOrder[] = persisted.orders ?? (persisted.orderNum
 }] : []);
 
 let state: AppState = {
-  category: 'Все блюда',
+  category: 'all',
   comment: '',
   isOnline: navigator.onLine,
   adminAuthenticated: false,

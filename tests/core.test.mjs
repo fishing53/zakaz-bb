@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   applyStopList,
   calculateOrder,
+  createIikoMenuSnapshot,
   deterministicUuid,
   idempotencyDecision,
   iikoStatusStep,
@@ -47,6 +48,31 @@ test('allows one iiko product to be placed in several menu categories', () => {
     { productId: 'pizza-1', sku: 'PIZZA-1', isHidden: false },
     { productId: 'pizza-2', sku: 'PIZZA-1', isHidden: false },
   ]).ok, false);
+});
+test('preserves iiko category and per-category dish order', () => {
+  const snapshot = createIikoMenuSnapshot({ itemCategories: [
+    { id: 'hot', name: 'Горячее', items: [
+      { itemId: 'steak', sku: '2', name: 'Стейк', itemSizes: [{}] },
+      { itemId: 'pizza', sku: '1', name: 'Пицца', itemSizes: [{}] },
+    ] },
+    { id: 'popular', name: 'Популярное', items: [
+      { itemId: 'pizza', sku: '1', name: 'Пицца', itemSizes: [{}] },
+      { itemId: 'drink', sku: '3', name: 'Лимонад', itemSizes: [{}] },
+    ] },
+  ] });
+  assert.deepEqual(snapshot.categories.map((category) => category.name), ['Горячее', 'Популярное']);
+  assert.deepEqual(snapshot.categories[0].items.map((item) => item.productId), ['steak', 'pizza']);
+  assert.deepEqual(snapshot.categories[1].items.map((item) => item.productId), ['pizza', 'drink']);
+  assert.deepEqual(snapshot.products.find((item) => item.productId === 'pizza').categories.map((category) => category.id), ['hot', 'popular']);
+});
+test('keeps hidden placements out of categories without hiding a visible product', () => {
+  const snapshot = createIikoMenuSnapshot({ itemCategories: [
+    { id: 'hidden', name: 'Скрытое', items: [{ itemId: 'pizza', sku: '1', isHidden: true, itemSizes: [{}] }] },
+    { id: 'visible', name: 'Видимое', items: [{ itemId: 'pizza', sku: '1', itemSizes: [{}] }] },
+  ] });
+  assert.equal(snapshot.products[0].isHidden, false);
+  assert.deepEqual(snapshot.categories[0].items, []);
+  assert.deepEqual(snapshot.categories[1].items.map((item) => item.productId), ['pizza']);
 });
 test('applies and clears stop-list snapshots', () => {
   assert.equal(applyStopList(products, [{ productId: 'pizza', balance: 0 }])[0].available, false);

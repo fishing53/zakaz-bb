@@ -6,6 +6,7 @@ export interface Product {
   name: string;
   category: string;
   categories?: string[];
+  categoryIds?: string[];
   price_rub: number;
   portion: string;
   unit: string;
@@ -25,10 +26,12 @@ export interface Product {
   modifier_groups?: IikoModifierGroup[];
 }
 
+export interface MenuCategory { id: string; name: string; productIds: string[] }
+
 export interface IikoModifier { productId: string; name: string; price: number; image?: string; imageSource?: string; allergens?: string; defaultQuantity?: number; minQuantity?: number; maxQuantity?: number }
 export interface IikoModifierGroup { name: string; minQuantity?: number; maxQuantity?: number; freeQuantity?: number; items: IikoModifier[] }
 
-export interface Catalog { menu: Product[] }
+export interface Catalog { menu: Product[]; categories: MenuCategory[] }
 
 export interface CartLine {
   key: string;

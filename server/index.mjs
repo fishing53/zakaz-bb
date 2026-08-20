@@ -7,7 +7,7 @@ import { URL } from 'node:url';
 import pg from 'pg';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
-import { deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, isIikoOrderSettled, normalizeIikoStopListGroups, validateMenuPublication, visibleCatalogItems } from './core.mjs';
+import { createIikoMenuSnapshot, deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, isIikoOrderSettled, normalizeIikoStopListGroups, validateMenuPublication, visibleCatalogItems } from './core.mjs';
 import { BridgeConnectionRegistry, normalizeBridgeEmployee, validateEmployeeSnapshot } from './iiko-front-bridge.mjs';
 
 const { Pool } = pg;
@@ -873,30 +873,9 @@ const testIikoConnection = async (config, existingToken = '') => {
   await call('/api/1/stop_lists', { organizationIds: [config.organizationId], terminalGroupsIds: [config.terminalGroupId], returnSize: true });
   return { organizationName: arrayValue(organizations.organizations).find((item) => String(item.id) === config.organizationId)?.name ?? '', menuItems, tables, orderTypes: orderTypeRows.length, responseMs: Date.now() - started };
 };
-const defaultItemSize = (item) => arrayValue(item?.itemSizes).find((size) => size?.isDefault) ?? arrayValue(item?.itemSizes)[0] ?? {};
 const iikoPrice = (size) => Number(arrayValue(size?.prices).find((price) => String(price?.organizationId) === iikoOrganizationId)?.price ?? arrayValue(size?.prices)[0]?.price ?? 0);
-const iikoMenuRecords = (menu) => {
-  const records = new Map(); let sortOrder = 0;
-  for (const category of arrayValue(menu?.itemCategories)) for (const item of arrayValue(category?.items)) {
-    if (!item?.itemId) continue;
-    const productId = String(item.itemId); const size = defaultItemSize(item);
-    const categoryEntry = { id: String(category?.id ?? ''), name: String(category?.name ?? 'Без категории').trim() };
-    const placementHidden = Boolean(item?.isHidden || size?.isHidden);
-    let record = records.get(productId);
-    if (!record) {
-      record = { productId, sku: String(item?.sku ?? size?.sku ?? '').trim(), categoryId: categoryEntry.id, category: categoryEntry.name, categories: [], name: String(item?.name ?? 'Без названия').trim(), item, size, isHidden: true, sortOrder: sortOrder++ };
-      records.set(productId, record);
-    }
-    record.isHidden = record.isHidden && placementHidden;
-    if (!placementHidden && !record.categories.some((value) => value.id === categoryEntry.id)) record.categories.push(categoryEntry);
-  }
-  return [...records.values()].map((record) => {
-    const primary = record.categories[0] ?? { id: record.categoryId, name: record.category };
-    return { ...record, categoryId: primary.id, category: primary.name, categories: record.categories.length ? record.categories : [primary] };
-  });
-};
 const assertIikoMenuIsPublishable = (menu) => {
-  const entries = iikoMenuRecords(menu);
+  const entries = createIikoMenuSnapshot(menu).products;
   const publication = validateMenuPublication(entries);
   if (publication.ok) return entries.length;
   const visible = entries.filter((item) => !item.isHidden);
@@ -927,7 +906,8 @@ const publicModifierGroups = (groups, stoppedProductIds = new Set()) => arrayVal
 const syncIikoMenu = async () => {
   if (!iikoExternalMenuId) return 0;
   const menu = await iikoRequest('/api/2/menu/by_id', { organizationIds: [iikoOrganizationId], externalMenuId: iikoExternalMenuId, version: 2, language: 'ru', asyncMode: false });
-  const rows = iikoMenuRecords(menu).map((record) => [record.productId, record.sku || null, record.categoryId, record.category, record.name, record.item?.description ?? null, iikoPrice(record.size), Number(record.size?.portionWeightGrams ?? 0), String(record.size?.measureUnitType ?? ''), JSON.stringify(record.size?.nutritionPerHundredGrams ?? record.size?.nutritions?.[0] ?? null), record.size?.buttonImageUrl ?? null, JSON.stringify(record.size?.itemModifierGroups ?? []), record.isHidden, record.sortOrder, Number(menu?.revision ?? 0), JSON.stringify({ item: record.item, size: record.size, categories: record.categories })]);
+  const snapshot = createIikoMenuSnapshot(menu);
+  const rows = snapshot.products.map((record) => [record.productId, record.sku || null, record.categoryId, record.category, record.name, record.item?.description ?? null, iikoPrice(record.size), Number(record.size?.portionWeightGrams ?? 0), String(record.size?.measureUnitType ?? ''), JSON.stringify(record.size?.nutritionPerHundredGrams ?? record.size?.nutritions?.[0] ?? null), record.size?.buttonImageUrl ?? null, JSON.stringify(record.size?.itemModifierGroups ?? []), record.isHidden, record.sortOrder, Number(menu?.revision ?? 0), JSON.stringify({ item: record.item, size: record.size, categories: record.categories })]);
   if (!rows.length) throw Object.assign(new Error('iiko вернул пустое внешнее меню; сохранён предыдущий снимок'), { status: 502 });
   assertIikoMenuIsPublishable(menu);
   const client = await pool.connect();
@@ -944,6 +924,18 @@ const syncIikoMenu = async () => {
         'update iiko_menu_items set is_hidden=true,updated_at=now() where not (product_id = any($1::text[]))',
         [rows.map((row) => row[0])],
       );
+    }
+    // Categories and placements are a full external-menu snapshot as well.
+    // Replacing them transactionally preserves both category order and the
+    // independent order of a product inside every category.
+    await client.query('delete from iiko_menu_categories');
+    for (const category of snapshot.categories) {
+      await client.query(`insert into iiko_menu_categories(category_id,name,sort_order,revision,raw_payload)
+        values($1,$2,$3,$4,$5)`, [category.id, category.name, category.sortOrder, Number(menu?.revision ?? 0), JSON.stringify(category.raw ?? {})]);
+      for (const placement of category.items) {
+        await client.query(`insert into iiko_menu_category_items(category_id,product_id,sort_order)
+          values($1,$2,$3)`, [category.id, placement.productId, placement.sortOrder]);
+      }
     }
     await client.query('commit');
   } catch (error) { await client.query('rollback'); throw error; } finally { client.release(); }
@@ -1037,12 +1029,14 @@ const publicIikoStatus = (row) => ({
 });
 
 const publicState = async (terminalId) => {
-  const [localProducts, iikoProducts, stopList, banners, terminal, selection, settings, revision] = await Promise.all([
+  const [localProducts, iikoProducts, iikoCategories, iikoCategoryItems, stopList, banners, terminal, selection, settings, revision] = await Promise.all([
     pool.query('select * from products order by category, sort_order, name'),
     pool.query(`select m.*, p.image as override_image,
       coalesce((select jsonb_agg((select pm.product_id from iiko_menu_items pm where pm.sku=pair.sku and not pm.is_hidden order by pm.updated_at desc limit 1) order by pair.ordinality) from jsonb_array_elements_text(p.pairs_with_skus) with ordinality pair(sku,ordinality)),'[]'::jsonb) as override_pairs_with,
       p.badge as override_badge, p.image_position as override_image_position, p.composition as override_composition
-      from iiko_menu_items m left join iiko_product_presentations p on p.restaurant_id=$1 and p.sku=m.sku where not m.is_hidden order by m.category_name,m.sort_order,m.name`, [iikoOrganizationId]),
+      from iiko_menu_items m left join iiko_product_presentations p on p.restaurant_id=$1 and p.sku=m.sku where not m.is_hidden order by m.sort_order,m.name`, [iikoOrganizationId]),
+    pool.query('select category_id,name,sort_order from iiko_menu_categories order by sort_order,category_id'),
+    pool.query('select category_id,product_id,sort_order from iiko_menu_category_items order by category_id,sort_order,product_id'),
     pool.query(`select product_id as "productId",balance from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2`, [iikoOrganizationId, iikoTerminalGroupId]),
     pool.query(`select b.*,coalesce((select m.product_id from iiko_menu_items m where m.sku=b.product_sku and not m.is_hidden order by m.updated_at desc limit 1),b.product_id) as product_id from banners b where active=true
       and (starts_at is null or starts_at <= now())
@@ -1061,17 +1055,34 @@ const publicState = async (terminalId) => {
   const demoMode = terminal.rows[0].demo_mode === true;
   const visibleIikoProducts = visibleCatalogItems(iikoProducts.rows, stopList.rows);
   const stoppedProductIds = new Set(stopList.rows.filter((item) => Number(item.balance) <= 0).map((item) => String(item.productId)));
-  const products = demoMode ? localProducts.rows.map((item) => ({ ...item, sauce_options: [], modifier_groups: demoModifierGroups(item) })) : iikoProducts.rowCount ? visibleIikoProducts.map((item) => ({
-    id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, categories: arrayValue(item.raw_payload?.categories).map((category) => String(category?.name ?? '')).filter(Boolean), price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
+  const products = demoMode ? localProducts.rows.map((item) => ({ ...item, category_ids: [`local:${item.category}`], sauce_options: [], modifier_groups: demoModifierGroups(item) })) : iikoProducts.rowCount ? visibleIikoProducts.map((item) => ({
+    id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, categories: arrayValue(item.raw_payload?.categories).map((category) => String(category?.name ?? '')).filter(Boolean), category_ids: arrayValue(item.raw_payload?.categories).map((category) => String(category?.id ?? '')).filter(Boolean), price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, composition: item.override_composition ?? '', kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
     pairs_with: arrayValue(item.override_pairs_with).filter((id) => !stoppedProductIds.has(String(id))), recommendations_note: null, is_available: true, badge: item.override_badge ?? '', image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups, stoppedProductIds), iiko: true,
-  })) : localProducts.rows;
+  })) : localProducts.rows.map((item) => ({ ...item, category_ids: [`local:${item.category}`] }));
+  const visibleProductIds = new Set(products.map((item) => String(item.id)));
+  const fallbackCategories = [];
+  for (const product of products) {
+    const names = arrayValue(product.categories).length ? product.categories : [product.category];
+    const ids = arrayValue(product.category_ids).length ? product.category_ids : names.map((name) => `local:${name}`);
+    names.forEach((name, index) => {
+      const id = String(ids[index] ?? `local:${name}`);
+      let category = fallbackCategories.find((item) => item.id === id);
+      if (!category) { category = { id, name: String(name), productIds: [] }; fallbackCategories.push(category); }
+      if (!category.productIds.includes(String(product.id))) category.productIds.push(String(product.id));
+    });
+  }
+  const categories = !demoMode && iikoProducts.rowCount && iikoCategories.rowCount ? iikoCategories.rows.map((category) => ({
+    id: String(category.category_id),
+    name: String(category.name),
+    productIds: iikoCategoryItems.rows.filter((item) => item.category_id === category.category_id && visibleProductIds.has(String(item.product_id))).map((item) => String(item.product_id)),
+  })).filter((category) => category.productIds.length) : fallbackCategories;
   if (demoMode) await pool.query(`update customer_orders set status_step=least(4,floor(extract(epoch from now()-created_at)/5)::int),updated_at=now()
     where terminal_id=$1 and is_demo=true and completed_at is null and status_step<4`, [terminalId]);
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and is_demo=$2 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId, demoMode]);
   const publicBanners = demoMode ? localProducts.rows.slice(0, 3).map((item, index) => ({ id: `demo-${index}`, name: item.name, image_url: item.image, product_id: item.id, kind: 'restaurant', active: true, starts_at: null, ends_at: null, impression_limit: null, impressions: 0, sort_order: index })) : banners.rows.filter((item) => !item.product_id || !stoppedProductIds.has(String(item.product_id)));
-  return { products, banners: publicBanners, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? (chosen.source === 'qr' ? 'qr' : 'guest') : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])), catalogRevision: String(revision.rows[0]?.revision ?? '') };
+  return { products, categories, banners: publicBanners, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? (chosen.source === 'qr' ? 'qr' : 'guest') : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])), catalogRevision: String(revision.rows[0]?.revision ?? '') };
 };
 
 const serviceTypes = new Set(['waiter', 'cutlery', 'bill', 'help']);
