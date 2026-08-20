@@ -122,3 +122,37 @@ test('administrator sees security checks and protected Telegram settings', async
   await expect(page.getByText('Планшет зала №2').first()).toBeVisible();
   await expect(page.getByText('ГОТОВ К СКАЧИВАНИЮ').first()).toBeVisible();
 });
+
+test('tablet settings are split into persistent focused categories', async ({ page }) => {
+  await page.unroute('**/api/v1/**');
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/bootstrap')) return route.fulfill({ json: { products: [product], categories: [], banners: [], terminal: { id: 'terminal-test', label: 'Планшет у окна', table_number: '5', is_active: true, demo_mode: false, idle_seconds: 45, table_source: 'admin', table_id: 'table-5', waiter_id: 'waiter-1' }, orders: [], settings: {}, catalogRevision: 'test' } });
+    if (path.endsWith('/admin/login')) return route.fulfill({ json: { token: 'terminal-token', scope: 'terminal', role: 'terminal_manager' } });
+    if (path.endsWith('/tables')) return route.fulfill({ json: { tables: [{ table_id: 'table-5', section_name: 'Основной зал', table_number: '5', table_name: 'Стол 5' }, { table_id: 'table-6', section_name: 'Основной зал', table_number: '6', table_name: 'Стол 6' }] } });
+    if (path.endsWith('/admin/waiters')) return route.fulfill({ json: [{ id: 'waiter-1', display_name: 'Анна', is_active: true, auth_source: 'local', iiko_employee_id: null, created_at: new Date().toISOString() }] });
+    return route.fulfill({ json: [] });
+  });
+  await page.goto('/');
+  const entrance = page.getByRole('button', { name: 'Текущий стол' });
+  for (let tap = 0; tap < 6; tap += 1) await entrance.click();
+  await page.locator('[data-admin-password]').fill('terminal-password');
+  await page.getByRole('button', { name: 'Войти' }).click();
+
+  const navigation = page.getByRole('navigation', { name: 'Категории настроек планшета' });
+  await expect(navigation).toBeVisible();
+  await expect(page.locator('[data-terminal-settings-section="general"]')).toBeVisible();
+  await navigation.getByRole('button', { name: /^Стол/ }).click();
+  await expect(page.locator('[data-terminal-settings-section="table"]')).toBeVisible();
+  await expect(page.getByText('Стол планшета')).toBeVisible();
+  await page.locator('[data-terminal-settings-section="table"]').getByRole('button', { name: 'Обновить' }).click();
+  await expect(page.locator('[data-terminal-settings-section="table"]')).toBeVisible();
+  await navigation.getByRole('button', { name: /^Изображения/ }).click();
+  await expect(page.locator('[data-terminal-settings-section="images"]')).toBeVisible();
+  await expect(page.getByText('Кэш изображений')).toBeVisible();
+
+  const workspace = await page.locator('.terminal-settings-workspace').boundingBox();
+  const content = await page.locator('.terminal-settings-content').boundingBox();
+  expect(workspace).not.toBeNull(); expect(content).not.toBeNull();
+  expect(content!.x + content!.width).toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+});

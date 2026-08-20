@@ -750,6 +750,20 @@ async function action(element: HTMLElement) {
     transientToast('Добавили всё выбранное в заказ.');
     return;
   }
+  if (type === 'select-terminal-settings-section') {
+    const section = element.dataset.terminalSettingsTarget ?? 'general';
+    sessionStorage.setItem('bb-terminal-settings-section', section);
+    root.querySelectorAll<HTMLElement>('[data-terminal-settings-target]').forEach((button) => {
+      const active = button.dataset.terminalSettingsTarget === section;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    root.querySelectorAll<HTMLElement>('[data-terminal-settings-section]').forEach((panel) => {
+      panel.hidden = panel.dataset.terminalSettingsSection !== section;
+    });
+    root.querySelector<HTMLElement>('.terminal-settings-content')?.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
   if (type === 'save-terminal') {
     const input = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => root.querySelector<T>(`[data-admin-terminal="${name}"]`);
     try {

@@ -88,20 +88,7 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
     <div class="admin-image-cache__status"><div><span data-image-cache-status>${escapeHtml(cacheStatus(imageCache))}</span><b data-image-cache-percent>${cachePercent}%</b></div><div class="admin-image-cache__progress"><i data-image-cache-progress style="width:${cachePercent}%"></i></div></div>
     <div class="admin-image-cache__actions"><button class="button button--primary" data-action="sync-image-cache" data-cache-force="${imageCache.cached === imageCache.total && imageCache.total > 0}" ${cacheBusy || !imageCache.total ? 'disabled' : ''}>${imageCache.cached === imageCache.total && imageCache.total > 0 ? 'Обновить весь кэш' : 'Загрузить все изображения'}</button><button class="button button--secondary" data-action="check-image-cache" ${cacheBusy || !imageCache.total ? 'disabled' : ''}>Проверить изменения</button><button class="button button--secondary admin-image-cache__clear" data-action="clear-image-cache" ${cacheBusy || !imageCache.cached ? 'disabled' : ''}>Очистить кэш</button></div>
   </section>`;
-  const terminalView = `<section class="admin-panel admin-terminal">
-    <div class="admin-panel__intro"><span class="eyebrow">УПРАВЛЕНИЕ ПЛАНШЕТОМ</span><h2>Этот терминал</h2><p>Настройки сохраняются на сервере и применяются только к этому устройству.</p></div>
-    <div class="terminal-overview"><article><span>ПЛАНШЕТ</span><strong>${escapeHtml(terminal?.label || 'Без названия')}</strong><small>${terminal?.isActive === false ? 'Приём заказов выключен' : 'Готов принимать заказы'}</small></article><article class="${selectedTableId ? 'is-accent' : ''}"><span>РЕЖИМ СТОЛА</span><strong data-terminal-table-summary>${selectedTable ? `Стол №${escapeHtml(selectedTable.number || selectedTable.name)}` : 'Выбирает гость'}</strong><small>${selectedTable ? escapeHtml(selectedTable.section || 'Зал iiko') : 'Стол не закреплён'}</small></article><article class="${selectedWaiter ? 'is-accent' : ''}"><span>ОТВЕТСТВЕННЫЙ</span><strong data-terminal-waiter-summary>${escapeHtml(selectedWaiter?.display_name ?? 'Все официанты')}</strong><small>${selectedWaiter ? 'Личные заказы и вызовы' : 'Общий режим уведомлений'}</small></article></div>
-    <div class="terminal-form">
-      <label>Название планшета<input data-admin-terminal="label" value="${escapeHtml(terminal?.label ?? '')}" placeholder="Например: Основной зал"></label>
-      <label>Таймаут бездействия<select data-admin-terminal="idleSeconds"><option value="45" ${(terminal?.idleSeconds ?? 45) === 45 ? 'selected' : ''}>45 секунд</option><option value="60" ${terminal?.idleSeconds === 60 ? 'selected' : ''}>1 минута</option><option value="90" ${terminal?.idleSeconds === 90 ? 'selected' : ''}>1,5 минуты</option><option value="120" ${terminal?.idleSeconds === 120 ? 'selected' : ''}>2 минуты</option></select></label>
-      <label class="admin-switch"><input type="checkbox" data-admin-terminal="isActive" ${terminal?.isActive !== false ? 'checked' : ''}><span></span> Терминал принимает заказы</label>
-      <label class="admin-switch admin-switch--demo"><input type="checkbox" data-admin-terminal="demoMode" ${terminal?.demoMode ? 'checked' : ''}><span></span><span><b>Демо-киоск</b><small>Показывает сохранённое меню. Заказы не отправляются в iiko, статусы меняются автоматически.</small></span></label>
-      ${tablePicker}
-      ${waiterPicker}
-      <button class="button button--primary terminal-save" data-action="save-terminal">Сохранить настройки</button>
-    </div>
-    ${imageCacheView}
-    <div class="admin-app-update" data-update-phase="${updateState.phase}">
+  const terminalUpdateView = `<div class="admin-app-update" data-update-phase="${updateState.phase}">
       <div class="admin-app-update__head"><span class="eyebrow">ПРИЛОЖЕНИЕ</span><h3>Обновление</h3></div>
       <div class="admin-app-update__versions">
         <div><span>Установлена</span><strong>${escapeHtml(updateVersion(updateState.currentVersion))}</strong></div>
@@ -110,6 +97,38 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
       <div class="admin-app-update__status"><span data-ota-status>${escapeHtml(updateMessage(updateState))}</span>${updateState.phase === 'downloading' || updateState.phase === 'applying' ? `<div class="admin-app-update__progress"><i data-ota-progress style="width:${updateState.phase === 'applying' ? 100 : updateState.progress}%"></i></div>` : ''}</div>
       <div class="admin-app-update__actions">
         ${updateState.phase === 'available' ? '<button class="button button--secondary" data-action="check-ota-update">Проверить снова</button><button class="button button--primary" data-action="install-ota-update">Обновить</button>' : updateState.phase === 'checking' ? '<button class="button button--secondary" disabled>Проверяем…</button>' : updateState.phase === 'downloading' ? '<button class="button button--secondary" disabled data-ota-button>Загрузка 0%</button>' : updateState.phase === 'applying' ? '<button class="button button--secondary" disabled>Устанавливаем…</button>' : `<button class="button button--secondary" data-action="check-ota-update">${updateState.phase === 'error' ? 'Повторить' : 'Проверить'}</button>`}
+      </div>
+    </div>`;
+  const terminalSectionIds = ['general', 'table', 'waiter', 'images', 'update'];
+  const storedTerminalSection = sessionStorage.getItem('bb-terminal-settings-section') ?? 'general';
+  const terminalSection = terminalSectionIds.includes(storedTerminalSection) ? storedTerminalSection : 'general';
+  const terminalSectionButton = (id: string, title: string, subtitle: string, iconName: Parameters<typeof icon>[0]) => `<button data-action="select-terminal-settings-section" data-terminal-settings-target="${id}" class="${terminalSection === id ? 'is-active' : ''}" aria-label="${title}" aria-pressed="${terminalSection === id}">${icon(iconName)}<span><b>${title}</b><small>${subtitle}</small></span></button>`;
+  const terminalSave = '<button class="button button--primary terminal-save" data-action="save-terminal">Сохранить настройки</button>';
+  const terminalView = `<section class="admin-panel admin-terminal admin-terminal--sectioned">
+    <div class="terminal-settings-workspace">
+      <nav class="terminal-settings-nav" aria-label="Категории настроек планшета">
+        ${terminalSectionButton('general', 'Основное', terminal?.isActive === false ? 'Терминал выключен' : 'Терминал активен', 'settings')}
+        ${terminalSectionButton('table', 'Стол', selectedTable ? `№${escapeHtml(selectedTable.number || selectedTable.name)}` : 'Выбирает гость', 'map')}
+        ${terminalSectionButton('waiter', 'Официант', escapeHtml(selectedWaiter?.display_name ?? 'Общий режим'), 'user')}
+        ${terminalSectionButton('images', 'Изображения', imageCache.total ? `${imageCache.cached} из ${imageCache.total}` : 'Хранилище', 'image')}
+        ${terminalSectionButton('update', 'Обновление', updateVersion(updateState.currentVersion), 'refresh')}
+      </nav>
+      <div class="terminal-settings-content">
+        <section class="terminal-settings-section terminal-settings-section--general" data-terminal-settings-section="general" ${terminalSection === 'general' ? '' : 'hidden'}>
+          <header class="terminal-settings-section__header"><span>ОСНОВНОЕ</span><h3>Работа планшета</h3><p>Название устройства, режим работы и время ожидания гостя.</p></header>
+          <div class="terminal-overview"><article><span>ПЛАНШЕТ</span><strong>${escapeHtml(terminal?.label || 'Без названия')}</strong><small>${terminal?.isActive === false ? 'Приём заказов выключен' : 'Готов принимать заказы'}</small></article><article class="${selectedTableId ? 'is-accent' : ''}"><span>РЕЖИМ СТОЛА</span><strong data-terminal-table-summary>${selectedTable ? `Стол №${escapeHtml(selectedTable.number || selectedTable.name)}` : 'Выбирает гость'}</strong><small>${selectedTable ? escapeHtml(selectedTable.section || 'Зал iiko') : 'Стол не закреплён'}</small></article><article class="${selectedWaiter ? 'is-accent' : ''}"><span>ОТВЕТСТВЕННЫЙ</span><strong data-terminal-waiter-summary>${escapeHtml(selectedWaiter?.display_name ?? 'Все официанты')}</strong><small>${selectedWaiter ? 'Личные заказы и вызовы' : 'Общий режим уведомлений'}</small></article></div>
+          <div class="terminal-form terminal-settings-form">
+            <label>Название планшета<input data-admin-terminal="label" value="${escapeHtml(terminal?.label ?? '')}" placeholder="Например: Основной зал"></label>
+            <label>Таймаут бездействия<select data-admin-terminal="idleSeconds"><option value="45" ${(terminal?.idleSeconds ?? 45) === 45 ? 'selected' : ''}>45 секунд</option><option value="60" ${terminal?.idleSeconds === 60 ? 'selected' : ''}>1 минута</option><option value="90" ${terminal?.idleSeconds === 90 ? 'selected' : ''}>1,5 минуты</option><option value="120" ${terminal?.idleSeconds === 120 ? 'selected' : ''}>2 минуты</option></select></label>
+            <label class="admin-switch"><input type="checkbox" data-admin-terminal="isActive" ${terminal?.isActive !== false ? 'checked' : ''}><span></span> Терминал принимает заказы</label>
+            <label class="admin-switch admin-switch--demo"><input type="checkbox" data-admin-terminal="demoMode" ${terminal?.demoMode ? 'checked' : ''}><span></span><span><b>Демо-киоск</b><small>Сохранённое демонстрационное меню без отправки заказов в iiko.</small></span></label>
+            ${terminalSave}
+          </div>
+        </section>
+        <section class="terminal-settings-section terminal-form" data-terminal-settings-section="table" ${terminalSection === 'table' ? '' : 'hidden'}>${tablePicker}${terminalSave}</section>
+        <section class="terminal-settings-section terminal-form" data-terminal-settings-section="waiter" ${terminalSection === 'waiter' ? '' : 'hidden'}>${waiterPicker}${terminalSave}</section>
+        <section class="terminal-settings-section" data-terminal-settings-section="images" ${terminalSection === 'images' ? '' : 'hidden'}>${imageCacheView}</section>
+        <section class="terminal-settings-section" data-terminal-settings-section="update" ${terminalSection === 'update' ? '' : 'hidden'}>${terminalUpdateView}</section>
       </div>
     </div>
   </section>`;
@@ -270,5 +289,5 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
   const allowedTabIds = new Set(visibleTabs.map(([id]) => id));
   const visibleTab: AdminTab = allowedTabIds.has(tab) ? tab : (role === 'hostess' ? 'orders' : scope === 'terminal' ? 'terminal' : 'orders');
   const singleTab = visibleTabs.length === 1;
-  return `<section class="admin-page ${singleTab ? 'admin-page--single-tab' : ''}"><header class="admin-header"><div><span class="eyebrow">${scope === 'terminal' ? 'СЕРВИСНЫЙ РЕЖИМ ПЛАНШЕТА' : 'УПРАВЛЕНИЕ РЕСТОРАНОМ'}</span><h1>${scope === 'terminal' ? 'Этот <em>терминал</em>' : 'Админ-<em>панель</em>'}</h1><p>${scope === 'terminal' ? 'Доступны только настройки этого планшета.' : 'Все изменения сохраняются на сервере и применяются на терминалах.'}</p></div><button class="button button--secondary button--compact admin-logout" data-action="logout-admin">Выйти</button></header>${singleTab ? '' : `<nav class="admin-tabs" aria-label="Разделы админ-панели">${visibleTabs.map(([id, title]) => `<button data-action="select-admin-tab" data-admin-tab="${id}" class="${visibleTab === id ? 'is-active' : ''}">${title}</button>`).join('')}</nav>`}${views[visibleTab]}</section>`;
+  return `<section class="admin-page ${singleTab ? 'admin-page--single-tab' : ''}"><header class="admin-header"><div><span class="eyebrow">${scope === 'terminal' ? 'BB KIOSK · ЭТО УСТРОЙСТВО' : 'УПРАВЛЕНИЕ РЕСТОРАНОМ'}</span><h1>${scope === 'terminal' ? 'Настройки <em>планшета</em>' : 'Админ-<em>панель</em>'}</h1><p>${scope === 'terminal' ? 'Управление работой, столом, официантом и файлами этого терминала.' : 'Все изменения сохраняются на сервере и применяются на терминалах.'}</p></div><button class="button button--secondary button--compact admin-logout" data-action="logout-admin">Выйти</button></header>${singleTab ? '' : `<nav class="admin-tabs" aria-label="Разделы админ-панели">${visibleTabs.map(([id, title]) => `<button data-action="select-admin-tab" data-admin-tab="${id}" class="${visibleTab === id ? 'is-active' : ''}">${title}</button>`).join('')}</nav>`}${views[visibleTab]}</section>`;
 }
