@@ -35,6 +35,30 @@ default:
   before_script:
     - npm ci --prefer-offline
 
+# One-shot recovery publisher for the already verified APK from pipeline 2775983051.
+publish_verified_waiter_apk:
+  image: alpine:3.22
+  stage: deploy
+  needs: []
+  interruptible: false
+  resource_group: production-downloads
+  before_script:
+    - apk add --no-cache curl openssh-client
+    - test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER" && test -n "$DEPLOY_WEB_ROOT"
+    - test -f "$DEPLOY_SSH_PRIVATE_KEY" && test -f "$SSH_KNOWN_HOSTS"
+    - install -m 700 -d ~/.ssh
+    - install -m 600 "$DEPLOY_SSH_PRIVATE_KEY" ~/.ssh/id_ed25519
+    - install -m 600 "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts
+  script:
+    - 'curl --fail --location --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/16006585039/artifacts/artifacts/android/BB-Waiter-latest.apk" --output BB-Waiter-latest.apk'
+    - test -s BB-Waiter-latest.apk
+    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/downloads'"
+    - scp BB-Waiter-latest.apk "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/downloads/BB-Waiter-latest.apk"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: on_success
+    - when: never
+
 typecheck:
   extends: .node_job
   stage: validate
@@ -302,30 +326,6 @@ publish_waiter_apk:
     - test -s artifacts/android/BB-Waiter-latest.apk
     - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/downloads'"
     - scp artifacts/android/BB-Waiter-latest.apk "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/downloads/BB-Waiter-latest.apk"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      when: on_success
-    - when: never
-
-# One-shot recovery publisher for the already verified APK from pipeline 2775983051.
-publish_verified_waiter_apk:
-  image: alpine:3.22
-  stage: deploy
-  needs: []
-  interruptible: false
-  resource_group: production-downloads
-  before_script:
-    - apk add --no-cache curl openssh-client
-    - test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER" && test -n "$DEPLOY_WEB_ROOT"
-    - test -f "$DEPLOY_SSH_PRIVATE_KEY" && test -f "$SSH_KNOWN_HOSTS"
-    - install -m 700 -d ~/.ssh
-    - install -m 600 "$DEPLOY_SSH_PRIVATE_KEY" ~/.ssh/id_ed25519
-    - install -m 600 "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts
-  script:
-    - 'curl --fail --location --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/16006585039/artifacts/artifacts/android/BB-Waiter-latest.apk" --output BB-Waiter-latest.apk'
-    - test -s BB-Waiter-latest.apk
-    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/downloads'"
-    - scp BB-Waiter-latest.apk "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/downloads/BB-Waiter-latest.apk"
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       when: on_success
