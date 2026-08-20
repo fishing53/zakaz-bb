@@ -227,6 +227,11 @@ await pool.query(`
   alter table waiter_profiles add column if not exists iiko_employee_id text;
   alter table waiter_profiles add column if not exists auth_source text not null default 'local';
   create unique index if not exists waiter_profiles_iiko_employee_idx on waiter_profiles(restaurant_id,iiko_employee_id) where iiko_employee_id is not null;
+  alter table terminals add column if not exists waiter_id text references waiter_profiles(id) on delete set null;
+  alter table customer_orders add column if not exists assigned_waiter_id text references waiter_profiles(id) on delete set null;
+  alter table service_requests add column if not exists assigned_waiter_id text references waiter_profiles(id) on delete set null;
+  create index if not exists customer_orders_assigned_waiter_idx on customer_orders(restaurant_id,assigned_waiter_id,completed_at,created_at desc);
+  create index if not exists service_requests_assigned_waiter_idx on service_requests(restaurant_id,assigned_waiter_id,status,created_at desc);
   create table if not exists iiko_front_bridges (
     id uuid primary key, restaurant_id text not null, installation_id text not null, display_name text not null,
     token_hash text not null unique, is_active boolean not null default true, version text not null default '',

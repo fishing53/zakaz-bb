@@ -65,6 +65,8 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
   const legacyFixedTable = terminal?.tableSource === 'admin' && !terminal.tableId ? tables.find((item) => item.number === terminal.tableNumber) : undefined;
   const selectedTableId = terminal?.tableSource === 'admin' ? (terminal.tableId || legacyFixedTable?.id || '') : '';
   const selectedTable = tables.find((item) => item.id === selectedTableId);
+  const activeWaiters = waiters.filter((item) => item.is_active);
+  const selectedWaiter = activeWaiters.find((item) => item.id === terminal?.waiterId);
   const tableGroups = new Map<string, RestaurantTable[]>();
   tables.forEach((item) => tableGroups.set(item.section || 'Зал', [...(tableGroups.get(item.section || 'Зал') ?? []), item]));
   const tablePicker = `<section class="terminal-table-picker">
@@ -72,6 +74,11 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
     <input type="hidden" data-admin-terminal="tableId" value="${escapeHtml(selectedTableId)}"><input type="hidden" data-admin-terminal="tableNumber" value="${escapeHtml(selectedTable?.number ?? (terminal?.tableSource === 'admin' ? terminal.tableNumber : ''))}">
     <button class="terminal-table-auto ${selectedTableId ? '' : 'is-selected'}" data-action="select-admin-terminal-table" data-table-id="" data-table-number="" aria-pressed="${selectedTableId ? 'false' : 'true'}"><span>ВЫБОР ПЕРЕД ЗАКАЗОМ</span><strong>Стол выбирает гость</strong><small>После завершения заказа выбор автоматически сбросится</small><i></i></button>
     <div class="terminal-table-groups">${tables.length ? [...tableGroups.entries()].map(([section, items]) => `<section class="terminal-table-group" data-table-section><h4>${escapeHtml(section)}</h4><div>${items.map((item) => { const active = item.id === selectedTableId; const search = `${item.number} ${item.name} ${item.section}`.toLocaleLowerCase('ru-RU'); return `<button class="terminal-table-card ${active ? 'is-selected' : ''}" data-action="select-admin-terminal-table" data-table-id="${escapeHtml(item.id)}" data-table-number="${escapeHtml(item.number)}" data-table-search="${escapeHtml(search)}" aria-pressed="${active ? 'true' : 'false'}"><span>СТОЛ</span><strong>№${escapeHtml(item.number || item.name)}</strong>${item.name && item.name !== item.number ? `<small>${escapeHtml(item.name)}</small>` : '<small>Стол iiko</small>'}<i></i></button>`; }).join('')}</div></section>`).join('') : '<div class="terminal-table-empty">Столы пока не получены из iiko. Проверьте подключение и повторите вход в админку.</div>'}</div>
+  </section>`;
+  const waiterPicker = `<section class="terminal-waiter-picker">
+    <header><div><span class="eyebrow">ОТВЕТСТВЕННЫЙ СОТРУДНИК</span><h3>Официант планшета</h3><p>Заказы и вызовы с этого планшета будут доступны только выбранному официанту.</p></div></header>
+    <label>Ответственный официант<select data-admin-terminal="waiterId"><option value="">Не назначен · общий режим</option>${activeWaiters.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === terminal?.waiterId ? 'selected' : ''}>${escapeHtml(item.display_name)}${item.auth_source === 'iiko' ? ' · iiko' : ''}</option>`).join('')}</select></label>
+    <small>${activeWaiters.length ? 'При общем режиме события видят все активные официанты.' : 'Сначала добавьте сотрудника в браузерной админке, раздел «Сотрудники».'}</small>
   </section>`;
   const cacheBusy = imageCache.phase === 'scanning' || imageCache.phase === 'downloading' || imageCache.phase === 'clearing';
   const cachePercent = imageCache.total ? Math.round(imageCache.cached / imageCache.total * 100) : 0;
@@ -83,13 +90,14 @@ export function adminPage(products: Product[], banners: Banner[], display: Recor
   </section>`;
   const terminalView = `<section class="admin-panel admin-terminal">
     <div class="admin-panel__intro"><span class="eyebrow">УПРАВЛЕНИЕ ПЛАНШЕТОМ</span><h2>Этот терминал</h2><p>Настройки сохраняются на сервере и применяются только к этому устройству.</p></div>
-    <div class="terminal-overview"><article><span>ПЛАНШЕТ</span><strong>${escapeHtml(terminal?.label || 'Без названия')}</strong><small>${terminal?.isActive === false ? 'Приём заказов выключен' : 'Готов принимать заказы'}</small></article><article class="${selectedTableId ? 'is-accent' : ''}"><span>РЕЖИМ СТОЛА</span><strong data-terminal-table-summary>${selectedTable ? `Стол №${escapeHtml(selectedTable.number || selectedTable.name)}` : 'Выбирает гость'}</strong><small>${selectedTable ? escapeHtml(selectedTable.section || 'Зал iiko') : 'Стол не закреплён'}</small></article></div>
+    <div class="terminal-overview"><article><span>ПЛАНШЕТ</span><strong>${escapeHtml(terminal?.label || 'Без названия')}</strong><small>${terminal?.isActive === false ? 'Приём заказов выключен' : 'Готов принимать заказы'}</small></article><article class="${selectedTableId ? 'is-accent' : ''}"><span>РЕЖИМ СТОЛА</span><strong data-terminal-table-summary>${selectedTable ? `Стол №${escapeHtml(selectedTable.number || selectedTable.name)}` : 'Выбирает гость'}</strong><small>${selectedTable ? escapeHtml(selectedTable.section || 'Зал iiko') : 'Стол не закреплён'}</small></article><article class="${selectedWaiter ? 'is-accent' : ''}"><span>ОТВЕТСТВЕННЫЙ</span><strong data-terminal-waiter-summary>${escapeHtml(selectedWaiter?.display_name ?? 'Все официанты')}</strong><small>${selectedWaiter ? 'Личные заказы и вызовы' : 'Общий режим уведомлений'}</small></article></div>
     <div class="terminal-form">
       <label>Название планшета<input data-admin-terminal="label" value="${escapeHtml(terminal?.label ?? '')}" placeholder="Например: Основной зал"></label>
       <label>Таймаут бездействия<select data-admin-terminal="idleSeconds"><option value="45" ${(terminal?.idleSeconds ?? 45) === 45 ? 'selected' : ''}>45 секунд</option><option value="60" ${terminal?.idleSeconds === 60 ? 'selected' : ''}>1 минута</option><option value="90" ${terminal?.idleSeconds === 90 ? 'selected' : ''}>1,5 минуты</option><option value="120" ${terminal?.idleSeconds === 120 ? 'selected' : ''}>2 минуты</option></select></label>
       <label class="admin-switch"><input type="checkbox" data-admin-terminal="isActive" ${terminal?.isActive !== false ? 'checked' : ''}><span></span> Терминал принимает заказы</label>
       <label class="admin-switch admin-switch--demo"><input type="checkbox" data-admin-terminal="demoMode" ${terminal?.demoMode ? 'checked' : ''}><span></span><span><b>Демо-киоск</b><small>Показывает сохранённое меню. Заказы не отправляются в iiko, статусы меняются автоматически.</small></span></label>
       ${tablePicker}
+      ${waiterPicker}
       <button class="button button--primary terminal-save" data-action="save-terminal">Сохранить настройки</button>
     </div>
     ${imageCacheView}

@@ -163,6 +163,16 @@ async function loadTerminalTables() {
   }
 }
 
+async function loadTerminalOptions() {
+  try {
+    const [tables, waiters] = await Promise.all([apiService.tables(), apiService.waiters()]);
+    waiterProfiles = waiters;
+    appStore.set({ tables });
+  } catch (error) {
+    flash(error instanceof Error ? error.message : 'Не удалось получить настройки планшета');
+  }
+}
+
 async function loadAdminDiagnostics(notify = true) {
   try {
     adminDiagnostics = await apiService.diagnostics();
@@ -450,7 +460,7 @@ async function action(element: HTMLElement) {
       appStore.set({ adminAuthenticated: true, adminLoginOpen: false, adminScope: authenticated.scope, adminRole: authenticated.role, adminTab: authenticated.scope === 'terminal' ? 'terminal' : 'orders' });
       router.go('admin');
       if (authenticated.scope === 'restaurant') void loadAdminOrders();
-      if (authenticated.scope === 'terminal') void loadTerminalTables();
+      if (authenticated.scope === 'terminal') void loadTerminalOptions();
     } catch (error) { flash(error instanceof Error ? error.message : 'Неверный пароль'); }
     return;
   }
@@ -466,7 +476,7 @@ async function action(element: HTMLElement) {
     if (adminTab === 'orders') void loadAdminOrders();
     if (adminTab === 'quality') void loadAdminDiagnostics();
     if (adminTab === 'security') void loadAdminSecurity();
-    if (adminTab === 'terminal') void loadTerminalTables();
+    if (adminTab === 'terminal') void loadTerminalOptions();
     else { clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; }
     return;
   }
@@ -679,7 +689,7 @@ async function action(element: HTMLElement) {
     const input = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => root.querySelector<T>(`[data-admin-terminal="${name}"]`);
     try {
       const previousDemoMode = appStore.get().terminal?.demoMode ?? false;
-      const terminal = await apiService.saveTerminal({ id: apiService.terminalId, label: input<HTMLInputElement>('label')?.value.trim() ?? '', tableId: input<HTMLInputElement>('tableId')?.value.trim() || null, tableNumber: input<HTMLInputElement>('tableNumber')?.value.trim() ?? '', isActive: input<HTMLInputElement>('isActive')?.checked ?? true, demoMode: input<HTMLInputElement>('demoMode')?.checked ?? false, idleSeconds: Number(input<HTMLSelectElement>('idleSeconds')?.value ?? 45) });
+      const terminal = await apiService.saveTerminal({ id: apiService.terminalId, label: input<HTMLInputElement>('label')?.value.trim() ?? '', tableId: input<HTMLInputElement>('tableId')?.value.trim() || null, tableNumber: input<HTMLInputElement>('tableNumber')?.value.trim() ?? '', waiterId: input<HTMLSelectElement>('waiterId')?.value.trim() || null, isActive: input<HTMLInputElement>('isActive')?.checked ?? true, demoMode: input<HTMLInputElement>('demoMode')?.checked ?? false, idleSeconds: Number(input<HTMLSelectElement>('idleSeconds')?.value ?? 45) });
       if (terminal.demoMode !== previousDemoMode) appStore.set({ cart: [], comment: '', promoCode: '', promoRule: null, pendingOrderRequestId: null, productId: null, orders: [], selectedOrderId: null, orderNumber: null, statusStep: 0 }, false);
       appStore.set({ terminal }, false);
       await syncServer();

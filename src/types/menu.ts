@@ -206,6 +206,7 @@ export interface TerminalSettings {
   idleSeconds: number;
   tableSource?: 'admin' | 'guest' | 'qr' | null;
   tableId?: string | null;
+  waiterId?: string | null;
 }
 
 export interface RestaurantTable { id: string; section: string; number: string; name: string }

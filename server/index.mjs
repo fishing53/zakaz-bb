@@ -376,10 +376,11 @@ const firebaseMessaging = async () => {
   })();
   return firebaseMessagingPromise;
 };
-const notifyWaiters = async (title, body, data = {}) => {
+const notifyWaiters = async (title, body, data = {}, waiterId = null) => {
   try {
     const messaging = await firebaseMessaging(); if (!messaging) return;
-    const tokens = await pool.query(`select d.token from waiter_devices d join waiter_profiles w on w.id=d.waiter_id where w.restaurant_id=$1 and w.is_active=true and d.is_active=true`, [iikoOrganizationId]);
+    const tokens = await pool.query(`select d.token from waiter_devices d join waiter_profiles w on w.id=d.waiter_id
+      where w.restaurant_id=$1 and w.is_active=true and d.is_active=true and ($2::text is null or w.id=$2)`, [iikoOrganizationId, waiterId]);
     if (!tokens.rowCount) return;
     // Data-only message lets the native waiter client show an urgent full-screen notification.
     const payload = Object.fromEntries(Object.entries({ title, body, ...data }).map(([key, value]) => [key, String(value ?? '')]));
@@ -1467,8 +1468,12 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && path === '/api/v1/waiter/queue') {
       const waiter = await requireWaiter(request);
       const [requests, orders] = await Promise.all([
-        pool.query(`select id,table_number,request_type,status,created_at,accepted_by,accepted_at from service_requests where restaurant_id=$1 and status in ('new','accepted','in_progress') and (accepted_by is null or accepted_by=$2) and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
-        pool.query(`select order_number,table_number,items,total,status_step,created_at,source from customer_orders where restaurant_id=$1 and is_demo=false and completed_at is null and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId]),
+        pool.query(`select id,table_number,request_type,status,created_at,accepted_by,accepted_at from service_requests
+          where restaurant_id=$1 and status in ('new','accepted','in_progress') and (assigned_waiter_id is null or assigned_waiter_id=$2)
+            and (accepted_by is null or accepted_by=$2) and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
+        pool.query(`select order_number,table_number,items,total,status_step,created_at,source from customer_orders
+          where restaurant_id=$1 and is_demo=false and completed_at is null and (assigned_waiter_id is null or assigned_waiter_id=$2)
+            and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
       ]);
       return json(response, 200, { requests: requests.rows, orders: orders.rows, serverTime: new Date().toISOString() });
     }
@@ -1481,7 +1486,8 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && path.startsWith('/api/v1/waiter/requests/') && path.endsWith('/accept')) {
       const waiter = await requireWaiter(request); const id = Number(path.slice('/api/v1/waiter/requests/'.length, -'/accept'.length));
       if (!Number.isInteger(id)) return json(response, 400, { error: 'Некорректный вызов' });
-      const result = await pool.query(`update service_requests set status='accepted',accepted_by=$1,accepted_at=now() where id=$2 and restaurant_id=$3 and status='new' returning *`, [waiter.waiterId, id, iikoOrganizationId]);
+      const result = await pool.query(`update service_requests set status='accepted',accepted_by=$1,accepted_at=now()
+        where id=$2 and restaurant_id=$3 and status='new' and (assigned_waiter_id is null or assigned_waiter_id=$1) returning *`, [waiter.waiterId, id, iikoOrganizationId]);
       if (!result.rowCount) return json(response, 409, { error: 'Этот вызов уже принял другой официант' });
       await publishEvent('waiter_request_accepted', 'service_request', String(id), { waiterId: waiter.waiterId, tableNumber: result.rows[0].table_number });
       return json(response, 200, result.rows[0]);
@@ -1550,7 +1556,7 @@ const server = http.createServer(async (request, response) => {
             initialIikoCreationStatus = String(created.response?.creationStatus ?? '');
           }
           try {
-            saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id,is_demo) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, submittedIikoOrderId, iikoOrganizationId, sessionId, orderSource, clientRequestId || null, demoMode]);
+            saved = await pool.query('insert into customer_orders(order_number,terminal_id,table_number,items,total,comment,promo_code,iiko_order_id,restaurant_id,guest_session_id,source,client_request_id,is_demo,assigned_waiter_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning order_number, items, total, status_step, table_number, created_at', [number, body.terminal_id, table.table_number, JSON.stringify(order.items), order.total, String(body.comment ?? '').slice(0, 1000), order.promoCode, submittedIikoOrderId, iikoOrganizationId, sessionId, orderSource, clientRequestId || null, demoMode, terminal.rows[0].waiter_id ?? null]);
             break;
           } catch (error) {
             if (error.code !== '23505' || clientRequestId || useIiko) throw error;
@@ -1574,7 +1580,7 @@ const server = http.createServer(async (request, response) => {
       }
       if (!demoMode) {
         await publishEvent('order_created', 'order', saved.rows[0].order_number, { tableNumber: saved.rows[0].table_number, source: orderSource, total: Number(saved.rows[0].total) });
-        void notifyWaiters(`Новый заказ · стол №${saved.rows[0].table_number}`, `Заказ ${saved.rows[0].order_number} на ${saved.rows[0].total} ₽`, { type: 'order', orderNumber: saved.rows[0].order_number, tableNumber: saved.rows[0].table_number });
+        void notifyWaiters(`Новый заказ · стол №${saved.rows[0].table_number}`, `Заказ ${saved.rows[0].order_number} на ${saved.rows[0].total} ₽`, { type: 'order', orderNumber: saved.rows[0].order_number, tableNumber: saved.rows[0].table_number }, terminal.rows[0].waiter_id ?? null);
       }
       return json(response, 201, saved.rows[0]);
     }
@@ -1595,9 +1601,9 @@ const server = http.createServer(async (request, response) => {
         where terminal_id=$1 and request_type=$2 and status in ('new','accepted','in_progress')
           and created_at > now()-interval '30 seconds' order by created_at desc limit 1`, [String(body.terminal_id), type]);
       if (duplicate.rowCount) return json(response, 200, { ok: true, duplicate: true });
-      const created = await pool.query('insert into service_requests(terminal_id, table_number, request_type, restaurant_id, guest_session_id) values ($1,$2,$3,$4,$5) returning id', [String(body.terminal_id), table.table_number, type, iikoOrganizationId, sessionId]);
+      const created = await pool.query('insert into service_requests(terminal_id, table_number, request_type, restaurant_id, guest_session_id, assigned_waiter_id) values ($1,$2,$3,$4,$5,$6) returning id', [String(body.terminal_id), table.table_number, type, iikoOrganizationId, sessionId, terminal.rows[0].waiter_id ?? null]);
       await publishEvent('waiter_called', 'service_request', String(created.rows[0].id), { tableNumber: table.table_number, type });
-      void notifyWaiters(`СТОЛ №${table.table_number}`, servicePushText[type] ?? 'Новый вызов за столом', { type: 'service_request', requestId: created.rows[0].id, tableNumber: table.table_number, requestType: type });
+      void notifyWaiters(`СТОЛ №${table.table_number}`, servicePushText[type] ?? 'Новый вызов за столом', { type: 'service_request', requestId: created.rows[0].id, tableNumber: table.table_number, requestType: type }, terminal.rows[0].waiter_id ?? null);
       return json(response, 201, { ok: true });
     }
     if (request.method === 'POST' && path.startsWith('/api/v1/orders/') && path.endsWith('/complete')) {
@@ -1616,7 +1622,8 @@ const server = http.createServer(async (request, response) => {
     if (!path.startsWith('/api/v1/admin/')) return json(response, 404, { error: 'Not found' });
     const admin = requireAdmin(request);
     const terminalOnly = request.method === 'PUT' && path.startsWith('/api/v1/admin/terminals/');
-    if (admin.scope === 'terminal' && !terminalOnly) throw Object.assign(new Error('Недостаточно прав'), { status: 403 });
+    const terminalAllowed = terminalOnly || request.method === 'GET' && path === '/api/v1/admin/waiters';
+    if (admin.scope === 'terminal' && !terminalAllowed) throw Object.assign(new Error('Недостаточно прав'), { status: 403 });
     const hostessAllowed = request.method === 'GET' && path === '/api/v1/admin/orders' || terminalOnly;
     if (admin.role === 'hostess' && !hostessAllowed) throw Object.assign(new Error('Недостаточно прав'), { status: 403 });
     const actor = admin.userId ? `admin-user:${admin.userId}` : admin.scope === 'terminal' ? 'terminal-admin' : 'restaurant-admin';
@@ -1829,7 +1836,8 @@ const server = http.createServer(async (request, response) => {
       });
     }
     if (request.method === 'GET' && path === '/api/v1/admin/waiters') {
-      const result = await pool.query('select id,display_name,is_active,auth_source,iiko_employee_id,created_at from waiter_profiles where restaurant_id=$1 order by display_name', [iikoOrganizationId]); return json(response, 200, result.rows);
+      const result = await pool.query(`select id,display_name,is_active,auth_source,iiko_employee_id,created_at from waiter_profiles
+        where restaurant_id=$1 and ($2::boolean=false or is_active=true) order by display_name`, [iikoOrganizationId, admin.scope === 'terminal']); return json(response, 200, result.rows);
     }
     if (request.method === 'GET' && path === '/api/v1/admin/iiko-front') return json(response, 200, await iikoFrontOverview());
     if (request.method === 'POST' && path === '/api/v1/admin/iiko-front/pairing-code') {
@@ -1858,7 +1866,9 @@ const server = http.createServer(async (request, response) => {
       const body = await readBody(request);
       const result = await pool.query(`update iiko_employees set app_access_enabled=$1,updated_at=now() where restaurant_id=$2 and employee_id=$3 returning *`, [body.enabled === true, iikoOrganizationId, employeeId]);
       if (!result.rowCount) return json(response, 404, { error: 'Сотрудник iiko не найден' });
-      await pool.query(`update waiter_profiles set is_active=$1,updated_at=now() where restaurant_id=$2 and iiko_employee_id=$3`, [body.enabled === true && result.rows[0].is_active, iikoOrganizationId, employeeId]);
+      await pool.query(`insert into waiter_profiles(id,restaurant_id,display_name,iiko_employee_id,auth_source,is_active,pin_hash)
+        values($1,$2,$3,$4,'iiko',$5,null) on conflict(restaurant_id,iiko_employee_id) where iiko_employee_id is not null
+        do update set display_name=excluded.display_name,is_active=excluded.is_active,pin_hash=null,auth_source='iiko',updated_at=now()`, [crypto.randomUUID(), iikoOrganizationId, result.rows[0].display_name, employeeId, body.enabled === true && result.rows[0].is_active]);
       await audit(actor, 'update', 'iiko_employee_access', employeeId, null, { enabled: body.enabled === true });
       return json(response, 200, result.rows[0]);
     }
@@ -1917,7 +1927,10 @@ const server = http.createServer(async (request, response) => {
       const before = await pool.query('select * from terminals where id = $1', [id]);
       const requestedTableId = String(body.table_id ?? '').trim();
       const legacyTableNumber = String(body.table_number ?? '').trim();
+      const waiterFieldPresent = Object.prototype.hasOwnProperty.call(body, 'waiter_id');
+      const requestedWaiterId = String(waiterFieldPresent ? body.waiter_id ?? '' : before.rows[0]?.waiter_id ?? '').trim();
       let selectedTable = null;
+      let selectedWaiter = null;
       if (requestedTableId) {
         const table = await pool.query('select table_id,table_number from iiko_tables where table_id=$1 and terminal_group_id=$2', [requestedTableId, iikoTerminalGroupId]);
         if (!table.rowCount) return json(response, 409, { error: 'Выбранного стола больше нет в актуальной схеме iiko' });
@@ -1927,7 +1940,12 @@ const server = http.createServer(async (request, response) => {
         if (!table.rowCount) return json(response, 409, { error: 'Стол не найден в актуальной схеме iiko' });
         selectedTable = table.rows[0];
       }
-      const result = await pool.query('insert into terminals(id, label, table_id, table_number, is_active, demo_mode, idle_seconds) values ($1,$2,$3,$4,$5,$6,$7) on conflict (id) do update set label = excluded.label, table_id = excluded.table_id, table_number = excluded.table_number, is_active = excluded.is_active, demo_mode = excluded.demo_mode, idle_seconds = excluded.idle_seconds, updated_at = now() returning *', [id, String(body.label ?? ''), selectedTable?.table_id ?? null, selectedTable?.table_number ?? '', body.is_active !== false, body.demo_mode === true, Math.max(15, Number(body.idle_seconds ?? 45))]);
+      if (requestedWaiterId) {
+        const waiter = await pool.query('select id,display_name from waiter_profiles where id=$1 and restaurant_id=$2 and is_active=true', [requestedWaiterId, iikoOrganizationId]);
+        if (!waiter.rowCount) return json(response, 409, { error: 'Выбранный официант больше не доступен' });
+        selectedWaiter = waiter.rows[0];
+      }
+      const result = await pool.query('insert into terminals(id, label, table_id, table_number, waiter_id, is_active, demo_mode, idle_seconds) values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (id) do update set label = excluded.label, table_id = excluded.table_id, table_number = excluded.table_number, waiter_id = excluded.waiter_id, is_active = excluded.is_active, demo_mode = excluded.demo_mode, idle_seconds = excluded.idle_seconds, updated_at = now() returning *', [id, String(body.label ?? ''), selectedTable?.table_id ?? null, selectedTable?.table_number ?? '', selectedWaiter?.id ?? null, body.is_active !== false, body.demo_mode === true, Math.max(15, Number(body.idle_seconds ?? 45))]);
       await pool.query('delete from terminal_table_selections where terminal_id=$1', [id]);
       await audit(actor, 'update', 'terminal', id, before.rows[0] ?? null, result.rows[0]);
       return json(response, 200, { ...result.rows[0], table_source: result.rows[0].table_number ? 'admin' : null });
