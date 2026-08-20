@@ -7,6 +7,8 @@ import {
   deterministicUuid,
   idempotencyDecision,
   iikoStatusStep,
+  isSauceMenuCategory,
+  isStandaloneMenuProduct,
   isDatabaseBackupFileName,
   isIikoOrderSettled,
   normalizeIikoStopListGroups,
@@ -81,6 +83,11 @@ test('applies and clears stop-list snapshots', () => {
 test('hides stopped dishes and restores them after the stop-list is cleared', () => {
   assert.deepEqual(visibleCatalogItems(products, [{ productId: 'pizza', balance: 0 }]).map((item) => item.id), ['drink']);
   assert.deepEqual(visibleCatalogItems(products, []).map((item) => item.id), ['pizza', 'drink']);
+});
+test('keeps sauces available only as modifiers, not standalone menu products', () => {
+  assert.equal(isSauceMenuCategory('  Соусы '), true);
+  assert.equal(isStandaloneMenuProduct({ category: 'СОУСЫ' }), false);
+  assert.equal(isStandaloneMenuProduct({ categories: [{ name: 'Соусы' }, { name: 'Закуски' }] }), true);
 });
 test('calculates cart, quantity and optional modifiers', () => {
   const order = calculateOrder({ products, lines: [{ productId: 'pizza', quantity: 2, modifiers: [{ groupId: 'sauces', productId: 'cheese', amount: 1 }] }] });

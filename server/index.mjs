@@ -7,7 +7,7 @@ import { URL } from 'node:url';
 import pg from 'pg';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
-import { createIikoMenuSnapshot, deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, isIikoOrderSettled, normalizeIikoStopListGroups, validateMenuPublication, visibleCatalogItems } from './core.mjs';
+import { createIikoMenuSnapshot, deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, isIikoOrderSettled, isSauceMenuCategory, isStandaloneMenuProduct, normalizeIikoStopListGroups, validateMenuPublication, visibleCatalogItems } from './core.mjs';
 import { BridgeConnectionRegistry, normalizeBridgeEmployee, validateEmployeeSnapshot } from './iiko-front-bridge.mjs';
 
 const { Pool } = pg;
@@ -1054,26 +1054,29 @@ const publicState = async (terminalId) => {
   const effectiveTable = fixedTable || chosen?.table_number || '';
   const demoMode = terminal.rows[0].demo_mode === true;
   const visibleIikoProducts = visibleCatalogItems(iikoProducts.rows, stopList.rows);
+  const standaloneIikoProducts = visibleIikoProducts.filter((item) => isStandaloneMenuProduct({ categories: arrayValue(item.raw_payload?.categories), category: item.category_name }));
+  const standaloneIikoProductIds = new Set(standaloneIikoProducts.map((item) => String(item.product_id)));
   const stoppedProductIds = new Set(stopList.rows.filter((item) => Number(item.balance) <= 0).map((item) => String(item.productId)));
-  const products = demoMode ? localProducts.rows.map((item) => ({ ...item, category_ids: [`local:${item.category}`], sauce_options: [], modifier_groups: demoModifierGroups(item) })) : iikoProducts.rowCount ? visibleIikoProducts.map((item) => ({
+  const products = demoMode ? localProducts.rows.filter(isStandaloneMenuProduct).map((item) => ({ ...item, category_ids: [`local:${item.category}`], sauce_options: [], modifier_groups: demoModifierGroups(item) })) : iikoProducts.rowCount ? standaloneIikoProducts.map((item) => ({
     id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, categories: arrayValue(item.raw_payload?.categories).map((category) => String(category?.name ?? '')).filter(Boolean), category_ids: arrayValue(item.raw_payload?.categories).map((category) => String(category?.id ?? '')).filter(Boolean), price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, composition: item.override_composition ?? '', kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
     image: item.override_image || item.image_url || '', source_url: '', sauce_options: [], addon_options: [], flavor_options: [], size_option: null,
-    pairs_with: arrayValue(item.override_pairs_with).filter((id) => !stoppedProductIds.has(String(id))), recommendations_note: null, is_available: true, badge: item.override_badge ?? '', image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups, stoppedProductIds), iiko: true,
-  })) : localProducts.rows.map((item) => ({ ...item, category_ids: [`local:${item.category}`] }));
+    pairs_with: arrayValue(item.override_pairs_with).filter((id) => !stoppedProductIds.has(String(id)) && standaloneIikoProductIds.has(String(id))), recommendations_note: null, is_available: true, badge: item.override_badge ?? '', image_position: item.override_image_position ?? 'center', allergens: allergenText(item.raw_payload?.item?.allergens), spicy: 'none', sort_order: item.sort_order, modifier_groups: publicModifierGroups(item.modifier_groups, stoppedProductIds), iiko: true,
+  })) : localProducts.rows.filter(isStandaloneMenuProduct).map((item) => ({ ...item, category_ids: [`local:${item.category}`] }));
   const visibleProductIds = new Set(products.map((item) => String(item.id)));
   const fallbackCategories = [];
   for (const product of products) {
     const names = arrayValue(product.categories).length ? product.categories : [product.category];
     const ids = arrayValue(product.category_ids).length ? product.category_ids : names.map((name) => `local:${name}`);
     names.forEach((name, index) => {
+      if (isSauceMenuCategory(name)) return;
       const id = String(ids[index] ?? `local:${name}`);
       let category = fallbackCategories.find((item) => item.id === id);
       if (!category) { category = { id, name: String(name), productIds: [] }; fallbackCategories.push(category); }
       if (!category.productIds.includes(String(product.id))) category.productIds.push(String(product.id));
     });
   }
-  const categories = !demoMode && iikoProducts.rowCount && iikoCategories.rowCount ? iikoCategories.rows.map((category) => ({
+  const categories = !demoMode && iikoProducts.rowCount && iikoCategories.rowCount ? iikoCategories.rows.filter((category) => !isSauceMenuCategory(category.name)).map((category) => ({
     id: String(category.category_id),
     name: String(category.name),
     productIds: iikoCategoryItems.rows.filter((item) => item.category_id === category.category_id && visibleProductIds.has(String(item.product_id))).map((item) => String(item.product_id)),
@@ -1081,7 +1084,7 @@ const publicState = async (terminalId) => {
   if (demoMode) await pool.query(`update customer_orders set status_step=least(4,floor(extract(epoch from now()-created_at)/5)::int),updated_at=now()
     where terminal_id=$1 and is_demo=true and completed_at is null and status_step<4`, [terminalId]);
   const orders = await pool.query('select order_number, items, total, status_step, table_number, created_at from customer_orders where terminal_id = $1 and is_demo=$2 and completed_at is null and created_at > now() - interval \'4 hours\' order by created_at desc', [terminalId, demoMode]);
-  const publicBanners = demoMode ? localProducts.rows.slice(0, 3).map((item, index) => ({ id: `demo-${index}`, name: item.name, image_url: item.image, product_id: item.id, kind: 'restaurant', active: true, starts_at: null, ends_at: null, impression_limit: null, impressions: 0, sort_order: index })) : banners.rows.filter((item) => !item.product_id || !stoppedProductIds.has(String(item.product_id)));
+  const publicBanners = demoMode ? products.slice(0, 3).map((item, index) => ({ id: `demo-${index}`, name: item.name, image_url: item.image, product_id: item.id, kind: 'restaurant', active: true, starts_at: null, ends_at: null, impression_limit: null, impressions: 0, sort_order: index })) : banners.rows.filter((item) => !item.product_id || visibleProductIds.has(String(item.product_id)));
   return { products, categories, banners: publicBanners, terminal: { ...terminal.rows[0], table_number: effectiveTable, table_source: fixedTable ? 'admin' : (chosen ? (chosen.source === 'qr' ? 'qr' : 'guest') : null), table_id: fixedTable ? (fixedTableId || null) : (chosen?.table_id ?? null) }, orders: orders.rows, settings: Object.fromEntries(settings.rows.map((row) => [row.key, row.value])), catalogRevision: String(revision.rows[0]?.revision ?? '') };
 };
 
