@@ -34,6 +34,11 @@ npm run build:waiter
 )
 cp waiter/android/app/build/outputs/apk/debug/app-debug.apk "$artifact_dir/BB-Waiter-${version}-debug.apk"
 
+if [[ -s /bb-ci-secrets/android-signing.env ]]; then
+  # Dedicated runner fallback. GitLab file variables remain the preferred setup.
+  source /bb-ci-secrets/android-signing.env
+fi
+
 signing_variables=(
   ANDROID_KEYSTORE_PATH
   ANDROID_KEYSTORE_PASSWORD
