@@ -759,7 +759,7 @@ const defaultItemSize = (item) => arrayValue(item?.itemSizes).find((size) => siz
 const iikoPrice = (size) => Number(arrayValue(size?.prices).find((price) => String(price?.organizationId) === iikoOrganizationId)?.price ?? arrayValue(size?.prices)[0]?.price ?? 0);
 const iikoMenuPublicationEntries = (menu) => arrayValue(menu?.itemCategories).flatMap((category) => arrayValue(category?.items).map((item) => {
   const size = defaultItemSize(item);
-  return { name: String(item?.name ?? 'Без названия').trim(), sku: String(item?.sku ?? size?.sku ?? '').trim(), isHidden: Boolean(item?.isHidden || size?.isHidden) };
+  return { productId: String(item?.itemId ?? ''), category: String(category?.name ?? 'Без категории').trim(), name: String(item?.name ?? 'Без названия').trim(), sku: String(item?.sku ?? size?.sku ?? '').trim(), isHidden: Boolean(item?.isHidden || size?.isHidden) };
 }));
 const assertIikoMenuIsPublishable = (menu) => {
   const entries = iikoMenuPublicationEntries(menu);
@@ -767,9 +767,9 @@ const assertIikoMenuIsPublishable = (menu) => {
   if (publication.ok) return entries.length;
   const visible = entries.filter((item) => !item.isHidden);
   const missing = visible.filter((item) => !item.sku).map((item) => item.name);
-  const duplicates = publication.duplicateSkus.map((sku) => `${sku}: ${visible.filter((item) => item.sku === sku).map((item) => item.name).join(' / ')}`);
+  const duplicates = publication.duplicateSkus.map((sku) => `${sku}: ${visible.filter((item) => item.sku === sku).map((item) => `${item.name} [${item.category}; ID ${item.productId}]`).join(' / ')}`);
   const details = [missing.length ? `Без SKU: ${missing.join(', ')}` : '', duplicates.length ? `Повторяется SKU: ${duplicates.join('; ')}` : ''].filter(Boolean).join('. ');
-  throw Object.assign(new Error(`Сезонное меню не опубликовано. ${details}`), { status: 409 });
+  throw Object.assign(new Error(`Внешнее меню iiko не готово к публикации. ${details}`), { status: 409 });
 };
 const nutritionHasValues = (nutrition) => ['energy', 'calories', 'proteins', 'protein', 'fats', 'fat', 'carbs', 'carbohydrates'].some((key) => Number(nutrition?.[key] ?? 0) > 0);
 const modifierRestrictions = (value) => Array.isArray(value) ? (value[0] ?? {}) : value && typeof value === 'object' ? value : {};
