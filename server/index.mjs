@@ -744,7 +744,7 @@ const testIikoConnection = async (config) => {
   const organizations = await call('/api/1/organizations', { organizationIds: [config.organizationId], returnAdditionalInfo: false, includeDisabled: false });
   if (!arrayValue(organizations.organizations).some((item) => String(item.id) === config.organizationId)) throw Object.assign(new Error('У API-логина нет доступа к выбранной организации'), { status: 409 });
   const menu = await call('/api/2/menu/by_id', { organizationIds: [config.organizationId], externalMenuId: config.externalMenuId, version: 2, language: 'ru', asyncMode: false });
-  const menuItems = arrayValue(menu.itemCategories).reduce((sum, category) => sum + arrayValue(category?.items).length, 0);
+  const menuItems = assertIikoMenuIsPublishable(menu);
   if (!menuItems) throw Object.assign(new Error('Выбранное внешнее меню не содержит блюд'), { status: 409 });
   const sections = await call('/api/1/reserve/available_restaurant_sections', { organizationIds: [config.organizationId], terminalGroupIds: [config.terminalGroupId], returnSchema: true });
   const tables = arrayValue(sections.restaurantSections).reduce((sum, section) => sum + arrayValue(section?.tables).length, 0);
@@ -757,6 +757,20 @@ const testIikoConnection = async (config) => {
 };
 const defaultItemSize = (item) => arrayValue(item?.itemSizes).find((size) => size?.isDefault) ?? arrayValue(item?.itemSizes)[0] ?? {};
 const iikoPrice = (size) => Number(arrayValue(size?.prices).find((price) => String(price?.organizationId) === iikoOrganizationId)?.price ?? arrayValue(size?.prices)[0]?.price ?? 0);
+const iikoMenuPublicationEntries = (menu) => arrayValue(menu?.itemCategories).flatMap((category) => arrayValue(category?.items).map((item) => {
+  const size = defaultItemSize(item);
+  return { name: String(item?.name ?? 'Без названия').trim(), sku: String(item?.sku ?? size?.sku ?? '').trim(), isHidden: Boolean(item?.isHidden || size?.isHidden) };
+}));
+const assertIikoMenuIsPublishable = (menu) => {
+  const entries = iikoMenuPublicationEntries(menu);
+  const publication = validateMenuPublication(entries);
+  if (publication.ok) return entries.length;
+  const visible = entries.filter((item) => !item.isHidden);
+  const missing = visible.filter((item) => !item.sku).map((item) => item.name);
+  const duplicates = publication.duplicateSkus.map((sku) => `${sku}: ${visible.filter((item) => item.sku === sku).map((item) => item.name).join(' / ')}`);
+  const details = [missing.length ? `Без SKU: ${missing.join(', ')}` : '', duplicates.length ? `Повторяется SKU: ${duplicates.join('; ')}` : ''].filter(Boolean).join('. ');
+  throw Object.assign(new Error(`Сезонное меню не опубликовано. ${details}`), { status: 409 });
+};
 const nutritionHasValues = (nutrition) => ['energy', 'calories', 'proteins', 'protein', 'fats', 'fat', 'carbs', 'carbohydrates'].some((key) => Number(nutrition?.[key] ?? 0) > 0);
 const modifierRestrictions = (value) => Array.isArray(value) ? (value[0] ?? {}) : value && typeof value === 'object' ? value : {};
 const allergenNames = (value) => [...new Map(arrayValue(value)
@@ -788,10 +802,7 @@ const syncIikoMenu = async () => {
     rows.push([String(item.itemId), sku, String(category?.id ?? ''), String(category?.name ?? 'Без категории'), String(item?.name ?? ''), item?.description ?? null, iikoPrice(size), Number(size?.portionWeightGrams ?? 0), String(size?.measureUnitType ?? ''), JSON.stringify(size?.nutritionPerHundredGrams ?? size?.nutritions?.[0] ?? null), size?.buttonImageUrl ?? null, JSON.stringify(size?.itemModifierGroups ?? []), Boolean(item?.isHidden || size?.isHidden), sortOrder++, Number(menu?.revision ?? 0), JSON.stringify({ item, size })]);
   }
   if (!rows.length) throw Object.assign(new Error('iiko вернул пустое внешнее меню; сохранён предыдущий снимок'), { status: 502 });
-  const publication = validateMenuPublication(rows.map((row) => ({ sku: row[1], isHidden: row[12] })));
-  if (!publication.ok) {
-    throw Object.assign(new Error(`Сезонное меню не опубликовано: ${publication.missingSku} блюд без SKU, ${publication.duplicateSkus.length} повторяющихся SKU`), { status: 409 });
-  }
+  assertIikoMenuIsPublishable(menu);
   const client = await pool.connect();
   try {
     await client.query('begin');
@@ -1336,6 +1347,7 @@ const server = http.createServer(async (request, response) => {
       const events = await readBody(request);
       if (!Array.isArray(events) || events.length > 100) return json(response, 400, { error: 'Invalid webhook payload' });
       for (const event of events) {
+        if (String(event?.organizationId ?? '') !== iikoOrganizationId) continue;
         const eventType = String(event?.eventType ?? '');
         if (eventType !== 'TableOrderUpdate' && eventType !== 'TableOrderError' && eventType !== 'StopListUpdate') continue;
         await pool.query('insert into iiko_webhook_events(event_type,organization_id,correlation_id,event_time,payload) values ($1,$2,$3,$4,$5)', [eventType, event.organizationId ?? null, event.correlationId ?? null, event.eventTime ?? null, JSON.stringify(event)]);
@@ -1908,9 +1920,9 @@ const server = http.createServer(async (request, response) => {
           credentials_ciphertext=excluded.credentials_ciphertext,credentials_iv=excluded.credentials_iv,credentials_tag=excluded.credentials_tag,configured_by=excluded.configured_by,last_test_at=excluded.last_test_at,last_test_details=excluded.last_test_details,updated_at=now() returning *`,
         [candidate.apiBase,candidate.organizationId,candidate.terminalGroupId,candidate.externalMenuId,candidate.orderTypeId,candidate.orderSourceKey,encrypted.ciphertext,encrypted.iv,encrypted.tag,actor,JSON.stringify(tested.result ?? {})]);
         iikoConnectionMetadata = saved.rows[0]; applyRuntimeIikoConfig(candidate);
-        webhookRegistration = await ensureIikoWebhookRegistration(candidate);
         const [menuCount, tableCount] = await Promise.all([syncIikoMenu(), syncIikoTables()]);
         await fetchIikoStopLists([candidate.terminalGroupId]);
+        webhookRegistration = await ensureIikoWebhookRegistration(candidate);
         const after = safeIikoConfig(saved.rows[0]); await audit(actor, 'activate', 'iiko_connection', 'active', before, after);
         await publishEvent('iiko_connection_changed', 'iiko_connection', 'active', { actor, organizationId: candidate.organizationId, menuCount, tableCount, webhookRegistered: true, webhookUpdated: webhookRegistration.updated }, candidate.organizationId);
         if (body.discoveryToken) iikoDiscoverySessions.delete(String(body.discoveryToken));
