@@ -54,7 +54,7 @@ secret_scan:
   stage: validate
   cache: []
   script:
-    - gitleaks git . --redact=100 --verbose
+    - gitleaks git . --config .gitleaks.toml --redact=100 --verbose
 
 server_tests:
   extends: .node_job

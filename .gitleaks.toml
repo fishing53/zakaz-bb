@@ -1,0 +1,5 @@
+[allowlist]
+description = "Signed iiko plugin binding issued by the iiko developer portal"
+paths = [
+  '''^integrations/iiko-front-bridge/binding\.jwt$''',
+]
