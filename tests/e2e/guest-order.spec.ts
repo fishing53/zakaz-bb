@@ -1,11 +1,12 @@
 import { test, expect, type Page } from '@playwright/test';
 
 const product = { id: 'pizza-1', sku: 'PIZZA-1', name: 'Пицца Маргарита', category: 'Пицца', price_rub: 559, portion: '1000', unit: 'г', description: 'Томатный соус и сыр', composition: '', kbju: null, image: '/images/menu/0.webp', source_url: '', modifier_groups: [{ name: 'Острота', minQuantity: 0, maxQuantity: 1, items: [{ productId: 'mild', name: 'Не острое', price: 0, defaultQuantity: 1 }, { productId: 'hot', name: 'Острое', price: 99 }] }], is_available: true, badge: '', image_position: 'center', allergens: '', spicy: 'none', sort_order: 0 };
+const categories = Array.from({ length: 14 }, (_, index) => ({ id: `category-${index}`, name: `Категория ${index + 1}`, productIds: ['pizza-1'], sortOrder: index }));
 
 async function mockApi(page: Page) {
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname.endsWith('/bootstrap')) return route.fulfill({ json: { products: [product], banners: [], terminal: { id: 'terminal-test', label: 'Тест', table_number: '5', is_active: true, demo_mode: false, idle_seconds: 45, table_source: 'admin', table_id: 'table-5' }, orders: [], settings: {} } });
+    if (url.pathname.endsWith('/bootstrap')) return route.fulfill({ json: { products: [product], categories, banners: [], terminal: { id: 'terminal-test', label: 'Тест', table_number: '5', is_active: true, demo_mode: false, idle_seconds: 45, table_source: 'admin', table_id: 'table-5' }, orders: [], settings: {} } });
     if (url.pathname.endsWith('/orders') && route.request().method() === 'POST') return route.fulfill({ status: 201, json: { order_number: 'B-TEST01', items: [{ key: 'line', productId: 'pizza-1', quantity: 1 }], total: 559, status_step: 0, table_number: '5', created_at: new Date().toISOString() } });
     return route.fulfill({ json: { ok: true, tables: [] } });
   });
@@ -65,6 +66,26 @@ test('free iiko modifiers use a centered check without a technical label', async
   await paidModifier.click();
   await expect(paidModifier).toHaveAttribute('aria-pressed', 'true');
   await expect(freeModifier).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('category position survives selection and the search close button really closes', async ({ page }) => {
+  await page.getByRole('button', { name: 'СДЕЛАТЬ ЗАКАЗ' }).click();
+  const categoryNav = page.locator('.category-nav');
+  await categoryNav.evaluate((node) => { node.scrollLeft = node.scrollWidth; });
+  const before = await categoryNav.evaluate((node) => node.scrollLeft);
+  expect(before).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Категория 14', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Категория 14', exact: true })).toHaveClass(/is-active/);
+  await expect.poll(() => categoryNav.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
+
+  const search = page.locator('.search-box');
+  await search.click();
+  const input = page.getByRole('textbox', { name: 'Поиск блюд' });
+  await input.fill('пицца');
+  await page.getByRole('button', { name: 'Закрыть поиск' }).click();
+  await expect(input).toHaveValue('');
+  await expect(search).not.toHaveClass(/is-open/);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-action') ?? '')).not.toBe('search');
 });
 
 test('administrator sees security checks and protected Telegram settings', async ({ page }) => {

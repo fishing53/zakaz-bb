@@ -2247,28 +2247,35 @@ html, body, #app,
 .option-group.option-group--modifiers .option-chips .option-chip,
 .option-group.option-group--modifiers[data-multiple="true"] .option-chips .option-chip {
   width: auto;
-  min-width: 0;
+  min-width: 148px;
   min-height: 48px;
-  padding: 9px 38px;
-  position: relative;
+  padding: 9px 11px;
   display: inline-grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr) 20px;
   place-items: center;
+  column-gap: 8px;
   row-gap: 3px;
   line-height: 1;
   text-align: center;
 }
+.option-group.option-group--modifiers .option-chips .option-chip::after,
+.option-group.option-group--modifiers[data-multiple="true"] .option-chips .option-chip::after {
+  content: '';
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  width: 20px;
+  height: 20px;
+}
 .option-group.option-group--modifiers .option-chip__check,
 .option-group.option-group--modifiers[data-multiple="true"] .option-chip__check {
   display: grid;
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  place-self: center;
 }
 .option-group.option-group--modifiers .option-chip__label,
 .option-group.option-group--modifiers[data-multiple="true"] .option-chip__label {
-  grid-column: 1;
+  grid-column: 2;
   min-width: 0;
   font: 700 .88rem/1.1 "Roboto Condensed",sans-serif;
   letter-spacing: .04em;
@@ -2277,7 +2284,7 @@ html, body, #app,
 }
 .option-group.option-group--modifiers .option-chips .option-chip small,
 .option-group.option-group--modifiers[data-multiple="true"] .option-chips .option-chip small {
-  grid-column: 1;
+  grid-column: 2;
   padding: 0;
   font: 700 .68rem/1 "Roboto Condensed",sans-serif;
   letter-spacing: .02em;

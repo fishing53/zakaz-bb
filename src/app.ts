@@ -69,6 +69,7 @@ let currentCatalogRevision = '';
 let bootstrapSnapshot = '';
 let consecutiveBootstrapFailures = 0;
 let offlineTimer = 0;
+let menuCategoryScrollLeft = 0;
 const pendingServiceRequests = new Set<string>();
 const updateSearch = debounce((value: string) => {
   const searching = Boolean(value.trim());
@@ -119,6 +120,10 @@ export function render() {
   const related = root.querySelector<HTMLElement>('[data-related-for]');
   if (product && related) related.innerHTML = relatedCards(menuService.related(product), state.productDisplay);
   applyLanguage(root, state.language);
+  if (route === 'menu') requestAnimationFrame(() => {
+    const categories = root.querySelector<HTMLElement>('.category-nav');
+    if (categories) categories.scrollLeft = menuCategoryScrollLeft;
+  });
   if (route === 'admin') {
     const tabs = root.querySelector<HTMLElement>('.admin-tabs');
     const activeTab = tabs?.querySelector<HTMLElement>('.is-active');
@@ -148,8 +153,10 @@ export function render() {
 
 async function loadAdminOrders(notify = true) {
   try {
-    adminOrders = await apiService.adminOrders(adminOrderFilter);
-    if (notify) render();
+    const next = await apiService.adminOrders(adminOrderFilter);
+    const changed = JSON.stringify(next) !== JSON.stringify(adminOrders);
+    adminOrders = next;
+    if (notify && changed) render();
   } catch (error) { if (notify) flash(error instanceof Error ? error.message : 'Не удалось загрузить заказы'); }
 }
 
@@ -496,7 +503,7 @@ async function action(element: HTMLElement) {
     else { clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; }
     return;
   }
-  if (type === 'set-admin-order-filter') { adminOrderFilter = element.dataset.orderFilter === 'all' ? 'all' : 'active'; await loadAdminOrders(); return; }
+  if (type === 'set-admin-order-filter') { adminOrderFilter = element.dataset.orderFilter === 'all' ? 'all' : 'active'; await loadAdminOrders(false); render(); return; }
   if (type === 'refresh-qr-codes') { await Promise.all([loadTerminalTables(), loadAdminQrCodes(false)]); render(); flash('QR-коды обновлены'); return; }
   if (type === 'create-qr-code') {
     const tableId = root.querySelector<HTMLSelectElement>('[data-qr-table]')?.value ?? '';
@@ -689,10 +696,15 @@ async function action(element: HTMLElement) {
     return;
   }
   if (type === 'close-product') { appStore.set({ productId: null }); return; }
-  if (type === 'select-category') { appStore.set({ category: element.dataset.category ?? ALL_MENU_CATEGORY, search: '' }); return; }
+  if (type === 'select-category') {
+    menuCategoryScrollLeft = root.querySelector<HTMLElement>('.category-nav')?.scrollLeft ?? menuCategoryScrollLeft;
+    appStore.set({ category: element.dataset.category ?? ALL_MENU_CATEGORY, search: '' });
+    return;
+  }
   if (type === 'close-search') {
     updateSearch('');
     appStore.set({ search: '' });
+    requestAnimationFrame(() => root.querySelector<HTMLInputElement>('[data-action="search"]')?.blur());
     return;
   }
   if (type === 'set-option') {
@@ -1237,19 +1249,11 @@ function resetInactivity() {
   // already owned by the table, while the welcome and order-status screens are
   // safe to leave open indefinitely.
   if (route === 'welcome' || route === 'status' || route === 'orders' || route === 'admin') return;
-  const hasDraft = orderStore.count() > 0 || Boolean(state.productId);
-  const shouldWarn = hasDraft;
   inactivityTimer = window.setTimeout(() => {
     const currentRoute = router.current();
-    const currentState = appStore.get();
-    const currentDraft = orderStore.count() > 0 || Boolean(currentState.productId);
     if (currentRoute === 'welcome' || currentRoute === 'status' || currentRoute === 'orders' || currentRoute === 'admin') return;
-    // Browsing an empty menu (or an empty checkout) does not warrant a warning:
-    // simply return the tablet to the welcome screen for the next guest.
-    if (!currentDraft || !shouldWarn) {
-      router.go(apiService.isQrMode() ? 'menu' : 'welcome');
-      return;
-    }
+    // Never return to the welcome screen without an explicit warning. This
+    // protects both an empty browse session and a cart that already has items.
     appStore.set({ inactivityWarning: true, inactivitySeconds: 15, productId: null, serviceOpen: false });
     let seconds = 15;
     inactivityCountdown = window.setInterval(() => {
@@ -1264,6 +1268,10 @@ function resetInactivity() {
 }
 
 export async function startApp() {
+  root.addEventListener('scroll', (event) => {
+    const target = event.target as HTMLElement;
+    if (target.classList?.contains('category-nav')) menuCategoryScrollLeft = target.scrollLeft;
+  }, true);
   root.addEventListener('click', (event) => {
     const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action]');
     if (target && (!(target.classList.contains('overlay')) || event.target === target)) action(target);

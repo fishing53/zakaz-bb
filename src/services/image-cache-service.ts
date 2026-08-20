@@ -25,6 +25,15 @@ let manifest = storage.get<CacheManifest>(CACHE_KEY, { entries: {}, autoUpdate: 
 let running = false;
 const runtimeUrls = new Map<string, string>();
 
+const canonicalSource = (source: string) => {
+  const value = source.trim();
+  if (!value || /^(?:data|blob|file|capacitor):/i.test(value)) return '';
+  try {
+    const absolute = new URL(value, window.location.origin).href;
+    return /^https?:\/\//i.test(absolute) ? absolute : '';
+  } catch { return ''; }
+};
+
 const persist = () => storage.set(CACHE_KEY, manifest);
 const revokeRuntimeUrl = (source: string) => {
   const value = runtimeUrls.get(source);
@@ -41,7 +50,7 @@ const loadRuntimeUrl = async (source: string) => {
   runtimeUrls.set(source, URL.createObjectURL(blob));
   return true;
 };
-const uniqueSources = (sources: string[]) => [...new Set(sources.filter((source) => /^https?:\/\//i.test(source)))];
+const uniqueSources = (sources: string[]) => [...new Set(sources.map(canonicalSource).filter(Boolean))];
 const extension = (source: string) => {
   try {
     const match = new URL(source).pathname.match(/\.([a-z0-9]{2,5})$/i);
@@ -116,21 +125,33 @@ function stateFor(sources: string[], patch: Partial<ImageCacheState> = {}): Imag
 export const imageCacheService = {
   async init() {
     await Promise.all(Object.values(manifest.entries).map(async (entry) => {
-      const available = entry.fileUri && Capacitor.isNativePlatform()
-        ? await Filesystem.stat({ path: entry.path, directory: Directory.Data }).then((file) => Number(file.size || 0) > 0).catch(() => false)
-        : await loadRuntimeUrl(entry.source).catch(() => false);
+      let available = false;
+      if (Capacitor.isNativePlatform()) {
+        const file = await Filesystem.stat({ path: entry.path, directory: Directory.Data }).catch(() => null);
+        if (file && Number(file.size || 0) > 0) {
+          // Android may move the app sandbox after an APK/OTA update. Always
+          // rebuild the file URI from the stable relative path at startup.
+          entry.fileUri = file.uri;
+          entry.size = Number(file.size || entry.size || 0);
+          available = true;
+        } else {
+          // Older APKs used Cache Storage as a compatibility fallback.
+          available = await loadRuntimeUrl(entry.source).catch(() => false);
+          if (available) delete entry.fileUri;
+        }
+      } else available = await loadRuntimeUrl(entry.source).catch(() => false);
       if (!available) delete manifest.entries[entry.source];
     }));
     persist();
   },
   resolve(source: string) {
-    const entry = manifest.entries[source];
+    const key = canonicalSource(source);
+    if (!key) return source;
+    const entry = manifest.entries[key];
     if (entry?.fileUri && Capacitor.isNativePlatform()) {
-      // Build the URL from the current sandbox path. Persisted absolute file
-      // URIs may become stale after an Android app/OTA update.
       return Capacitor.convertFileSrc(entry.fileUri);
     }
-    return runtimeUrls.get(source) ?? source;
+    return runtimeUrls.get(key) ?? source;
   },
   state: stateFor,
   isRunning: () => running,
