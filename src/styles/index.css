@@ -2109,6 +2109,15 @@ button.button.order-summary__checkout,
 button.button.product-modal__submit {
   justify-content: space-between !important;
 }
+button.button.order-summary__checkout > strong,
+button.button.product-modal__submit > strong {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+button.button.order-summary__checkout > span,
+button.button.product-modal__submit > span {
+  min-width: 0;
+}
 
 /* The welcome actions keep their full-width layout, but use the same two
    colours and typography as every other primary and secondary action. */

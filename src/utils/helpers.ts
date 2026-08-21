@@ -1,4 +1,4 @@
-export const formatPrice = (value: number) => `${new Intl.NumberFormat('ru-RU').format(value)} ₽`;
+export const formatPrice = (value: number) => `${new Intl.NumberFormat('ru-RU').format(value)}\u00a0₽`;
 export const escapeHtml = (value: string | number | null | undefined) => String(value ?? '').replace(/[&<>'"]/g, (symbol) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[symbol] ?? symbol);
 type Debounced<T extends (...args: never[]) => void> = ((...args: Parameters<T>) => void) & { cancel: () => void };
 
