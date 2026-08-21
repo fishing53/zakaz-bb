@@ -513,6 +513,15 @@ const iikoOrderSnapshot = (eventInfo) => {
     statusStep: iikoStatusStep(order),
   };
 };
+const iikoItemStatusSignature = (items) => JSON.stringify(arrayValue(items)
+  .map((item) => [
+    String(item?.positionId ?? ''),
+    String(item?.productId ?? ''),
+    String(item?.name ?? ''),
+    Number(item?.amount ?? 0),
+    String(item?.status ?? ''),
+  ])
+  .sort((left, right) => left[0].localeCompare(right[0])));
 const saveIikoOrder = async (eventInfo, { organizationId = iikoOrganizationId, eventType = 'Poll', webhook = false } = {}) => {
   const snapshot = iikoOrderSnapshot(eventInfo);
   if (!snapshot.orderId) throw Object.assign(new Error('iiko event has no order id'), { status: 400 });
@@ -531,7 +540,16 @@ const saveIikoOrder = async (eventInfo, { organizationId = iikoOrganizationId, e
   ]);
   const customerOrder = await pool.query('update customer_orders set status_step=$1,iiko_pos_id=coalesce($2,iiko_pos_id),updated_at=now() where iiko_order_id=$3 returning order_number,guest_session_id', [snapshot.statusStep, snapshot.posId, snapshot.orderId]);
   const previous = before.rows[0];
-  const changed = !previous || Number(previous.status_step) !== snapshot.statusStep || previous.order_status !== snapshot.orderStatus || previous.creation_status !== snapshot.creationStatus || JSON.stringify(previous.item_statuses ?? []) !== JSON.stringify(snapshot.itemStatuses);
+  // PostgreSQL JSONB does not preserve object key order. Comparing its raw
+  // JSON.stringify output with the freshly built snapshot therefore treated
+  // an unchanged order as changed on every poll. Compare a canonical tuple
+  // representation instead so history/events are emitted only for real iiko
+  // transitions.
+  const changed = !previous
+    || Number(previous.status_step) !== snapshot.statusStep
+    || previous.order_status !== snapshot.orderStatus
+    || previous.creation_status !== snapshot.creationStatus
+    || iikoItemStatusSignature(previous.item_statuses) !== iikoItemStatusSignature(snapshot.itemStatuses);
   if (changed) {
     const orderNumber = customerOrder.rows[0]?.order_number ?? snapshot.externalNumber ?? null;
     await pool.query(`insert into order_status_history(restaurant_id,order_number,iiko_order_id,status_step,order_status,item_statuses,source) values($1,$2,$3,$4,$5,$6,$7)`, [organizationId, orderNumber, snapshot.orderId, snapshot.statusStep, snapshot.orderStatus, JSON.stringify(snapshot.itemStatuses), webhook ? 'webhook' : 'poll']);
