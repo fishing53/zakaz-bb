@@ -1103,13 +1103,22 @@ const servicePushText = {
 const arrayValue = (value) => Array.isArray(value) ? value : [];
 const sauceName = (value) => /^Соус «(.+)»$/u.exec(String(value ?? ''))?.[1] ?? '';
 const demoModifierId = (productId, name) => deterministicUuid(`demo-modifier:${productId}:${name}`);
+const demoSauceImages = new Map([
+  ['айоли', '/images/sauces/aioli.webp'], ['брусничный', '/images/sauces/lingonberry.webp'], ['горчичный', '/images/sauces/mustard.webp'],
+  ['йогуртовый', '/images/sauces/yogurt.webp'], ['кетчуп', '/images/sauces/ketchup.webp'], ['кисло-сладкий', '/images/sauces/sweet-sour.webp'],
+  ['майонез', '/images/sauces/mayonnaise.webp'], ['песто', '/images/sauces/pesto.webp'], ['руй', '/images/sauces/rouille.webp'],
+  ['сладкий-чили', '/images/sauces/sweet-chili.webp'], ['чили-сладкий', '/images/sauces/sweet-chili.webp'], ['сметана', '/images/sauces/sour-cream.webp'],
+  ['bbq', '/images/sauces/barbecue.webp'], ['гриль', '/images/sauces/grill.webp'], ['сырный', '/images/sauces/cheese.webp'],
+  ['тартар', '/images/sauces/tartar.webp'], ['цезарь', '/images/sauces/caesar.webp'], ['чесночный', '/images/sauces/garlic.webp'],
+  ['чипотле', '/images/sauces/chipotle.webp'], ['шашлычный', '/images/sauces/shashlik.webp'],
+]);
 const demoModifierGroups = (product) => {
   const sauces = arrayValue(product.sauce_options).map((name) => String(name).trim()).filter(Boolean);
   if (!sauces.length) return [];
   const price = Math.max(0, Number.parseInt(product.sauce_addon_price_rub ?? '0', 10) || 0);
   return [{
     name: 'Соусы', minQuantity: 0, maxQuantity: sauces.length, freeQuantity: 0,
-    items: sauces.map((name) => ({ productId: demoModifierId(product.id, name), name, price, image: '/images/sauce-fallback.webp', defaultQuantity: 0, minQuantity: 0, maxQuantity: 1 })),
+    items: sauces.map((name) => ({ productId: demoModifierId(product.id, name), name, price, image: demoSauceImages.get(modifierImageNameKey(name)) || '/images/sauce-fallback.webp', defaultQuantity: 0, minQuantity: 0, maxQuantity: 1 })),
   }];
 };
 
