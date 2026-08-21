@@ -271,7 +271,7 @@ deploy_production:
     - install -m 600 "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts
   script:
     - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/waiter' '$DEPLOY_WEB_ROOT/ota/waiter' '$DEPLOY_WEB_ROOT/uploads/banners' '$DEPLOY_WEB_ROOT/uploads/products' '$DEPLOY_API_ROOT/ops' '$DEPLOY_API_ROOT/server'"
-    - rsync -az --delete --exclude='ota/' --exclude='uploads/' --exclude='downloads/' dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/"
+    - rsync -az --delete --exclude='waiter/' --exclude='ota/' --exclude='uploads/' --exclude='downloads/' dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/"
     - rsync -az --delete dist-waiter/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/waiter/"
     - scp BB-Kiosk-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/"
     - scp ota-manifest.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/manifest.json"
