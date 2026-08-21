@@ -33,12 +33,44 @@ let activeAlertId: number | null = null;
 let loginRendered = false;
 let waiterProfile: WaiterProfile | null = (() => { try { return JSON.parse(localStorage.getItem('bb-waiter-profile') || 'null') as WaiterProfile | null; } catch { return null; } })();
 let pushDeviceToken = localStorage.getItem('bb-waiter-device-token') ?? '';
+let webPushEndpoint = localStorage.getItem('bb-waiter-web-push-endpoint') ?? '';
+let webPushState: 'idle' | 'enabling' | 'enabled' | 'denied' | 'unsupported' | 'error' = 'idle';
 let connectionState: 'connecting' | 'online' | 'offline' = 'connecting';
 let lastUpdatedAt: Date | null = null;
 let profileOpen = false;
 let currentAppVersion = '';
 let otaState: { phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'error'; version: string; progress: number } = { phase: 'idle', version: '', progress: 0 };
 const bundledVersion = import.meta.env.VITE_BUILD_VERSION || '0.1.0';
+const isStandalonePwa = () => window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+async function waiterServiceWorker() {
+  if (Capacitor.isNativePlatform() || !('serviceWorker' in navigator)) return null;
+  return navigator.serviceWorker.register('/waiter/service-worker.js', { scope: '/waiter/', updateViaCache: 'none' });
+}
+
+function urlBase64ToUint8Array(value: string) {
+  const padding = '='.repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+}
+
+function paintWebPushState() {
+  const status = root.querySelector<HTMLElement>('[data-push-status]');
+  const button = root.querySelector<HTMLButtonElement>('[data-action="profile-push"]');
+  if (!status || !button) return;
+  const labels = {
+    idle: isStandalonePwa() ? 'Нажмите, чтобы получать вызовы на iPhone' : 'Сначала установите приложение на экран «Домой»',
+    enabling: 'Подключаем уведомления…',
+    enabled: 'Уведомления включены',
+    denied: 'Уведомления запрещены в настройках iPhone',
+    unsupported: 'Уведомления недоступны в этом браузере',
+    error: 'Не удалось подключить уведомления',
+  } as const;
+  status.textContent = labels[webPushState];
+  button.textContent = webPushState === 'enabled' ? 'Включены' : webPushState === 'enabling' ? 'Подключаем…' : 'Включить';
+  button.disabled = webPushState === 'enabled' || webPushState === 'enabling' || !isStandalonePwa();
+}
 
 function paintProfileUpdate() {
   const status = root.querySelector<HTMLElement>('[data-update-status]');
@@ -151,7 +183,8 @@ const sound = () => {
 };
 
 async function enablePush() {
-  if (pushInitialized || !token || !Capacitor.isNativePlatform()) return;
+  if (pushInitialized || !token) return;
+  if (!Capacitor.isNativePlatform()) return enableWebPush(false);
   pushInitialized = true;
   try {
     const permission = await PushNotifications.requestPermissions();
@@ -183,10 +216,55 @@ async function enablePush() {
   }
 }
 
+async function enableWebPush(interactive: boolean) {
+  if (!token || Capacitor.isNativePlatform()) return;
+  if (!isStandalonePwa()) {
+    webPushState = 'idle';
+    paintWebPushState();
+    return;
+  }
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    webPushState = 'unsupported';
+    paintWebPushState();
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    webPushState = 'denied';
+    paintWebPushState();
+    return;
+  }
+  if (Notification.permission === 'default' && !interactive) return;
+  webPushState = 'enabling';
+  paintWebPushState();
+  try {
+    const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+    if (permission !== 'granted') {
+      webPushState = permission === 'denied' ? 'denied' : 'idle';
+      paintWebPushState();
+      return;
+    }
+    const config = await request<{ enabled: boolean; publicKey: string }>('/waiter/push-config');
+    if (!config.enabled || !config.publicKey) throw new Error('Web Push is not configured');
+    const registration = await waiterServiceWorker();
+    if (!registration) throw new Error('Service Worker is unavailable');
+    const existing = await registration.pushManager.getSubscription();
+    const subscription = existing ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(config.publicKey) });
+    await request('/waiter/web-push-subscriptions', { method: 'POST', body: JSON.stringify({ subscription: subscription.toJSON() }) });
+    webPushEndpoint = subscription.endpoint;
+    localStorage.setItem('bb-waiter-web-push-endpoint', webPushEndpoint);
+    pushInitialized = true;
+    webPushState = 'enabled';
+  } catch {
+    webPushState = 'error';
+  }
+  paintWebPushState();
+}
+
 function login() {
   if (loginRendered) return;
   loginRendered = true;
-  root.innerHTML = `<section class="login"><div class="login__mark">BB</div><span>ПРИЛОЖЕНИЕ ДЛЯ КОМАНДЫ</span><h1>Официант</h1><p>Введите персональный PIN-код</p><input inputmode="numeric" type="password" maxlength="8" placeholder="PIN" autocomplete="current-password" autofocus><button>Войти</button></section>`;
+  const install = !Capacitor.isNativePlatform() && !isStandalonePwa() ? `<aside class="pwa-install"><strong>Установите приложение</strong><p>${isIos() ? 'Откройте эту страницу в Safari, нажмите «Поделиться» и выберите «На экран Домой».' : 'Откройте меню браузера и выберите «Установить приложение».'}</p></aside>` : '';
+  root.innerHTML = `<section class="login"><div class="login__mark">BB</div><span>ПРИЛОЖЕНИЕ ДЛЯ КОМАНДЫ</span><h1>Официант</h1><p>Введите персональный PIN-код</p><input inputmode="numeric" type="password" maxlength="8" placeholder="PIN" autocomplete="current-password" autofocus><button data-action="login">Войти</button>${install}</section>`;
   const input = root.querySelector<HTMLInputElement>('input')!;
   const submit = async () => {
     try {
@@ -210,7 +288,7 @@ function login() {
       input.focus();
     }
   };
-  root.querySelector<HTMLButtonElement>('button')!.onclick = submit;
+  root.querySelector<HTMLButtonElement>('[data-action="login"]')!.onclick = submit;
   input.onkeydown = (event) => { if (event.key === 'Enter') void submit(); };
 }
 
@@ -250,7 +328,8 @@ function incoming(item: Request) {
 
 function profileSheet() {
   if (!profileOpen) return '';
-  return `<div class="profile-overlay" data-action="close-profile"><section class="profile-sheet" role="dialog" aria-modal="true" aria-label="Профиль официанта"><header><div class="profile-avatar">${escapeHtml((waiterProfile?.name || 'О').slice(0, 1).toUpperCase())}</div><div><small>Сейчас работает</small><h2>${escapeHtml(waiterProfile?.name || 'Официант')}</h2></div><button data-action="close-profile" aria-label="Закрыть">×</button></header><div class="profile-update"><div><strong>Приложение</strong><span data-update-status>Установлена версия ${escapeHtml(currentAppVersion || bundledVersion)}</span></div><button data-action="profile-update">Проверить обновление</button></div><button class="profile-logout" data-action="logout">Выйти из профиля</button></section></div>`;
+  const pushSettings = !Capacitor.isNativePlatform() ? `<div class="profile-update"><div><strong>Уведомления</strong><span data-push-status></span></div><button data-action="profile-push">Включить</button></div>` : '';
+  return `<div class="profile-overlay" data-action="close-profile"><section class="profile-sheet" role="dialog" aria-modal="true" aria-label="Профиль официанта"><header><div class="profile-avatar">${escapeHtml((waiterProfile?.name || 'О').slice(0, 1).toUpperCase())}</div><div><small>Сейчас работает</small><h2>${escapeHtml(waiterProfile?.name || 'Официант')}</h2></div><button data-action="close-profile" aria-label="Закрыть">×</button></header>${pushSettings}<div class="profile-update"><div><strong>Приложение</strong><span data-update-status>Установлена версия ${escapeHtml(currentAppVersion || bundledVersion)}</span></div><button data-action="profile-update">Проверить обновление</button></div><button class="profile-logout" data-action="logout">Выйти из профиля</button></section></div>`;
 }
 
 function paintConnectionState() {
@@ -320,10 +399,12 @@ function render(requests: Request[], orders: Order[], alertItem?: Request, force
   root.querySelectorAll<HTMLElement>('[data-action="open-profile"]').forEach((button) => { button.onclick = () => { profileOpen = true; render(currentRequests, currentOrders, undefined, true); }; });
   root.querySelectorAll<HTMLElement>('[data-action="close-profile"]').forEach((button) => { button.onclick = (event) => { if (event.target !== button && button.classList.contains('profile-overlay')) return; profileOpen = false; render(currentRequests, currentOrders, undefined, true); }; });
   root.querySelector<HTMLButtonElement>('[data-action="profile-update"]')?.addEventListener('click', () => { if (otaState.phase === 'available') void installWaiterUpdate(); else void checkWaiterUpdate(); });
+  root.querySelector<HTMLButtonElement>('[data-action="profile-push"]')?.addEventListener('click', () => { void enableWebPush(true); });
   root.querySelector<HTMLButtonElement>('[data-action="logout"]')?.addEventListener('click', () => { void logout(); });
   paintConnectionState();
   paintWaitTimes();
   paintProfileUpdate();
+  paintWebPushState();
   bindPullToRefresh();
 }
 
@@ -372,6 +453,7 @@ async function logout() {
   if (logoutButton) { logoutButton.disabled = true; logoutButton.textContent = 'Выходим…'; }
   try {
     if (pushDeviceToken) await request('/waiter/devices', { method: 'DELETE', body: JSON.stringify({ token: pushDeviceToken }) });
+    if (webPushEndpoint) await request('/waiter/web-push-subscriptions', { method: 'DELETE', body: JSON.stringify({ endpoint: webPushEndpoint }) });
   } catch { /* Local sign-out must remain available without a network. */ }
   token = '';
   waiterProfile = null;
@@ -381,6 +463,9 @@ async function logout() {
   lastRenderKey = '';
   localStorage.removeItem('bb-waiter-token');
   localStorage.removeItem('bb-waiter-profile');
+  localStorage.removeItem('bb-waiter-web-push-endpoint');
+  webPushEndpoint = '';
+  webPushState = 'idle';
   login();
 }
 
@@ -428,6 +513,7 @@ async function queue() {
 }
 
 void queue();
+void waiterServiceWorker().catch(() => undefined);
 setInterval(() => { if (!document.hidden) void queue(); }, 5000);
 setInterval(paintWaitTimes, 20_000);
 if (Capacitor.isNativePlatform()) void CapacitorUpdater.notifyAppReady().catch(() => undefined);

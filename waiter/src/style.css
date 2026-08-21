@@ -396,6 +396,19 @@ time { color: #707070; font-size: 12px; }
 .login input:focus { border-color: rgba(243,52,48,.75); }
 .login input.is-invalid { border-color: var(--accent); }
 
+.pwa-install {
+  margin-top: 8px;
+  padding: 15px 16px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid #303030;
+  border-radius: 16px;
+  background: rgba(24,24,24,.94);
+}
+
+.pwa-install strong { font: 700 14px 'Roboto Condensed',sans-serif; text-transform: uppercase; }
+.pwa-install p { margin: 0; color: #999; font-size: 12px; line-height: 1.5; }
+
 @media (max-width: 360px) {
   .waiter-tabs { padding-inline: 9px; }
   .waiter-tabs button { padding-inline: 10px; font-size: 13px; }

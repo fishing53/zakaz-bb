@@ -1,0 +1,17 @@
+{
+  "id": "/waiter/",
+  "name": "Brooklyn Bowl — Официант",
+  "short_name": "BB Официант",
+  "description": "Вызовы гостей и активные заказы Brooklyn Bowl",
+  "lang": "ru",
+  "start_url": "/waiter/",
+  "scope": "/waiter/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#050505",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    { "src": "/waiter/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/waiter/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

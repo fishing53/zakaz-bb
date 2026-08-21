@@ -218,6 +218,8 @@ package_kiosk_ota:
   needs:
     - job: build_kiosk
       artifacts: true
+    - job: build_waiter
+      artifacts: true
   script:
     - (cd dist && zip -qr "../BB-Kiosk-$KIOSK_VERSION.zip" .)
     - printf '{"version":"%s","url":"%s/ota/BB-Kiosk-%s.zip","publishedAt":"%s"}\n' "$KIOSK_VERSION" "$PUBLIC_APP_URL" "$KIOSK_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ota-manifest.json
@@ -268,8 +270,9 @@ deploy_production:
     - install -m 600 "$DEPLOY_SSH_PRIVATE_KEY" ~/.ssh/id_ed25519
     - install -m 600 "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts
   script:
-    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/ota/waiter' '$DEPLOY_WEB_ROOT/uploads/banners' '$DEPLOY_WEB_ROOT/uploads/products' '$DEPLOY_API_ROOT/ops' '$DEPLOY_API_ROOT/server'"
+    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/waiter' '$DEPLOY_WEB_ROOT/ota/waiter' '$DEPLOY_WEB_ROOT/uploads/banners' '$DEPLOY_WEB_ROOT/uploads/products' '$DEPLOY_API_ROOT/ops' '$DEPLOY_API_ROOT/server'"
     - rsync -az --delete --exclude='ota/' --exclude='uploads/' --exclude='downloads/' dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/"
+    - rsync -az --delete dist-waiter/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/waiter/"
     - scp BB-Kiosk-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/"
     - scp ota-manifest.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/manifest.json"
     - scp BB-Waiter-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/waiter/"

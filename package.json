@@ -37,6 +37,7 @@
     "lucide-static": "^1.31.0",
     "pg": "^8.13.3",
     "qrcode": "^1.5.4",
+    "web-push": "^3.6.7",
     "ws": "^8.21.3"
   },
   "overrides": {

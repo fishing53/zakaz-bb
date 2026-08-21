@@ -345,6 +345,12 @@ await pool.query(`
     token text not null unique, platform text not null default 'android', is_active boolean not null default true,
     last_seen_at timestamptz not null default now(), created_at timestamptz not null default now()
   );
+  create table if not exists waiter_web_push_subscriptions (
+    id bigserial primary key, waiter_id text not null references waiter_profiles(id) on delete cascade,
+    endpoint text not null unique, subscription jsonb not null, is_active boolean not null default true,
+    last_seen_at timestamptz not null default now(), created_at timestamptz not null default now()
+  );
+  create index if not exists waiter_web_push_waiter_idx on waiter_web_push_subscriptions(waiter_id,is_active);
   create table if not exists app_events (
     id bigserial primary key, restaurant_id text not null, event_type text not null,
     aggregate_type text not null, aggregate_id text not null, payload jsonb not null,

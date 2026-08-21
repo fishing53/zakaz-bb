@@ -20,6 +20,9 @@ let iikoApiBase = process.env.IIKO_API_BASE || 'https://api-ru.iiko.services';
 let iikoOrganizationId = process.env.IIKO_ORGANIZATION_ID ?? '';
 let iikoWebhookToken = process.env.IIKO_WEBHOOK_TOKEN ?? '';
 const firebaseServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+const webPushPublicKey = String(process.env.WEB_PUSH_PUBLIC_KEY ?? '').trim();
+const webPushPrivateKey = String(process.env.WEB_PUSH_PRIVATE_KEY ?? '').trim();
+const webPushSubject = String(process.env.WEB_PUSH_SUBJECT ?? 'mailto:admin@brooklynbowl.ru').trim();
 const publicIikoWebhookUrl = process.env.IIKO_WEBHOOK_URL || 'https://order.brooklynbowl.ru/api/v1/iiko/webhook';
 let iikoTerminalGroupId = process.env.IIKO_TERMINAL_GROUP_ID ?? '';
 let iikoExternalMenuId = process.env.IIKO_EXTERNAL_MENU_ID ?? '';
@@ -428,7 +431,7 @@ const firebaseMessaging = async () => {
   })();
   return firebaseMessagingPromise;
 };
-const notifyWaiters = async (title, body, data = {}, waiterId = null) => {
+const notifyFirebaseWaiters = async (title, body, data = {}, waiterId = null) => {
   try {
     const messaging = await firebaseMessaging(); if (!messaging) return;
     const tokens = await pool.query(`select d.token from waiter_devices d join waiter_profiles w on w.id=d.waiter_id
@@ -439,6 +442,36 @@ const notifyWaiters = async (title, body, data = {}, waiterId = null) => {
     const result = await messaging.sendEachForMulticast({ tokens: tokens.rows.map((row) => row.token), data: payload, android: { priority: 'high' } });
     result.responses.forEach((response, index) => { if (!response.success && /registration-token-not-registered|invalid-registration-token/.test(response.error?.code ?? '')) void pool.query('update waiter_devices set is_active=false where token=$1', [tokens.rows[index].token]); });
   } catch (error) { console.warn('Firebase waiter notification:', error.message); }
+};
+let webPushPromise;
+const webPushMessaging = async () => {
+  if (!webPushPublicKey || !webPushPrivateKey) return null;
+  if (!webPushPromise) webPushPromise = import('web-push').then(({ default: webPush }) => {
+    webPush.setVapidDetails(webPushSubject, webPushPublicKey, webPushPrivateKey);
+    return webPush;
+  });
+  return webPushPromise;
+};
+const notifyWebPushWaiters = async (title, body, data = {}, waiterId = null) => {
+  try {
+    const webPush = await webPushMessaging(); if (!webPush) return;
+    const subscriptions = await pool.query(`select s.id,s.subscription from waiter_web_push_subscriptions s join waiter_profiles w on w.id=s.waiter_id
+      where w.restaurant_id=$1 and w.is_active=true and s.is_active=true and ($2::text is null or w.id=$2)`, [iikoOrganizationId, waiterId]);
+    const payload = JSON.stringify({ title, body, tag: data.requestId ? `request-${data.requestId}` : data.orderNumber ? `order-${data.orderNumber}` : undefined, data });
+    await Promise.all(subscriptions.rows.map(async (row) => {
+      try { await webPush.sendNotification(row.subscription, payload, { TTL: 60, urgency: 'high' }); }
+      catch (error) {
+        if (error?.statusCode === 404 || error?.statusCode === 410) await pool.query('update waiter_web_push_subscriptions set is_active=false,last_seen_at=now() where id=$1', [row.id]);
+        else console.warn('Web Push waiter notification:', error.message);
+      }
+    }));
+  } catch (error) { console.warn('Web Push waiter notification:', error.message); }
+};
+const notifyWaiters = async (title, body, data = {}, waiterId = null) => {
+  await Promise.allSettled([
+    notifyFirebaseWaiters(title, body, data, waiterId),
+    notifyWebPushWaiters(title, body, data, waiterId),
+  ]);
 };
 const getOrCreateGuestSession = async ({ terminalId = null, source = 'tablet', table = null, metadata = {} }) => {
   const existing = terminalId ? await pool.query(`select id from guest_sessions where restaurant_id=$1 and terminal_id=$2 and source=$3 and table_number=$4 and status='active' order by last_seen_at desc limit 1`, [iikoOrganizationId, terminalId, source, table?.table_number ?? '']) : { rows: [] };
@@ -1783,6 +1816,27 @@ const server = http.createServer(async (request, response) => {
             and created_at > now()-interval '8 hours' order by created_at desc`, [iikoOrganizationId, waiter.waiterId]),
       ]);
       return json(response, 200, { requests: requests.rows, orders: orders.rows, waiter: { id: waiter.waiterId, name: waiter.waiterName }, serverTime: new Date().toISOString() });
+    }
+    if (request.method === 'GET' && path === '/api/v1/waiter/push-config') {
+      requireWaiter(request);
+      return json(response, 200, { enabled: Boolean(webPushPublicKey && webPushPrivateKey), publicKey: webPushPublicKey });
+    }
+    if (request.method === 'POST' && path === '/api/v1/waiter/web-push-subscriptions') {
+      const waiter = await requireWaiter(request); const body = await readBody(request);
+      const subscription = body.subscription;
+      const endpoint = String(subscription?.endpoint ?? '');
+      const p256dh = String(subscription?.keys?.p256dh ?? '');
+      const auth = String(subscription?.keys?.auth ?? '');
+      if (!/^https:\/\//i.test(endpoint) || endpoint.length > 4096 || p256dh.length < 20 || auth.length < 8) return json(response, 400, { error: 'Некорректная подписка на уведомления' });
+      await pool.query(`insert into waiter_web_push_subscriptions(waiter_id,endpoint,subscription) values($1,$2,$3)
+        on conflict(endpoint) do update set waiter_id=excluded.waiter_id,subscription=excluded.subscription,is_active=true,last_seen_at=now()`, [waiter.waiterId, endpoint, JSON.stringify({ endpoint, expirationTime: subscription.expirationTime ?? null, keys: { p256dh, auth } })]);
+      return json(response, 200, { ok: true });
+    }
+    if (request.method === 'DELETE' && path === '/api/v1/waiter/web-push-subscriptions') {
+      const waiter = await requireWaiter(request); const body = await readBody(request);
+      const endpoint = String(body.endpoint ?? '');
+      if (endpoint) await pool.query('update waiter_web_push_subscriptions set is_active=false,last_seen_at=now() where waiter_id=$1 and endpoint=$2', [waiter.waiterId, endpoint]);
+      return json(response, 200, { ok: true });
     }
     if (request.method === 'POST' && path === '/api/v1/waiter/devices') {
       const waiter = await requireWaiter(request); const body = await readBody(request); const deviceToken = String(body.token ?? '');

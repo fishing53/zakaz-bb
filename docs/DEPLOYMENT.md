@@ -8,6 +8,7 @@
 ```text
 /opt/bb-kiosk-api/                    API и ops-скрипты
 /var/www/bb-kiosk/                    web bundle
+/var/www/bb-kiosk/waiter/             PWA официанта
 /var/www/bb-kiosk/uploads/            изменяемые изображения
 /var/www/bb-kiosk/ota/                OTA-манифесты и архивы
 /var/backups/bb-kiosk-postgres/       PostgreSQL backup
@@ -70,6 +71,7 @@ systemctl is-active bb-kiosk-backup.timer
 systemctl is-active bb-kiosk-health.timer
 curl -fsS https://order.brooklynbowl.ru/api/v1/health
 curl -fsS https://order.brooklynbowl.ru/api/v1/health/ready
+curl -fsS https://order.brooklynbowl.ru/waiter/manifest.webmanifest
 ```
 
 Затем проверить bootstrap, меню, стоп-лист, тестовый заказ, webhook статуса, четыре

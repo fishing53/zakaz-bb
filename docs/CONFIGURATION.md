@@ -32,6 +32,9 @@
 | `IIKO_ORDER_SOURCE_KEY` | `BrooklynBowl Kiosk` |
 | `OTA_MANIFEST_PATH` | `/var/www/bb-kiosk/ota/manifest.json` |
 | `WAITER_OTA_MANIFEST_PATH` | `/var/www/bb-kiosk/ota/waiter/manifest.json` |
+| `WEB_PUSH_PUBLIC_KEY` | Публичный VAPID-ключ для уведомлений PWA официанта |
+| `WEB_PUSH_PRIVATE_KEY` | Секретный VAPID-ключ; хранится только на сервере |
+| `WEB_PUSH_SUBJECT` | Контакт интегратора, например `mailto:admin@brooklynbowl.ru` |
 | `APPLICATION_DOWNLOAD_DIR` | `/var/www/bb-kiosk/downloads`; подписанные APK и `manifest.json` для одноразовых выдач |
 | `BANNER_UPLOAD_DIR` | `/var/www/bb-kiosk/uploads/banners` |
 | `BANNER_PUBLIC_PATH` | `/uploads/banners` |

@@ -178,11 +178,13 @@ deploy использует `resource_group`, поэтому параллель�
 
 Публичный адрес установки: <https://order.brooklynbowl.ru>
 
+PWA официанта для iPhone: <https://order.brooklynbowl.ru/waiter/>
+
 Стандартное размещение:
 
 ```text
 /opt/bb-kiosk-api              API
-/var/www/bb-kiosk             web-клиент, uploads и OTA
+/var/www/bb-kiosk             web-клиенты киоска и официанта, uploads и OTA
 /etc/bb-kiosk-api.env         серверные переменные окружения
 /etc/bb-kiosk-waiter-firebase.json
 ```
