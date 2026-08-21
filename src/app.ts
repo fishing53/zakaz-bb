@@ -489,7 +489,7 @@ async function action(element: HTMLElement) {
   }
   if (type === 'logout-admin') { apiService.logout(); clearTimeout(iikoConfigLockTimer); iikoConfigLockTimer = 0; iikoConfigAccessToken = ''; iikoConfigTestToken = ''; adminIikoConfig = null; iikoDiscovery = null; iikoRestaurantOptions = null; iikoSelectedOrganizationId = ''; appStore.set({ adminAuthenticated: false, adminScope: null, adminRole: null, adminTab: 'terminal' }); router.go('welcome'); return; }
   if (type === 'select-admin-tab') {
-    const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'banners' | 'qr' | 'applications' | 'promotions' | 'staff' | 'quality' | 'security' | 'audit';
+    const adminTab = element.dataset.adminTab as 'terminal' | 'orders' | 'menu' | 'modifiers' | 'banners' | 'qr' | 'applications' | 'promotions' | 'staff' | 'quality' | 'security' | 'audit';
     appStore.set({ adminTab });
     if (adminTab === 'audit') apiService.audit().then((items) => { auditLog = items; render(); }).catch((error) => flash(error.message));
     if (adminTab === 'staff') Promise.all([apiService.waiters(), apiService.adminUsers(), apiService.iikoFront()]).then(([waiters, users, iikoFront]) => { waiterProfiles = waiters; adminUserProfiles = users; adminIikoFront = iikoFront; render(); }).catch((error) => flash(error.message));
@@ -880,6 +880,48 @@ async function action(element: HTMLElement) {
       await apiService.saveIikoPresentation(id, { image: input<HTMLInputElement>('image')?.value.trim() ?? '', imagePosition: input<HTMLSelectElement>('imagePosition')?.value ?? 'center', badge: input<HTMLSelectElement>('badge')?.value ?? '', composition: input<HTMLTextAreaElement>('composition')?.value.trim() ?? '', pairsWith: pairs });
       await syncServer(); flash('Оформление блюда сохранено');
     } catch (error) { flash(error instanceof Error ? error.message : 'Не удалось сохранить блюдо'); }
+    return;
+  }
+  if (type === 'save-modifier-image') {
+    const card = element.closest<HTMLElement>('[data-modifier-card]');
+    const id = element.dataset.modifierId ?? '';
+    const image = card?.querySelector<HTMLInputElement>('[data-modifier-image]')?.value.trim() ?? '';
+    if (!id || !image || image.endsWith('/images/sauce-fallback.webp')) { flash('Сначала выберите изображение'); return; }
+    element.setAttribute('disabled', '');
+    try { await apiService.saveModifierImage(id, image); await syncServer(); flash('Изображение модификатора сохранено'); }
+    catch (error) { element.removeAttribute('disabled'); flash(error instanceof Error ? error.message : 'Не удалось сохранить изображение'); }
+    return;
+  }
+  if (type === 'reset-modifier-image') {
+    const id = element.dataset.modifierId ?? '';
+    if (!id) return;
+    element.setAttribute('disabled', '');
+    try { await apiService.resetModifierImage(id); await syncServer(); flash('Используется изображение из iiko или стандартная заглушка'); }
+    catch (error) { element.removeAttribute('disabled'); flash(error instanceof Error ? error.message : 'Не удалось сбросить изображение'); }
+    return;
+  }
+  if (type === 'upload-modifier-image') {
+    const input = element as HTMLInputElement;
+    const file = input.files?.[0];
+    const card = input.closest<HTMLElement>('[data-modifier-card]');
+    if (!file || !card) return;
+    const status = card.querySelector<HTMLElement>('[data-modifier-upload-status]');
+    const setStatus = (message: string, state = '') => { if (status) { status.textContent = message; status.dataset.state = state; } };
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    const inferredMime = file.type === 'image/png' || file.type === 'image/webp' ? file.type : file.type === 'image/jpeg' || extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' : extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : '';
+    if (file.size > 8 * 1024 * 1024) { setStatus('Файл больше 8 МБ', 'error'); input.value = ''; return; }
+    if (!inferredMime) { setStatus('Нужен PNG, JPEG или WebP', 'error'); input.value = ''; return; }
+    input.disabled = true; setStatus(`Загружаем ${file.name}…`, 'loading');
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const raw = String(reader.result ?? ''); resolve(`data:${inferredMime};base64,${raw.slice(raw.indexOf(',') + 1)}`); }; reader.onerror = () => reject(new Error('Не удалось прочитать файл')); reader.readAsDataURL(file); });
+      const uploaded = await apiService.uploadProductImage(dataUrl);
+      const hidden = card.querySelector<HTMLInputElement>('[data-modifier-image]');
+      const preview = card.querySelector<HTMLElement>('[data-modifier-image-preview]');
+      if (hidden) hidden.value = uploaded.url;
+      if (preview) preview.innerHTML = `<img src="${uploaded.url}" alt="">`;
+      setStatus(`${file.name} загружен. Нажмите «Сохранить».`, 'success');
+    } catch (error) { const message = error instanceof Error ? error.message : 'Не удалось загрузить фото'; setStatus(message, 'error'); flash(message); }
+    finally { input.disabled = false; }
     return;
   }
   if (type === 'upload-product-image') {
@@ -1324,6 +1366,10 @@ export async function startApp() {
         });
         section.hidden = visible === 0;
       });
+    }
+    if (target.dataset.action === 'filter-admin-modifiers') {
+      const query = target.value.trim().toLocaleLowerCase('ru-RU');
+      root.querySelectorAll<HTMLElement>('[data-modifier-card]').forEach((card) => { card.hidden = Boolean(query) && !(card.dataset.modifierSearch ?? '').includes(query); });
     }
     resetInactivity();
   });

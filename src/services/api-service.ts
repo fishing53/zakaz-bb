@@ -171,6 +171,12 @@ export const apiService = {
     const data = await request<{ image: string; image_position: string; badge: string; composition: string; pairs_with: string[] }>(`/admin/iiko-products/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ image: value.image, image_position: value.imagePosition, badge: value.badge, composition: value.composition, pairs_with: value.pairsWith }) });
     return { image: data.image, imagePosition: data.image_position, badge: data.badge, composition: data.composition, pairsWith: data.pairs_with };
   },
+  async saveModifierImage(id: string, image: string) {
+    return request<{ modifier_id: string; name: string; image: string }>(`/admin/iiko-modifiers/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ image }) });
+  },
+  async resetModifierImage(id: string) {
+    return request<void>(`/admin/iiko-modifiers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
   async adminOrders(filter: 'active' | 'all' = 'active') {
     const data = await request<Array<{ order_number: string; iiko_order_id: string | null; iiko_pos_id: string | null; table_number: string; terminal_label: string; items: CartLine[]; total: number; status_step: number; status: string; creation_status: string | null; source: 'tablet' | 'qr' | 'waiter'; created_at: string; updated_at: string; completed_at: string | null; history: Array<{ event_type: string; payload: Record<string, unknown>; created_at: string }> }>>(`/admin/orders?filter=${filter}`);
     return data.map((item): AdminOrder => ({ id: item.order_number, iikoOrderId: item.iiko_order_id, iikoPosId: item.iiko_pos_id, tableNumber: item.table_number, terminalLabel: item.terminal_label, items: item.items, total: Number(item.total), statusStep: Number(item.status_step), status: item.status, creationStatus: item.creation_status, source: item.source, createdAt: item.created_at, updatedAt: item.updated_at, completedAt: item.completed_at, history: item.history.map((event) => ({ eventType: event.event_type, payload: event.payload, createdAt: event.created_at })) }));

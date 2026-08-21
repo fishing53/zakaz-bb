@@ -166,6 +166,15 @@ await pool.query(`
     updated_at timestamptz not null default now(),
     primary key (restaurant_id, sku)
   );
+  create table if not exists iiko_modifier_presentations (
+    restaurant_id text not null,
+    modifier_id text not null,
+    name text not null default '',
+    image text not null default '',
+    updated_at timestamptz not null default now(),
+    primary key (restaurant_id, modifier_id)
+  );
+  create index if not exists iiko_modifier_presentations_updated_idx on iiko_modifier_presentations(restaurant_id, updated_at desc);
   alter table iiko_product_presentations add column if not exists composition text not null default '';
   update banners b set product_sku=m.sku from iiko_menu_items m where b.product_sku is null and b.product_id=m.product_id and m.sku is not null;
   create table if not exists iiko_tables (

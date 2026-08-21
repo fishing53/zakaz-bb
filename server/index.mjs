@@ -29,7 +29,7 @@ let iikoAppId = process.env.IIKO_APP_ID ?? '';
 let iikoApiLogin = process.env.IIKO_API_LOGIN ?? '';
 let iikoClientSecret = process.env.IIKO_CLIENT_SECRET ?? '';
 const iikoConfigEncryptionKeyHex = process.env.IIKO_CONFIG_ENCRYPTION_KEY ?? '';
-const catalogSchemaRevision = '3';
+const catalogSchemaRevision = '4';
 const otaManifestPath = process.env.OTA_MANIFEST_PATH ?? '/var/www/bb-kiosk/ota/manifest.json';
 const waiterOtaManifestPath = process.env.WAITER_OTA_MANIFEST_PATH ?? '/var/www/bb-kiosk/ota/waiter/manifest.json';
 const applicationDownloadDir = process.env.APPLICATION_DOWNLOAD_DIR ?? '/var/www/bb-kiosk/downloads';
@@ -1017,6 +1017,7 @@ const fetchIikoStopLists = (terminalGroupIds = []) => {
 const catalogRevision = () => pool.query(`select concat($3::text, ':',
   coalesce((select max(updated_at)::text from iiko_menu_items),''), ':',
   coalesce((select max(updated_at)::text from iiko_product_presentations where restaurant_id=$1),''), ':',
+  coalesce((select max(updated_at)::text from iiko_modifier_presentations where restaurant_id=$1),''), ':',
   coalesce((select md5(coalesce(string_agg(concat_ws(':',product_id,size_id,balance::text),',' order by product_id,size_id),''))
     from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2),'')
 ) as revision`, [iikoOrganizationId, iikoTerminalGroupId, catalogSchemaRevision]);
@@ -1033,7 +1034,7 @@ const publicIikoStatus = (row) => ({
 });
 
 const publicState = async (terminalId) => {
-  const [localProducts, iikoProducts, iikoCategories, iikoCategoryItems, stopList, banners, terminal, selection, settings, revision] = await Promise.all([
+  const [localProducts, iikoProducts, iikoCategories, iikoCategoryItems, stopList, modifierPresentations, banners, terminal, selection, settings, revision] = await Promise.all([
     pool.query('select * from products order by category, sort_order, name'),
     pool.query(`select m.*, p.image as override_image,
       coalesce((select jsonb_agg((select pm.product_id from iiko_menu_items pm where pm.sku=pair.sku and not pm.is_hidden order by pm.updated_at desc limit 1) order by pair.ordinality) from jsonb_array_elements_text(p.pairs_with_skus) with ordinality pair(sku,ordinality)),'[]'::jsonb) as override_pairs_with,
@@ -1042,6 +1043,7 @@ const publicState = async (terminalId) => {
     pool.query('select category_id,name,sort_order from iiko_menu_categories order by sort_order,category_id'),
     pool.query('select category_id,product_id,sort_order from iiko_menu_category_items order by category_id,sort_order,product_id'),
     pool.query(`select product_id as "productId",balance from iiko_stop_list_items where organization_id=$1 and terminal_group_id=$2`, [iikoOrganizationId, iikoTerminalGroupId]),
+    pool.query('select modifier_id,name,image from iiko_modifier_presentations where restaurant_id=$1', [iikoOrganizationId]),
     pool.query(`select b.*,coalesce((select m.product_id from iiko_menu_items m where m.sku=b.product_sku and not m.is_hidden order by m.updated_at desc limit 1),b.product_id) as product_id from banners b where active=true
       and (starts_at is null or starts_at <= now())
       and (ends_at is null or ends_at > now())
@@ -1063,6 +1065,9 @@ const publicState = async (terminalId) => {
     const image = String(item.override_image || item.image_url || '');
     return image ? [[String(item.product_id), image], [`name:${modifierImageNameKey(item.name)}`, image]] : [];
   }));
+  for (const item of modifierPresentations.rows) {
+    if (item.image) modifierImages.set(String(item.modifier_id), String(item.image));
+  }
   const products = demoMode ? localProducts.rows.map((item) => ({ ...item, category_ids: [`local:${item.category}`], sauce_options: [], modifier_groups: demoModifierGroups(item) })) : iikoProducts.rowCount ? visibleIikoProducts.map((item) => ({
     id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, categories: arrayValue(item.raw_payload?.categories).map((category) => String(category?.name ?? '')).filter(Boolean), category_ids: arrayValue(item.raw_payload?.categories).map((category) => String(category?.id ?? '')).filter(Boolean), price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, composition: item.override_composition ?? '', kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
@@ -1172,13 +1177,16 @@ const normalizeIikoOrder = async (input) => {
   const result = await pool.query(`select m.*, exists(select 1 from iiko_stop_list_items s where s.organization_id=$1 and s.terminal_group_id=$2 and s.product_id=m.product_id and s.balance<=0) as stopped from iiko_menu_items m where m.product_id = any($3::text[]) and not m.is_hidden`, [iikoOrganizationId, iikoTerminalGroupId, ids]);
   const products = new Map(result.rows.map((item) => [item.product_id, item]));
   if (products.size !== ids.length) throw Object.assign(new Error('Одно из блюд больше недоступно'), { status: 409 });
-  const modifierImageRows = await pool.query(`select m.product_id,m.name,coalesce(p.image,m.image_url,'') as image
+  const modifierImageRows = await pool.query(`select m.product_id,m.name,coalesce(mp.image,p.image,m.image_url,'') as image
     from iiko_menu_items m left join iiko_product_presentations p on p.restaurant_id=$1 and p.sku=m.sku
-    where coalesce(p.image,m.image_url,'') <> ''`, [iikoOrganizationId]);
+    left join iiko_modifier_presentations mp on mp.restaurant_id=$1 and mp.modifier_id=m.product_id
+    where coalesce(mp.image,p.image,m.image_url,'') <> ''`, [iikoOrganizationId]);
+  const dedicatedModifierImages = await pool.query('select modifier_id,name,image from iiko_modifier_presentations where restaurant_id=$1 and image<>\'\'', [iikoOrganizationId]);
   const modifierImages = new Map(modifierImageRows.rows.flatMap((item) => {
     const image = String(item.image ?? '');
     return [[String(item.product_id), image], [`name:${modifierImageNameKey(item.name)}`, image]];
   }));
+  for (const item of dedicatedModifierImages.rows) modifierImages.set(String(item.modifier_id), String(item.image));
   let total = 0;
   const items = [];
   for (const line of input.items) {
@@ -2252,6 +2260,35 @@ const server = http.createServer(async (request, response) => {
       if (pin && !/^\d{4,8}$/.test(pin)) return json(response,400,{error:'PIN должен содержать 4–8 цифр'});
       const result=await pool.query(`update waiter_profiles set is_active=$1,pin_hash=case when $2='' then pin_hash else $3 end,updated_at=now() where id=$4 and restaurant_id=$5 and auth_source='local' returning id,display_name,is_active,auth_source,iiko_employee_id,created_at`,[body.is_active !== false,pin,pin ? passwordHash(pin) : '',id,iikoOrganizationId]);
       if (!result.rowCount) return json(response,404,{error:'Официант не найден'}); return json(response,200,result.rows[0]);
+    }
+    if ((request.method === 'PUT' || request.method === 'DELETE') && path.startsWith('/api/v1/admin/iiko-modifiers/')) {
+      const id = decodeURIComponent(path.slice('/api/v1/admin/iiko-modifiers/'.length));
+      if (!id || id.length > 160) return json(response, 400, { error: 'Некорректный модификатор' });
+      const menuRows = await pool.query('select modifier_groups from iiko_menu_items where not is_hidden');
+      let modifierName = '';
+      for (const menuItem of menuRows.rows) {
+        for (const group of arrayValue(menuItem.modifier_groups)) {
+          const modifier = arrayValue(group?.items).find((item) => String(item?.itemId ?? '') === id);
+          if (modifier) { modifierName = String(modifier.name ?? '').trim(); break; }
+        }
+        if (modifierName) break;
+      }
+      if (!modifierName) return json(response, 404, { error: 'Модификатор не найден в актуальном меню iiko' });
+      const before = await pool.query('select * from iiko_modifier_presentations where restaurant_id=$1 and modifier_id=$2', [iikoOrganizationId, id]);
+      if (request.method === 'DELETE') {
+        await pool.query('delete from iiko_modifier_presentations where restaurant_id=$1 and modifier_id=$2', [iikoOrganizationId, id]);
+        if (before.rows[0]?.image) await removeUploadedProduct(before.rows[0].image);
+        await audit(actor, 'delete', 'iiko_modifier_presentation', id, before.rows[0] ?? null, null);
+        return json(response, 204, {});
+      }
+      const body = await readBody(request);
+      const image = String(body.image ?? '').trim();
+      if (!image || (!image.startsWith(`${productPublicPath}/`) && !image.startsWith('/images/') && !/^https:\/\//i.test(image))) return json(response, 400, { error: 'Загрузите изображение модификатора' });
+      const result = await pool.query(`insert into iiko_modifier_presentations(restaurant_id,modifier_id,name,image) values($1,$2,$3,$4)
+        on conflict(restaurant_id,modifier_id) do update set name=excluded.name,image=excluded.image,updated_at=now() returning *`, [iikoOrganizationId, id, modifierName, image]);
+      if (before.rows[0]?.image && before.rows[0].image !== image) await removeUploadedProduct(before.rows[0].image);
+      await audit(actor, 'update', 'iiko_modifier_presentation', id, before.rows[0] ?? null, result.rows[0]);
+      return json(response, 200, result.rows[0]);
     }
     if (request.method === 'PUT' && path.startsWith('/api/v1/admin/iiko-products/')) {
       const id = decodeURIComponent(path.slice('/api/v1/admin/iiko-products/'.length)); const body = await readBody(request);
