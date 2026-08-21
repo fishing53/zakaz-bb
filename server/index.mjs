@@ -895,13 +895,15 @@ const allergenNames = (value) => [...new Map(arrayValue(value)
   })
   .filter(([, name]) => name)).values()];
 const allergenText = (value) => allergenNames(value).join(', ');
+const modifierImageNameKey = (value) => String(value ?? '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/i).filter((part) => part && part !== 'соус').sort().join('-');
 const publicModifierGroups = (groups, stoppedProductIds = new Set(), modifierImages = new Map()) => arrayValue(groups).map((group) => ({
   name: String(group?.name ?? 'Дополнения'), minQuantity: Number(group?.restrictions?.minQuantity ?? 0), maxQuantity: Number(group?.restrictions?.maxQuantity ?? 99), freeQuantity: Number(group?.restrictions?.freeQuantity ?? 0),
   items: arrayValue(group?.items).filter((item) => item?.itemId && !item?.isHidden && !stoppedProductIds.has(String(item.itemId))).map((item) => {
     const restrictions = modifierRestrictions(item?.restrictions);
     const groupMaximum = Number(group?.restrictions?.maxQuantity ?? 20) || 20;
     const itemMaximum = Number(restrictions.maxQuantity ?? 0) || groupMaximum;
-    return { productId: String(item.itemId), name: String(item.name ?? ''), price: iikoPrice(item), image: String(modifierImages.get(String(item.itemId)) || item.buttonImageUrl || ''), allergens: allergenText(item.allergenGroups), defaultQuantity: Number(restrictions.byDefault ?? 0), minQuantity: Number(restrictions.minQuantity ?? 0), maxQuantity: Math.min(20, itemMaximum) };
+    const name = String(item.name ?? '');
+    return { productId: String(item.itemId), name, price: iikoPrice(item), image: String(modifierImages.get(String(item.itemId)) || modifierImages.get(`name:${modifierImageNameKey(name)}`) || item.buttonImageUrl || ''), allergens: allergenText(item.allergenGroups), defaultQuantity: Number(restrictions.byDefault ?? 0), minQuantity: Number(restrictions.minQuantity ?? 0), maxQuantity: Math.min(20, itemMaximum) };
   }),
 })).filter((group) => group.items.length);
 const syncIikoMenu = async () => {
@@ -1057,7 +1059,10 @@ const publicState = async (terminalId) => {
   const demoMode = terminal.rows[0].demo_mode === true;
   const visibleIikoProducts = visibleCatalogItems(iikoProducts.rows, stopList.rows);
   const stoppedProductIds = new Set(stopList.rows.filter((item) => Number(item.balance) <= 0).map((item) => String(item.productId)));
-  const modifierImages = new Map(iikoProducts.rows.map((item) => [String(item.product_id), String(item.override_image || item.image_url || '')]));
+  const modifierImages = new Map(iikoProducts.rows.flatMap((item) => {
+    const image = String(item.override_image || item.image_url || '');
+    return image ? [[String(item.product_id), image], [`name:${modifierImageNameKey(item.name)}`, image]] : [];
+  }));
   const products = demoMode ? localProducts.rows.map((item) => ({ ...item, category_ids: [`local:${item.category}`], sauce_options: [], modifier_groups: demoModifierGroups(item) })) : iikoProducts.rowCount ? visibleIikoProducts.map((item) => ({
     id: item.product_id, sku: item.sku ?? '', name: item.name, category: item.category_name, categories: arrayValue(item.raw_payload?.categories).map((category) => String(category?.name ?? '')).filter(Boolean), category_ids: arrayValue(item.raw_payload?.categories).map((category) => String(category?.id ?? '')).filter(Boolean), price_rub: Number(item.price_rub), portion: item.portion_weight_grams ? String(Math.round(Number(item.portion_weight_grams))) : '', unit: item.measure_unit === 'GRAM' ? 'г' : item.measure_unit,
     description: item.description, composition: item.override_composition ?? '', kbju: nutritionHasValues(item.nutrition) ? { calories: String(item.nutrition.energy ?? item.nutrition.calories ?? 0), protein: String(item.nutrition.proteins ?? item.nutrition.protein ?? 0), fat: String(item.nutrition.fats ?? item.nutrition.fat ?? 0), carbs: String(item.nutrition.carbs ?? item.nutrition.carbohydrates ?? 0) } : null,
@@ -1158,11 +1163,13 @@ const normalizeIikoOrder = async (input) => {
   const result = await pool.query(`select m.*, exists(select 1 from iiko_stop_list_items s where s.organization_id=$1 and s.terminal_group_id=$2 and s.product_id=m.product_id and s.balance<=0) as stopped from iiko_menu_items m where m.product_id = any($3::text[]) and not m.is_hidden`, [iikoOrganizationId, iikoTerminalGroupId, ids]);
   const products = new Map(result.rows.map((item) => [item.product_id, item]));
   if (products.size !== ids.length) throw Object.assign(new Error('Одно из блюд больше недоступно'), { status: 409 });
-  const modifierIds = [...new Set([...products.values()].flatMap((product) => arrayValue(product.modifier_groups).flatMap((group) => arrayValue(group?.items).map((item) => String(item?.itemId ?? '')).filter(Boolean))))];
-  const modifierImageRows = modifierIds.length ? await pool.query(`select m.product_id,coalesce(p.image,m.image_url,'') as image
+  const modifierImageRows = await pool.query(`select m.product_id,m.name,coalesce(p.image,m.image_url,'') as image
     from iiko_menu_items m left join iiko_product_presentations p on p.restaurant_id=$1 and p.sku=m.sku
-    where m.product_id = any($2::text[])`, [iikoOrganizationId, modifierIds]) : { rows: [] };
-  const modifierImages = new Map(modifierImageRows.rows.map((item) => [String(item.product_id), String(item.image ?? '')]));
+    where coalesce(p.image,m.image_url,'') <> ''`, [iikoOrganizationId]);
+  const modifierImages = new Map(modifierImageRows.rows.flatMap((item) => {
+    const image = String(item.image ?? '');
+    return [[String(item.product_id), image], [`name:${modifierImageNameKey(item.name)}`, image]];
+  }));
   let total = 0;
   const items = [];
   for (const line of input.items) {
@@ -1193,7 +1200,7 @@ const normalizeIikoOrder = async (input) => {
         amount: modifierAmount,
         name: String(modifierItem.name ?? ''),
         price: iikoPrice(modifierItem),
-        image: String(modifierImages.get(productId) || modifierItem.buttonImageUrl || '/images/sauce-fallback.webp'),
+        image: String(modifierImages.get(productId) || modifierImages.get(`name:${modifierImageNameKey(modifierItem.name)}`) || modifierItem.buttonImageUrl || '/images/sauce-fallback.webp'),
         maxQuantity: binding.maxQuantity,
         ...(binding.productGroupId ? { productGroupId: binding.productGroupId } : {}),
       };
