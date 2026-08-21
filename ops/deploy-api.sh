@@ -32,6 +32,12 @@ set -a
 . "$env_file"
 set +a
 
+# Runtime uploads are written by the API service, not by the deploy user.
+# Re-assert ownership on every deploy so a migration or rsync cannot silently
+# break banner and product image uploads.
+install -d -o www-data -g www-data -m 775 "${BANNER_UPLOAD_DIR:-/var/www/bb-kiosk/uploads/banners}"
+install -d -o www-data -g www-data -m 775 "${PRODUCT_UPLOAD_DIR:-/var/www/bb-kiosk/uploads/products}"
+
 cd "$api_dir"
 node_major="$(node -p 'process.versions.node.split(`.`)[0]')"
 if (( node_major < 22 )); then
