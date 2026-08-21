@@ -275,9 +275,14 @@ deploy_production:
     - install -m 600 "$DEPLOY_SSH_PRIVATE_KEY" ~/.ssh/id_ed25519
     - install -m 600 "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts
   script:
+    - test -s dist/index.html && test -s dist-waiter/index.html && test -s dist-waiter/manifest.webmanifest && test -s dist-waiter/service-worker.js
     - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/waiter' '$DEPLOY_WEB_ROOT/ota/waiter' '$DEPLOY_WEB_ROOT/uploads/banners' '$DEPLOY_WEB_ROOT/uploads/products' '$DEPLOY_API_ROOT/ops' '$DEPLOY_API_ROOT/server'"
-    - rsync -az --delete --exclude='waiter/' --exclude='ota/' --exclude='uploads/' --exclude='downloads/' dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/"
+    # These directories contain independently deployed or persistent data.
+    # Receiver-side protect rules are intentional: a kiosk-only artifact must
+    # never delete the waiter PWA, OTA archives, uploads or published APKs.
+    - rsync -az --delete --filter='protect /waiter/***' --filter='protect /ota/***' --filter='protect /uploads/***' --filter='protect /downloads/***' dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/"
     - rsync -az --delete dist-waiter/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/waiter/"
+    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "test -s '$DEPLOY_WEB_ROOT/waiter/index.html' && test -s '$DEPLOY_WEB_ROOT/waiter/manifest.webmanifest' && test -s '$DEPLOY_WEB_ROOT/waiter/service-worker.js'"
     - scp BB-Kiosk-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/"
     - scp ota-manifest.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/manifest.json"
     - scp BB-Waiter-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/waiter/"
