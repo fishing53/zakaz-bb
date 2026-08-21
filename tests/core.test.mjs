@@ -9,6 +9,7 @@ import {
   iikoStatusStep,
   isDatabaseBackupFileName,
   isIikoOrderSettled,
+  isIikoOrderTerminal,
   normalizeIikoStopListGroups,
   resolveTable,
   serviceRequestTransition,
@@ -119,8 +120,13 @@ test('maps all guest-visible iiko kitchen stages', () => {
 test('does not move mixed cooking items backwards', () => assert.equal(iikoStatusStep({ items: [{ status: 'CookingStarted' }, { status: 'Added' }] }), 2));
 test('settles a guest session only after the whole iiko order is closed', () => {
   assert.equal(isIikoOrderSettled({ status: 'Closed', items: [{ status: 'Served' }] }), true);
+  assert.equal(isIikoOrderSettled({ status: 'New', whenClosed: '2026-08-21 17:00:00.000' }), true);
   assert.equal(isIikoOrderSettled({ status: 'New', items: [{ status: 'Served' }] }), false);
   assert.equal(isIikoOrderSettled({ status: 'Bill', items: [{ status: 'Served' }] }), false);
+});
+test('removes deleted iiko orders from the active guest lifecycle without treating them as paid', () => {
+  assert.equal(isIikoOrderSettled({ status: 'Deleted' }), false);
+  assert.equal(isIikoOrderTerminal({ status: 'Deleted' }), true);
 });
 test('validates waiter request lifecycle', () => {
   assert.equal(serviceRequestTransition('new', 'accept'), 'accepted');

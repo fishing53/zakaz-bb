@@ -7,7 +7,7 @@ import { URL } from 'node:url';
 import pg from 'pg';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
-import { createIikoMenuSnapshot, deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, isIikoOrderSettled, normalizeIikoStopListGroups, validateMenuPublication, visibleCatalogItems } from './core.mjs';
+import { createIikoMenuSnapshot, deterministicUuid, iikoItemStatuses, iikoStatusStep, isDatabaseBackupFileName, isIikoOrderSettled, isIikoOrderTerminal, normalizeIikoStopListGroups, validateMenuPublication, visibleCatalogItems } from './core.mjs';
 import { BridgeConnectionRegistry, normalizeBridgeEmployee, validateEmployeeSnapshot } from './iiko-front-bridge.mjs';
 
 const { Pool } = pg;
@@ -555,9 +555,11 @@ const saveIikoOrder = async (eventInfo, { organizationId = iikoOrganizationId, e
     await pool.query(`insert into order_status_history(restaurant_id,order_number,iiko_order_id,status_step,order_status,item_statuses,source) values($1,$2,$3,$4,$5,$6,$7)`, [organizationId, orderNumber, snapshot.orderId, snapshot.statusStep, snapshot.orderStatus, JSON.stringify(snapshot.itemStatuses), webhook ? 'webhook' : 'poll']);
     if (orderNumber) await publishEvent('order_status_changed', 'order', orderNumber, { statusStep: snapshot.statusStep, orderStatus: snapshot.orderStatus, itemStatuses: snapshot.itemStatuses, source: webhook ? 'webhook' : 'poll' }, organizationId);
   }
-  if (isIikoOrderSettled(eventInfo?.order)) {
+  if (isIikoOrderTerminal(eventInfo?.order)) {
     // Do this only once. In particular, statusStep=4/Served must never enter
     // this branch: it is a guest-visible serving stage, not a closed check.
+    const settled = isIikoOrderSettled(eventInfo?.order);
+    const completionReason = settled ? 'iiko_check_closed' : 'iiko_order_deleted';
     const completed = await pool.query(`update customer_orders set completed_at=now(),updated_at=now()
       where iiko_order_id=$1 and completed_at is null
       returning order_number,guest_session_id,terminal_id,table_number,source,is_demo`, [snapshot.orderId]);
@@ -573,8 +575,8 @@ const saveIikoOrder = async (eventInfo, { organizationId = iikoOrganizationId, e
       if (!String(order.terminal_id).startsWith('qr_') && !hasFixedTable && !remaining.rows[0].count) {
         await pool.query('delete from terminal_table_selections where terminal_id=$1', [order.terminal_id]);
       }
-      if (!order.is_demo) await publishEvent('order_completed', 'order', order.order_number, { tableNumber: order.table_number, source: order.source, reason: 'iiko_check_closed' }, organizationId);
-      await closeGuestSessionIfIdle(order.guest_session_id, 'iiko_check_closed');
+      if (!order.is_demo) await publishEvent(settled ? 'order_completed' : 'order_cancelled', 'order', order.order_number, { tableNumber: order.table_number, source: order.source, reason: completionReason }, organizationId);
+      await closeGuestSessionIfIdle(order.guest_session_id, completionReason);
     }
   }
   return result.rows[0];
@@ -2521,8 +2523,9 @@ const loadActiveIikoOrders = async () => {
   const active = await pool.query(`select o.iiko_order_id from customer_orders o
     left join iiko_orders io on io.order_id=o.iiko_order_id
     where o.iiko_order_id is not null and o.completed_at is null
-      and o.updated_at > now() - interval '8 hours' and coalesce(io.creation_status,'') <> 'Error'
-    limit 30`);
+      and o.created_at > now() - interval '24 hours' and coalesce(io.creation_status,'') <> 'Error'
+    order by coalesce(io.last_polled_at,o.created_at) asc
+    limit 100`);
   await fetchIikoOrders(active.rows.map((row) => row.iiko_order_id));
 };
 const syncActiveIikoOrders = () => {
