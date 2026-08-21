@@ -79,13 +79,18 @@ test('category position survives selection and the search close button really cl
   await expect.poll(() => categoryNav.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
 
   const search = page.locator('.search-box');
-  await search.click();
   const input = page.getByRole('textbox', { name: 'Поиск блюд' });
+  await page.getByRole('button', { name: 'Открыть поиск' }).click();
+  await expect(search).toHaveClass(/is-open/);
+  await expect(input).toBeFocused();
   await input.fill('пицца');
   await page.getByRole('button', { name: 'Закрыть поиск' }).click();
   await expect(input).toHaveValue('');
   await expect(search).not.toHaveClass(/is-open/);
   await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-action') ?? '')).not.toBe('search');
+  await page.waitForTimeout(250);
+  await expect(input).toHaveValue('');
+  await expect(search).not.toHaveClass(/is-open/);
 });
 
 test('administrator sees security checks and protected Telegram settings', async ({ page }) => {

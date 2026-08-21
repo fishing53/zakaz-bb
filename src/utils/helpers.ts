@@ -1,8 +1,15 @@
 export const formatPrice = (value: number) => `${new Intl.NumberFormat('ru-RU').format(value)} ₽`;
 export const escapeHtml = (value: string | number | null | undefined) => String(value ?? '').replace(/[&<>'"]/g, (symbol) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[symbol] ?? symbol);
-export const debounce = <T extends (...args: never[]) => void>(callback: T, delay = 180) => {
+type Debounced<T extends (...args: never[]) => void> = ((...args: Parameters<T>) => void) & { cancel: () => void };
+
+export const debounce = <T extends (...args: never[]) => void>(callback: T, delay = 180): Debounced<T> => {
   let timer = 0;
-  return (...args: Parameters<T>) => { clearTimeout(timer); timer = window.setTimeout(() => callback(...args), delay); };
+  const debounced = ((...args: Parameters<T>) => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => callback(...args), delay);
+  }) as Debounced<T>;
+  debounced.cancel = () => { clearTimeout(timer); timer = 0; };
+  return debounced;
 };
 export const imageStyle = (url: string, position = 'center') => {
   const source = String(url ?? '').trim();

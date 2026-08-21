@@ -70,6 +70,7 @@ let bootstrapSnapshot = '';
 let consecutiveBootstrapFailures = 0;
 let offlineTimer = 0;
 let menuCategoryScrollLeft = 0;
+let menuSearchOpen = false;
 const pendingServiceRequests = new Set<string>();
 const updateSearch = debounce((value: string) => {
   const searching = Boolean(value.trim());
@@ -87,7 +88,7 @@ function page() {
   switch (route) {
     case 'welcome': return welcomePage(state.banners, state.terminal);
     case 'table': return tablePage(state.tables);
-    case 'menu': return menuPage(menuService.categories(), menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay, menuService.ready());
+    case 'menu': return menuPage(menuService.categories(), menuService.search(state.search, state.category), state.category, state.search, menuService.recent(state.recentProductIds), state.productDisplay, menuService.ready(), menuSearchOpen);
     case 'order': return orderPage(orderStore.lines(), orderStore.product, orderStore.subtotal(), orderStore.discount(), orderStore.total(), state.comment, state.promoCode, state.promoRule);
     case 'orders': return ordersPage(state.orders);
     case 'status': {
@@ -701,10 +702,27 @@ async function action(element: HTMLElement) {
     appStore.set({ category: element.dataset.category ?? ALL_MENU_CATEGORY, search: '' });
     return;
   }
+  if (type === 'open-search') {
+    menuSearchOpen = true;
+    const searchBox = element.closest<HTMLElement>('.search-box');
+    const searchInput = searchBox?.querySelector<HTMLInputElement>('[data-action="search"]');
+    searchBox?.classList.add('is-open');
+    requestAnimationFrame(() => {
+      searchInput?.focus();
+      searchInput?.setSelectionRange(searchInput.value.length, searchInput.value.length);
+    });
+    return;
+  }
   if (type === 'close-search') {
-    updateSearch('');
+    menuSearchOpen = false;
+    updateSearch.cancel();
     appStore.set({ search: '' });
-    requestAnimationFrame(() => root.querySelector<HTMLInputElement>('[data-action="search"]')?.blur());
+    const searchBox = element.closest<HTMLElement>('.search-box');
+    const searchInput = searchBox?.querySelector<HTMLInputElement>('[data-action="search"]');
+    if (searchInput) searchInput.value = '';
+    searchInput?.blur();
+    searchBox?.classList.remove('is-open');
+    refreshMenuResults();
     return;
   }
   if (type === 'set-option') {
