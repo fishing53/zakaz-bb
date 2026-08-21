@@ -256,6 +256,11 @@ deploy_production:
   needs:
     - job: build_kiosk
       artifacts: true
+    # deploy_production publishes the unpacked PWA from dist-waiter. Artifacts
+    # are not inherited transitively through package_waiter_ota, so request the
+    # waiter build explicitly or a deploy can leave /waiter absent on prod.
+    - job: build_waiter
+      artifacts: true
     - job: package_kiosk_ota
       artifacts: true
     - job: package_waiter_ota
