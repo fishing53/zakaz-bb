@@ -1,8 +1,9 @@
 name: Publish kiosk OTA update
 
 on:
-  push:
-    branches: [main]
+  # GitLab is the production CI/CD source. Keep this workflow only as an
+  # explicit emergency fallback so two independent deploy systems can never
+  # overwrite each other's web roots.
   workflow_dispatch:
 
 permissions:
@@ -52,7 +53,7 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H 201.24.51.231 >> ~/.ssh/known_hosts
           ssh root@201.24.51.231 'mkdir -p /var/www/bb-kiosk/ota /var/www/bb-kiosk/uploads/banners /var/www/bb-kiosk/uploads/products && chown -R www-data:www-data /var/www/bb-kiosk/uploads'
-          rsync -az --delete --exclude='ota/' --exclude='uploads/' dist/ root@201.24.51.231:/var/www/bb-kiosk/
+          rsync -az --delete --exclude='waiter/' --exclude='ota/' --exclude='uploads/' --exclude='downloads/' dist/ root@201.24.51.231:/var/www/bb-kiosk/
           scp "BB-Kiosk-${VERSION}.zip" root@201.24.51.231:"/var/www/bb-kiosk/ota/BB-Kiosk-${VERSION}.zip"
           scp ota-manifest.json root@201.24.51.231:/var/www/bb-kiosk/ota/manifest.json
           ssh root@201.24.51.231 'chown -R www-data:www-data /var/www/bb-kiosk/ota /var/www/bb-kiosk/uploads && find /var/www/bb-kiosk/ota -maxdepth 1 -type f -name "BB-Kiosk-*.zip" -printf "%T@ %p\0" | sort -zrn | tail -zn +11 | cut -zd" " -f2- | xargs -0r rm --'

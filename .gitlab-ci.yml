@@ -16,6 +16,7 @@ variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
   GIT_DEPTH: "0"
   KIOSK_VERSION: "0.2.0-$CI_PIPELINE_IID"
+  DEPLOY_WAITER_ROOT: "/var/www/bb-waiter"
 
 default:
   interruptible: true
@@ -276,13 +277,13 @@ deploy_production:
     - install -m 600 "$SSH_KNOWN_HOSTS" ~/.ssh/known_hosts
   script:
     - test -s dist/index.html && test -s dist-waiter/index.html && test -s dist-waiter/manifest.webmanifest && test -s dist-waiter/service-worker.js
-    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WEB_ROOT/waiter' '$DEPLOY_WEB_ROOT/ota/waiter' '$DEPLOY_WEB_ROOT/uploads/banners' '$DEPLOY_WEB_ROOT/uploads/products' '$DEPLOY_API_ROOT/ops' '$DEPLOY_API_ROOT/server'"
+    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_WAITER_ROOT' '$DEPLOY_WEB_ROOT/ota/waiter' '$DEPLOY_WEB_ROOT/uploads/banners' '$DEPLOY_WEB_ROOT/uploads/products' '$DEPLOY_API_ROOT/ops' '$DEPLOY_API_ROOT/server'"
     # These directories contain independently deployed or persistent data.
     # Receiver-side protect rules are intentional: a kiosk-only artifact must
     # never delete the waiter PWA, OTA archives, uploads or published APKs.
     - rsync -az --delete --filter='protect /waiter/***' --filter='protect /ota/***' --filter='protect /uploads/***' --filter='protect /downloads/***' dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/"
-    - rsync -az --delete dist-waiter/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/waiter/"
-    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "test -s '$DEPLOY_WEB_ROOT/waiter/index.html' && test -s '$DEPLOY_WEB_ROOT/waiter/manifest.webmanifest' && test -s '$DEPLOY_WEB_ROOT/waiter/service-worker.js'"
+    - rsync -az --delete dist-waiter/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WAITER_ROOT/"
+    - ssh "$DEPLOY_USER@$DEPLOY_HOST" "test -s '$DEPLOY_WAITER_ROOT/index.html' && test -s '$DEPLOY_WAITER_ROOT/manifest.webmanifest' && test -s '$DEPLOY_WAITER_ROOT/service-worker.js'"
     - scp BB-Kiosk-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/"
     - scp ota-manifest.json "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/manifest.json"
     - scp BB-Waiter-*.zip "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_WEB_ROOT/ota/waiter/"
@@ -294,6 +295,28 @@ deploy_production:
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       when: manual
+    - when: never
+
+publish_waiter_pwa:
+  image: public.ecr.aws/docker/library/alpine:3.22
+  stage: deploy
+  interruptible: false
+  resource_group: production-waiter-pwa
+  tags:
+    - bb-production
+  needs:
+    - job: build_waiter
+      artifacts: true
+  before_script:
+    - apk add --no-cache rsync
+  script:
+    - test -s dist-waiter/index.html && test -s dist-waiter/manifest.webmanifest && test -s dist-waiter/service-worker.js
+    - test -d /publish-waiter && test -w /publish-waiter
+    - rsync -a --delete dist-waiter/ /publish-waiter/
+    - test -s /publish-waiter/index.html && test -s /publish-waiter/manifest.webmanifest && test -s /publish-waiter/service-worker.js
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: on_success
     - when: never
 
 publish_android_apks:
